@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root {
+            --bg-paper: #f4ecd8;
+            --paper-border: #8c7355;
+            --ink-primary: #2b241d;
+            --ink-secondary: #54473b;
+            --ink-faded: #7a6a58;
+            --accent-red: #8b2500;
+            --accent-stamp: #992211;
+            --card-bg: rgba(240, 230, 208, 0.75);
+            --bill-bg: #eae0c7;
+            --font-serif: 'Noto Serif SC', 'Playfair Display', Georgia, serif;
+            --font-title: 'Cinzel', 'Playfair Display', 'Noto Serif SC', serif;
+            --font-mono: 'Courier Prime', Courier, monospace;
+            --base-fs: 13.5px;
+        }
+
+        /* Dark / Noir Mode */
+        [data-theme="dark-aged"] {
+            --bg-paper: #1c1815;
+            --paper-border: #524336;
+            --ink-primary: #ded4c5;
+            --ink-secondary: #b0a392;
+            --ink-faded: #807363;
+            --accent-red: #d96043;
+            --accent-stamp: #e0533c;
+            --card-bg: rgba(35, 30, 26, 0.85);
+            --bill-bg: #26201b;
+        }
+
+        /* Parchment Mode */
+        [data-theme="parchment"] {
+            --bg-paper: #fff9e6;
+            --paper-border: #b89b72;
+            --ink-primary: #1f1a14;
+            --ink-secondary: #4a3e31;
+            --ink-faded: #786854;
+            --accent-red: #a62b00;
+            --accent-stamp: #b82814;
+            --card-bg: rgba(255, 250, 235, 0.8);
+            --bill-bg: #f5eccd;
+        }
+
+        .st-newday-wrapper {
+            background-color: transparent;
+            font-family: var(--font-serif);
+            font-size: var(--base-fs);
+            color: var(--ink-primary);
+            padding: 8px 4px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .newspaper-container {
+            width: 100%;
+            max-width: 820px;
+            background-color: var(--bg-paper);
+            background-image: 
+                radial-gradient(circle at 50% 50%, transparent 80%, rgba(0, 0, 0, 0.08) 100%),
+                repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 0, 0, 0.015) 2px, rgba(0, 0, 0, 0.015) 4px);
+            border: 2px solid var(--paper-border);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.35), inset 0 0 60px rgba(139, 105, 20, 0.1);
+            padding: 20px 24px;
+            position: relative;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px dashed var(--paper-border);
+            font-family: var(--font-mono);
+            font-size: 0.82em;
+            color: var(--ink-faded);
+        }
+
+        .controls-group { display: flex; gap: 6px; align-items: center; }
+
+        .btn-vintage {
+            background: var(--card-bg);
+            border: 1px solid var(--paper-border);
+            color: var(--ink-primary);
+            padding: 3px 8px;
+            font-family: var(--font-mono);
+            font-size: 0.82em;
+            cursor: pointer;
+            border-radius: 3px;
+            transition: all 0.2s ease;
+        }
+        .btn-vintage:hover { background: var(--ink-primary); color: var(--bg-paper); }
+
+        .newspaper-masthead {
+            text-align: center;
+            border-bottom: 3px double var(--ink-primary);
+            padding-bottom: 10px;
+            margin-bottom: 14px;
+        }
+        .sub-header-top { font-family: var(--font-mono); font-size: 0.78em; letter-spacing: 2px; text-transform: uppercase; color: var(--ink-faded); }
+        .newspaper-title { font-family: var(--font-title); font-size: 2.3em; font-weight: 900; letter-spacing: 2px; line-height: 1.1; color: var(--ink-primary); text-transform: uppercase; }
+        .newspaper-subtitle { font-size: 0.88em; font-weight: bold; letter-spacing: 1px; color: var(--ink-secondary); margin-top: 2px; }
+
+        .info-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid var(--ink-primary);
+            border-bottom: 1px solid var(--ink-primary);
+            padding: 4px 6px;
+            margin-top: 8px;
+            font-family: var(--font-mono);
+            font-size: 0.8em;
+            font-weight: bold;
+            color: var(--ink-secondary);
+        }
+
+        .weather-banner {
+            background-color: var(--card-bg);
+            border: 1px solid var(--paper-border);
+            padding: 10px 14px;
+            margin-bottom: 16px;
+            box-shadow: inset 0 0 8px rgba(0,0,0,0.03);
+        }
+        .weather-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; border-bottom: 1px solid var(--paper-border); padding-bottom: 4px; }
+        .weather-title { font-family: var(--font-title); font-size: 1em; font-weight: 900; color: var(--accent-red); display: flex; align-items: center; gap: 4px; }
+        .weather-date-badge { font-family: var(--font-mono); font-size: 0.8em; background: var(--ink-primary); color: var(--bg-paper); padding: 1px 6px; border-radius: 2px; }
+        .weather-text { font-size: 0.92em; color: var(--ink-primary); text-align: justify; text-indent: 1.8em; line-height: 1.6; }
+
+        .news-section-title {
+            font-family: var(--font-title);
+            font-size: 1.1em;
+            font-weight: 900;
+            text-align: center;
+            border-top: 2px solid var(--ink-primary);
+            border-bottom: 2px solid var(--ink-primary);
+            padding: 3px 0;
+            margin-bottom: 14px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .main-headline {
+            font-family: var(--font-serif);
+            font-size: 1.5em;
+            font-weight: 900;
+            line-height: 1.25;
+            text-align: center;
+            color: var(--ink-primary);
+            margin-bottom: 12px;
+            padding: 0 8px;
+        }
+
+        .columns-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+        @media (max-width: 600px) { .columns-layout { grid-template-columns: 1fr; } }
+
+        .news-card { border-bottom: 1px dashed var(--paper-border); padding-bottom: 10px; margin-bottom: 10px; }
+        .news-card:last-child { border-bottom: none; margin-bottom: 0; }
+        .news-card-title { font-weight: 900; font-size: 1em; color: var(--ink-primary); margin-bottom: 3px; }
+        .news-card-title::before { content: "◆ "; color: var(--accent-red); font-size: 0.8em; }
+        .news-card-content { font-size: 0.88em; color: var(--ink-secondary); text-align: justify; line-height: 1.55; }
+
+        .bill-section {
+            background-color: var(--bill-bg);
+            border: 2px dashed var(--paper-border);
+            padding: 16px 18px;
+            margin-top: 20px;
+            position: relative;
+        }
+
+        .bill-stamp {
+            position: absolute;
+            top: 10px;
+            right: 16px;
+            border: 2px double var(--accent-stamp);
+            color: var(--accent-stamp);
+            font-family: var(--font-title);
+            font-size: 0.85em;
+            font-weight: 900;
+            padding: 3px 10px;
+            transform: rotate(-4deg);
+            letter-spacing: 1.5px;
+            opacity: 0.85;
+            pointer-events: none;
+            border-radius: 3px;
+        }
+
+        .bill-title-box { border-bottom: 2px solid var(--ink-primary); padding-bottom: 6px; margin-bottom: 12px; }
+        .bill-main-title { font-family: var(--font-title); font-size: 1.2em; font-weight: 900; color: var(--ink-primary); }
+        .bill-subtitle { font-family: var(--font-mono); font-size: 0.78em; color: var(--ink-faded); }
+
+        .cash-summary-bar {
+            display: flex;
+            justify-content: space-between;
+            background: var(--ink-primary);
+            color: var(--bg-paper);
+            padding: 6px 12px;
+            font-family: var(--font-mono);
+            font-size: 0.88em;
+            border-radius: 2px;
+            margin-bottom: 14px;
+        }
+        .cash-item { display: flex; align-items: center; gap: 4px; }
+        .cash-value { font-weight: bold; color: #ffd700; }
+        .cash-value.deduct { color: #ff6b6b; }
+
+        .bill-item {
+            background: var(--card-bg);
+            border: 1px solid var(--paper-border);
+            border-left: 4px solid var(--ink-primary);
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border-radius: 2px;
+        }
+        .bill-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .bill-category { font-weight: 900; font-size: 0.92em; display: flex; align-items: center; gap: 6px; }
+
+        .tier-badge { font-family: var(--font-mono); font-size: 0.75em; padding: 1px 5px; border-radius: 2px; font-weight: bold; border: 1px solid currentColor; }
+        .tier-local { color: #556b2f; background: rgba(85, 107, 47, 0.1); }
+        .tier-economy { color: #2e8b57; background: rgba(46, 139, 87, 0.1); }
+        .tier-standard { color: #1e90ff; background: rgba(30, 144, 255, 0.1); }
+        .tier-highend { color: #b8860b; background: rgba(184, 134, 11, 0.15); }
+        .tier-luxury { color: #8b0000; background: rgba(139, 0, 0, 0.15); }
+
+        .bill-cost { font-family: var(--font-mono); font-weight: bold; font-size: 1em; color: var(--accent-red); }
+        .bill-details { font-size: 0.86em; color: var(--ink-secondary); line-height: 1.45; white-space: pre-line; border-top: 1px dashed rgba(0,0,0,0.1); padding-top: 4px; margin-top: 4px; text-align: justify; }
+
+        .newspaper-footer { margin-top: 16px; border-top: 1px solid var(--ink-primary); padding-top: 6px; text-align: center; font-family: var(--font-mono); font-size: 0.75em; color: var(--ink-faded); }
+        
+        /* Debug element */
+        .st-newspaper-debug {
+            margin-top: 8px;
+            width: 100%;
+            max-width: 820px;
+        }
+        .st-newspaper-debug summary {
+            font-size: 0.75em;
+            color: var(--ink-faded);
+            cursor: pointer;
+            outline: none;
+        }
+        .st-newspaper-debug pre {
+            font-family: var(--font-mono);
+            font-size: 0.75em;
+            color: var(--ink-faded);
+            background: rgba(0,0,0,0.03);
+            border: 1px solid var(--paper-border);
+            padding: 8px;
+            margin-top: 4px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+<div class="st-newday-wrapper">
+    <textarea class="raw-newday-capsule" style="display:none;">$0</textarea>
+    <div class="newspaper-container">
+        <div class="toolbar">
+            <div><span>1920s CHRONICLE FRONTEND</span></div>
+            <div class="controls-group">
+                <button class="btn-vintage btn-toggle-theme">🎨 风格</button>
+                <button class="btn-vintage btn-adjust-fs">🔤 字号</button>
+            </div>
+        </div>
+
+        <header class="newspaper-masthead">
+            <div class="sub-header-top">DAILY CHRONICLE & GAZETTE</div>
+            <h1 class="newspaper-title paper-name-val">阿卡姆广告报</h1>
+            <div class="newspaper-subtitle">THE ARKHAM ADVERTISER</div>
+            <div class="info-bar">
+                <span class="issue-no-val">VOL. XLVIII No. 142</span>
+                <span class="date-display-val">1925年1月16日 星期五</span>
+                <span>定价：2 美分</span>
+                <span class="loc-display-val">阿卡姆镇</span>
+            </div>
+        </header>
+
+        <section class="weather-banner">
+            <div class="weather-header">
+                <div class="weather-title">❖ 日期与环境天气播报</div>
+                <div class="weather-date-badge date-badge-val">1925.01.16</div>
+            </div>
+            <p class="weather-text weather-text-val"></p>
+        </section>
+
+        <div class="news-section-title">TODAY'S HEADLINES & CITY BULLETINS · 今日新闻</div>
+        <h2 class="main-headline main-headline-val">今日快报新闻摘要</h2>
+        <div class="columns-layout news-columns-val"></div>
+
+        <section class="bill-section">
+            <div class="bill-stamp">AUDITED & PAID</div>
+            <div class="bill-title-box">
+                <h2 class="bill-main-title">昨日团队消费账单结算</h2>
+                <div class="bill-subtitle">LEDGER STATEMENT FOR YESTERDAY'S EXPENSES</div>
+            </div>
+
+            <div class="cash-summary-bar">
+                <div class="cash-item">昨日结余: <span class="cash-value cash-before-val">$0.00</span></div>
+                <div class="cash-item">昨日扣除: <span class="cash-value deduct cash-deduct-val">-$0.00</span></div>
+                <div class="cash-item">【团队现金】余额: <span class="cash-value cash-after-val">$0.00</span></div>
+            </div>
+
+            <div class="bill-items-list bill-list-val"></div>
+        </section>
+
+        <footer class="newspaper-footer">PRINTED BY CHRONICLE PRESS · ALL RIGHTS RESERVED 1925</footer>
+    </div>
+    
+    <details class="st-newspaper-debug">
+        <summary>原始数据</summary>
+        <pre class="debug-text"></pre>
+    </details>
+</div>
+
+<script>
+(function() {
+    // Relative DOM elements query targeting the current message block
+    const wrapper = document.currentScript.previousElementSibling;
+    const container = wrapper.querySelector('.newspaper-container');
+    const rawCapsule = wrapper.querySelector('.raw-newday-capsule');
+    const rawText = rawCapsule ? rawCapsule.value : '';
+
+    // Bind debug panel
+    const debugPre = wrapper.querySelector('.debug-text');
+    if (debugPre) debugPre.innerText = rawText;
+
+    const themes = ['sepia', 'dark-aged', 'parchment'];
+    let themeIdx = 0;
+    const fontSizes = [12, 13, 14, 15, 16];
+    let fsIdx = 1;
+
+    // Interactive events bounded locally to avoid id conflicts
+    wrapper.querySelector('.btn-toggle-theme').addEventListener('click', function() {
+        themeIdx = (themeIdx + 1) % themes.length;
+        const t = themes[themeIdx];
+        if (t === 'sepia') container.removeAttribute('data-theme');
+        else container.setAttribute('data-theme', t);
+    });
+
+    wrapper.querySelector('.btn-adjust-fs').addEventListener('click', function() {
+        fsIdx = (fsIdx + 1) % fontSizes.length;
+        container.style.setProperty('--base-fs', fontSizes[fsIdx] + 'px');
+    });
+
+    function getTag(str, tag) {
+        const m = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(str);
+        return m ? m[1].trim() : null;
+    }
+
+    function parseRawContent(raw) {
+        let text = raw.replace(/<\/?Newday>/gi, '').trim();
+
+        function getKeyVal(str, key) {
+            const xmlVal = getTag(str, key);
+            if (xmlVal !== null) return xmlVal;
+            const m = new RegExp(`(?:^|\\n)\\s*-?\\s*${key}\\s*:\\s*(?:"([^"]+)"|'([^']+)'|([^\\n\\r]+))`, 'i').exec(str);
+            if (m) {
+                let val = (m[1] || m[2] || m[3] || '').trim();
+                if (val === '|') return null;
+                return val;
+            }
+            return '';
+        }
+
+        // 1. Locate main sections
+        const idxWeather = text.indexOf('date_and_weather:');
+        const idxNews = text.indexOf('today_news:');
+        const idxBill = text.indexOf('yesterday_bill:');
+
+        const weatherRaw = idxWeather !== -1 ? text.slice(idxWeather, idxNews !== -1 ? idxNews : undefined).trim() : text;
+        const newsRaw = idxNews !== -1 ? text.slice(idxNews, idxBill !== -1 ? idxBill : undefined).trim() : '';
+        const billRaw = idxBill !== -1 ? text.slice(idxBill).trim() : '';
+
+        // 1. Date & Weather
+        const dateMatch = weatherRaw.match(/date:\s*["']?([^"\n]+)["']?/i) || weatherRaw.match(/(\d{4}年\d{1,2}月\d{1,2}日\s*[^,\n\r]*)/);
+        const date = dateMatch ? dateMatch[1].trim() : '1925年6月13日 · 星期六';
+        const location = getKeyVal(weatherRaw, 'location') || '悉尼';
+        
+        let weather = getKeyVal(weatherRaw, 'weather');
+        if (!weather) {
+            const wMatch = weatherRaw.match(/weather\s*:\s*(?:"([^"]+)"|'([^']+)'|\|?\s*([\s\S]+?)(?=\n\s*\w+\s*:|\n\s*<\/?|$))/i);
+            weather = wMatch ? (wMatch[1] || wMatch[2] || wMatch[3] || '').trim() : '';
+        }
+
+        // 2. News
+        const newsName = getKeyVal(newsRaw, 'newspaper_name') || '《悉尼先驱晨报》';
+        const issueNo = getKeyVal(newsRaw, 'issue_no') || '';
+        const headline = getKeyVal(newsRaw, 'headline') || '';
+
+        const bulletins = [];
+        if (newsRaw) {
+            const bulletBlocks = newsRaw.split(/(?=\n\s*-\s*title:|\n\s*title:)/i);
+            for (let i = 1; i < bulletBlocks.length; i++) {
+                const block = bulletBlocks[i];
+                const title = getKeyVal(block, 'title') || '城中快讯';
+                let contentVal = getKeyVal(block, 'content');
+                if (contentVal === '') {
+                    const match = block.match(/content\s*:\s*(?:"([^"]+)"|'([^']+)'|\|?\s*([\s\S]+?)(?=\n\s*-\s*\w+\s*:|\n\s*\w+\s*:|$))/i);
+                    contentVal = match ? (match[1] || match[2] || match[3] || '').trim() : '';
+                }
+                bulletins.push({ title, content: contentVal });
+            }
+        }
+
+        // 3. Bill
+        const cashBefore = getKeyVal(billRaw, 'team_cash_before') || getKeyVal(billRaw, 'cash_before') || '0.00';
+        const totalCost = getKeyVal(billRaw, 'total_cost') || getKeyVal(billRaw, 'total_deducted') || '0.00';
+        const cashAfter = getKeyVal(billRaw, 'team_cash_after') || getKeyVal(billRaw, 'cash_after') || '0.00';
+
+        const items = [];
+        if (billRaw) {
+            const itemBlocks = billRaw.split(/(?=\n\s*-\s*category:|\n\s*category:)/i);
+            for (let i = 1; i < itemBlocks.length; i++) {
+                const block = itemBlocks[i];
+                const category = getKeyVal(block, 'category') || '消费支出';
+                const tier = getKeyVal(block, 'tier') || '【标准】';
+                const cost = getKeyVal(block, 'cost') || '0.00';
+                
+                let details = '';
+                const detMatch = block.match(/details\s*:\s*(?:\|?\s*)([\s\S]+?)(?=\n\s*(?:-\s*)?category:|\n\s*total_cost:|\n\s*total-cost:|\n\s*team_cash_after:|\n\s*team-cash-after:|$)/i);
+                if (detMatch) {
+                    details = detMatch[1].trim();
+                    if ((details.startsWith('"') && details.endsWith('"')) || (details.startsWith("'") && details.endsWith("'"))) {
+                        details = details.slice(1, -1).trim();
+                    }
+                }
+                items.push({ category, tier, cost, details });
+            }
+        }
+
+        return { date, location, weather, newsName, issueNo, headline, bulletins, cashBefore, totalCost, cashAfter, items };
+    }
+
+    try {
+        const data = parseRawContent(rawText);
+
+        // Populate header
+        wrapper.querySelector('.paper-name-val').innerText = data.newsName;
+        wrapper.querySelector('.issue-no-val').innerText = data.issueNo;
+        wrapper.querySelector('.date-display-val').innerText = data.date;
+        wrapper.querySelector('.loc-display-val').innerText = data.location;
+        
+        // Clean and display date badge
+        let cleanDate = data.date.split('·')[0].trim().split(' ')[0].trim();
+        wrapper.querySelector('.date-badge-val').innerText = cleanDate;
+        wrapper.querySelector('.weather-text-val').innerText = data.weather;
+        wrapper.querySelector('.main-headline-val').innerText = data.headline;
+
+        // News Layout
+        let newsHTML = '<div class="news-column">';
+        data.bulletins.forEach((b, i) => {
+            if (i > 0 && i === Math.ceil(data.bulletins.length / 2)) newsHTML += '</div><div class="news-column">';
+            newsHTML += `<article class="news-card"><h3 class="news-card-title">${b.title}</h3><p class="news-card-content">${b.content}</p></article>`;
+        });
+        newsHTML += '</div>';
+        wrapper.querySelector('.news-columns-val').innerHTML = newsHTML;
+
+        // Cash Summary (clean formatting)
+        const cBefore = parseFloat(String(data.cashBefore).replace(/[^0-9.]/g, '') || 0).toFixed(2);
+        const cDeduct = parseFloat(String(data.totalCost).replace(/[^0-9.]/g, '') || 0).toFixed(2);
+        const cAfter = parseFloat(String(data.cashAfter).replace(/[^0-9.]/g, '') || 0).toFixed(2);
+        
+        wrapper.querySelector('.cash-before-val').innerText = '$' + cBefore;
+        wrapper.querySelector('.cash-deduct-val').innerText = '-$' + cDeduct;
+        wrapper.querySelector('.cash-after-val').innerText = '$' + cAfter;
+
+        // Bill Items
+        const tierMap = {
+            '【本地】': 'tier-local',
+            '【经济】': 'tier-economy',
+            '【标准】': 'tier-standard',
+            '【高档】': 'tier-highend',
+            '【奢华】': 'tier-luxury'
+        };
+
+        function getIconForCategory(cat) {
+            if (cat.includes('住宿') || cat.includes('房') || cat.includes('宿')) return '🏨';
+            if (cat.includes('餐') || cat.includes('食') || cat.includes('饮') || cat.includes('午餐') || cat.includes('晚餐')) return '🍽️';
+            if (cat.includes('交') || cat.includes('车') || cat.includes('汽') || cat.includes('船') || cat.includes('路费')) return '🚕';
+            if (cat.includes('电') || cat.includes('信') || cat.includes('邮') || cat.includes('报')) return '✉️';
+            if (cat.includes('杂') || cat.includes('零')) return '📦';
+            if (cat.includes('医') || cat.includes('药') || cat.includes('伤') || cat.includes('诊')) return '🏥';
+            if (cat.includes('武器') || cat.includes('枪') || cat.includes('弹')) return '🔫';
+            return '🪙';
+        }
+
+        let billHTML = '';
+        data.items.forEach(item => {
+            const cleanTier = item.tier.replace(/[【】\[\]]/g, '').trim();
+            let tierClass = 'tier-standard';
+            for (const key in tierMap) {
+                if (key.includes(cleanTier)) {
+                    tierClass = tierMap[key];
+                    break;
+                }
+            }
+            const icon = getIconForCategory(item.category);
+            const formattedCost = parseFloat(String(item.cost).replace(/[^0-9.]/g, '') || 0).toFixed(2);
+            billHTML += `<div class="bill-item">
+                <div class="bill-item-header">
+                    <div class="bill-category"><span>${icon} ${item.category}</span><span class="tier-badge ${tierClass}">【${cleanTier}】</span></div>
+                    <div class="bill-cost">-$${formattedCost}</div>
+                </div>
+                <div class="bill-details">${item.details}</div>
+            </div>`;
+        });
+        wrapper.querySelector('.bill-list-val').innerHTML = billHTML;
+
+    } catch(e) {
+        console.error("Newday Render Error:", e);
+    }
+})();
+</script>
+</body>
+</html>
