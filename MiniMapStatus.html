@@ -2467,7 +2467,7 @@ const AVATAR_MAP = {
         }
       };
 
-      document.addEventListener('DOMContentLoaded', () => {
+      function initMainUI() {
         initSettingsPanel();
         initErrorModal();
         initThemeToggle();
@@ -2503,7 +2503,13 @@ const AVATAR_MAP = {
           const savedMode = localStorage.getItem('actionMode');
           return savedMode || 'send-to-chat';
         }
-      });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initMainUI);
+      } else {
+        initMainUI();
+      }
 
       function formatMainText(text) {
         const maintextContainer = document.getElementById('maintext-container');
@@ -6389,7 +6395,7 @@ createCharacterEntry(text, categoryKey) {
         }
       }
 
-      document.addEventListener('DOMContentLoaded', function () {
+      function initMessageWatcher() {
         function getCurrentMessage() {
           try {
             if (typeof getCurrentMessageId !== 'function' || typeof getChatMessages !== 'function') {
@@ -6548,7 +6554,13 @@ function extractStatusBlock(message) {
         }
 
         window.statusBlockInitialized = true;
-      });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initMessageWatcher);
+      } else {
+        initMessageWatcher();
+      }
     </script>
   </body>
 </html>
