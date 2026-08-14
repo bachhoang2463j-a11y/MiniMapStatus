@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>针对 558px 酒馆窗口比例的 PC 端人物卡优化方案</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#9d7cf5',
+            secondary: '#2d2447',
+            dark: '#2a1f3d',
+            light: '#1e1831',
+            romantic: {
+              50: '#fef7f7', 100: '#fdeaea', 200: '#fbdadb', 300: '#f7bfc1',
+              400: '#f097a0', 500: '#e36774', 600: '#d14455', 700: '#b12d3e',
+              800: '#942738', 900: '#7e2635',
+            },
+            classic: {
+              50: '#fefbf5', 100: '#fdf6e9', 200: '#faeed7', 300: '#f5dfb7',
+              400: '#e9c887', 500: '#d9a856', 600: '#c28c40', 700: '#a06c30',
+              800: '#7d5428', 900: '#644423',
+            },
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    /* 全局过渡与圆角 */
+    .theme-transition {
+      transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+    .card-hover {
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .card-hover:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px -5px rgba(157, 124, 245, 0.2);
+    }
+
+    /* 真实酒馆羊皮纸质感背景 (用户截图配色) */
+    .tavern-bg {
+      background: #e8ded2 url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    }
+
+    /* 物品与武器标签样式 (高保真还原真实酒馆) */
+    .item-badge-wrapper {
+      display: inline;
+    }
+    .item-badge-container {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+      vertical-align: middle;
+    }
+    .item-badge {
+      background: linear-gradient(145deg, #FBF9F5 0%, #F0EAD6 100%);
+      border: 1px solid #C8B69A;
+      color: #5C4D3C;
+      box-shadow: 0 1px 2px rgba(168, 149, 120, 0.15);
+      font-weight: 500;
+      font-size: 0.72rem;
+      padding: 0.08rem 0.4rem;
+      border-radius: 4px;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+    }
+    .item-badge:hover {
+      background: linear-gradient(145deg, #FFFFFF 0%, #F5F1E6 100%);
+      border-color: #B5A07F;
+      color: #3E3224;
+      transform: translateY(-1px);
+    }
+
+    /* 主题样式 (默认：修仙/墨染青玉-即用户实机配色) */
+    .status-block {
+      background: #fbf8f2;
+      border: 1px solid #e2d7c5;
+      box-shadow: 0 4px 20px rgba(80, 60, 40, 0.12);
+    }
+    .character-card {
+      background: #ffffff;
+      border: 1px solid #ebdccb;
+      color: #4a3b32;
+    }
+    .character-card h3 {
+      color: #7e2635 !important;
+    }
+    .text-primary {
+      color: #9a3412 !important;
+    }
+
+    /* 角色切换按钮栏 */
+    .character-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      padding: 0.4rem 0.6rem;
+      background: #f5ede0;
+    }
+    .character-tab-btn {
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: 1px solid #d8c4ad;
+      background: #faf6f0;
+      color: #634b35;
+      white-space: nowrap;
+    }
+    .character-tab-btn.active {
+      background: #d4a373;
+      color: white;
+      border-color: #bc8a5f;
+      box-shadow: 0 2px 5px rgba(188, 138, 95, 0.4);
+      font-weight: 600;
+    }
+
+    /* ========================================================
+       针对 520px~560px 宽度精密调校的方案样式
+       ======================================================== */
+
+    /* 方案 1: 【紧凑型左右分栏 (145px 立绘 + 345px 属性)】 */
+    .scheme-1-layout {
+      display: flex;
+      flex-direction: row;
+      gap: 0.65rem;
+      align-items: stretch;
+    }
+    .scheme-1-portrait-box {
+      width: 145px;
+      min-width: 145px;
+      max-width: 145px;
+      flex-shrink: 0;
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 2px solid #dfd2c0;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      cursor: pointer;
+      background: #2a201c;
+      align-self: flex-start;
+      height: 200px;
+    }
+    .scheme-1-portrait-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+      transition: transform 0.35s ease;
+      display: block;
+    }
+    .scheme-1-portrait-box:hover img {
+      transform: scale(1.06);
+    }
+    .scheme-1-portrait-mask {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 40%);
+      pointer-events: none;
+    }
+    .scheme-1-portrait-tag {
+      position: absolute;
+      bottom: 4px;
+      left: 4px;
+      right: 4px;
+      font-size: 9px;
+      color: rgba(255,255,255,0.9);
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(2px);
+      text-align: center;
+      padding: 1px 0;
+      border-radius: 4px;
+      opacity: 0.85;
+    }
+    .scheme-1-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* 方案 2: 【光影背景羽化·立绘融于右侧】 */
+    .scheme-2-card {
+      position: relative;
+      overflow: hidden;
+      min-height: 200px;
+    }
+    .scheme-2-backdrop {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 220px;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      -webkit-mask-image: linear-gradient(to left, black 30%, transparent 100%),
+                          linear-gradient(to top, transparent 0%, black 25%);
+      mask-image: linear-gradient(to left, black 30%, transparent 100%),
+                  linear-gradient(to top, transparent 0%, black 25%);
+      opacity: 0.88;
+    }
+    .scheme-2-backdrop img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+    }
+    .scheme-2-content {
+      position: relative;
+      z-index: 1;
+      max-width: 72%;
+      background: linear-gradient(to right, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.8) 75%, rgba(255,255,255,0.3) 100%);
+      backdrop-filter: blur(1.5px);
+      padding: 0.25rem 0.5rem 0.25rem 0;
+      border-radius: 6px;
+    }
+
+    /* 方案 3: 【微幅电影画卷 (110px 高度横幅)】 */
+    .scheme-3-banner {
+      width: 100%;
+      height: 115px;
+      position: relative;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 0.5rem;
+      border: 1.5px solid #dfd2c0;
+      cursor: pointer;
+      box-shadow: inset 0 0 15px rgba(0,0,0,0.3);
+    }
+    .scheme-3-banner img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center 22%;
+      transition: transform 0.3s;
+    }
+    .scheme-3-banner:hover img {
+      transform: scale(1.03);
+    }
+    .scheme-3-mask {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, transparent 35%, transparent 65%, rgba(0,0,0,0.45) 100%);
+    }
+
+    /* 方案 4: 【呼吸微标 + 悬浮/点击弹窗】 */
+    .scheme-4-avatar {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      border: 2px solid #b87070;
+      overflow: hidden;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(184, 112, 112, 0.4);
+      flex-shrink: 0;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .scheme-4-avatar:hover {
+      transform: scale(1.1);
+      box-shadow: 0 0 14px rgba(184, 112, 112, 0.7);
+    }
+    .scheme-4-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+    }
+
+    /* 原版大图模式 (高度 40vh / 437px) */
+    .original-portrait-box {
+      width: 100%;
+      height: 40vh;
+      min-height: 240px;
+      overflow: hidden;
+      border-radius: 6px;
+      margin-bottom: 0.5rem;
+      -webkit-mask-image: linear-gradient(to bottom, black 68%, transparent 100%);
+      mask-image: linear-gradient(to bottom, black 68%, transparent 100%);
+      position: relative;
+    }
+    .original-portrait-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+      display: block;
+    }
+
+    /* 全局立绘大图模态框 */
+    .lightbox-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      backdrop-filter: blur(5px);
+      z-index: 99999;
+      align-items: center;
+      justify-content: center;
+    }
+    .lightbox-modal.active {
+      display: flex;
+    }
+  </style>
+</head>
+<body class="tavern-bg min-h-screen p-3 md:p-6 font-sans text-stone-800">
+
+  <!-- 顶部控制控制栏 (Toolbar) -->
+  <div class="max-w-4xl mx-auto bg-stone-900/95 text-stone-100 p-4 rounded-2xl shadow-2xl mb-5 border border-stone-700">
+    <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-stone-700">
+      <div>
+        <h1 class="text-base md:text-lg font-bold flex items-center gap-2">
+          <i class="fa fa-crosshairs text-amber-400"></i>
+          精确适配 558px 酒馆实机宽度的 PC 端人物卡优化方案
+        </h1>
+        <p class="text-xs text-stone-400 mt-0.5">
+          已精准加载您酒馆第一条消息的真实 YAML 数据（弗兰克/埃利奥特/玛德琳）。
+        </p>
+      </div>
+
+      <!-- 实时容器宽度滑块调节 -->
+      <div class="flex items-center gap-2 bg-stone-800 px-3 py-1.5 rounded-lg border border-stone-700">
+        <span class="text-xs text-stone-300 font-medium whitespace-nowrap">
+          <i class="fa fa-arrows-h text-amber-400 mr-1"></i>容器宽度:
+        </span>
+        <input type="range" id="width-slider" min="400" max="750" value="558" step="2" class="w-28 cursor-pointer accent-amber-500" />
+        <span id="width-label" class="text-xs font-mono font-bold text-amber-400 w-12 text-right">558px</span>
+        <button id="reset-width-btn" class="text-[10px] bg-stone-700 hover:bg-stone-600 px-1.5 py-0.5 rounded text-stone-300" title="重置为实机558px">重置</button>
+      </div>
+    </div>
+
+    <!-- 方案选择 Tabs -->
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-3">
+      <button class="scheme-btn active px-3 py-2 rounded-xl text-xs font-semibold border text-left transition-all bg-amber-500/20 border-amber-400 text-amber-200" data-scheme="1">
+        <div class="flex items-center justify-between mb-1">
+          <span class="font-bold">方案 1 (强烈推荐)</span>
+          <span class="text-amber-400">★★★★★</span>
+        </div>
+        <div class="text-[11px] text-stone-300 font-normal">紧凑左右分栏 (145px:350px)</div>
+      </button>
+
+      <button class="scheme-btn px-3 py-2 rounded-xl text-xs font-semibold border text-left transition-all bg-stone-800/80 border-stone-700 text-stone-300 hover:bg-stone-700" data-scheme="2">
+        <div class="flex items-center justify-between mb-1">
+          <span class="font-bold">方案 2</span>
+          <span class="text-amber-400">★★★★</span>
+        </div>
+        <div class="text-[11px] text-stone-400 font-normal">光影羽化·右侧沉浸层</div>
+      </button>
+
+      <button class="scheme-btn px-3 py-2 rounded-xl text-xs font-semibold border text-left transition-all bg-stone-800/80 border-stone-700 text-stone-300 hover:bg-stone-700" data-scheme="3">
+        <div class="flex items-center justify-between mb-1">
+          <span class="font-bold">方案 3</span>
+          <span class="text-amber-400">★★★★</span>
+        </div>
+        <div class="text-[11px] text-stone-400 font-normal">微幅电影画卷 (115px高)</div>
+      </button>
+
+      <button class="scheme-btn px-3 py-2 rounded-xl text-xs font-semibold border text-left transition-all bg-stone-800/80 border-stone-700 text-stone-300 hover:bg-stone-700" data-scheme="4">
+        <div class="flex items-center justify-between mb-1">
+          <span class="font-bold">方案 4</span>
+          <span class="text-amber-400">★★★★</span>
+        </div>
+        <div class="text-[11px] text-stone-400 font-normal">呼吸微标·悬浮大图弹窗</div>
+      </button>
+
+      <button class="scheme-btn px-3 py-2 rounded-xl text-xs font-semibold border text-left transition-all bg-stone-800/80 border-stone-700 text-stone-300 hover:bg-stone-700" data-scheme="ORIGINAL">
+        <div class="flex items-center justify-between mb-1">
+          <span class="font-bold text-red-400">原版 40vh</span>
+          <span class="text-red-400">滑动痛点</span>
+        </div>
+        <div class="text-[11px] text-stone-400 font-normal">原版超高立绘 (437px高)</div>
+      </button>
+    </div>
+
+    <!-- 方案解析文字说明 -->
+    <div id="scheme-desc" class="mt-3 p-2.5 rounded-lg bg-stone-800 text-xs text-stone-200 border border-stone-700 flex items-start gap-2">
+      <i class="fa fa-check-circle text-amber-400 mt-0.5"></i>
+      <div id="scheme-desc-content">
+        <strong>方案 1（520px 精密左右分栏）：</strong>针对 520px~560px 实机宽度，左侧立绘精简为 145px 宽海报，右侧保留 350px 宽裕空间排布属性、穿着、内心与武器徽章。<strong>卡片总高度从 650px 暴降至 210px</strong>，所有属性 100% 一屏尽收眼底！点击立绘可放大查看原图。
+      </div>
+    </div>
+  </div>
+
+  <!-- 模拟酒馆消息卡片区域 (Simulated Tavern Container) -->
+  <div class="flex justify-center">
+    <div id="tavern-container" style="width: 558px;" class="transition-all duration-150">
+      
+      <!-- 状态栏主体 (Status Block) -->
+      <div class="status-block rounded-2xl overflow-hidden shadow-xl">
+        
+        <!-- 顶部信息栏 -->
+        <div class="px-3.5 py-2 border-b border-[#dfd2c0] bg-[#f5ede0] flex justify-between items-center text-xs text-stone-700">
+          <div class="flex flex-col">
+            <span class="font-bold text-stone-800"><i class="fa fa-map-marker text-red-600 mr-1"></i>悉尼 · 澳大利亚酒店 - 总督套房 · 主客厅</span>
+            <span class="text-[11px] text-stone-500"><i class="fa fa-clock-o text-amber-600 mr-1"></i>1925年 · 6月13日 · 12:00 · 潜伏期</span>
+          </div>
+          <button class="w-6 h-6 rounded-full border border-stone-400/50 flex items-center justify-center hover:bg-stone-300 transition-colors">
+            <i class="fa fa-cog text-stone-600"></i>
+          </button>
+        </div>
+
+        <!-- 角色状态详情 (折叠头) -->
+        <div class="border-b border-[#dfd2c0] px-3.5 py-1.5 bg-[#fbf6ec] flex items-center justify-between cursor-pointer font-bold text-xs text-stone-800">
+          <span class="flex items-center gap-1.5">
+            <i class="fa fa-users text-amber-700"></i>角色状态详情
+          </span>
+          <i class="fa fa-chevron-up text-stone-500 text-[10px]"></i>
+        </div>
+
+        <!-- 角色切换 Tab 栏 -->
+        <div class="character-tabs border-b border-[#dfd2c0]" id="character-tabs-bar">
+          <button class="character-tab-btn" data-role="map">🗺️小地图</button>
+          <button class="character-tab-btn" data-role="elliott">🔮埃利奥特</button>
+          <button class="character-tab-btn active" data-role="frank">🛡️弗兰克</button>
+          <button class="character-tab-btn" data-role="madeline">🕵️‍♀️玛德琳</button>
+          <button class="character-tab-btn" data-role="people">👥人物</button>
+          <button class="character-tab-btn" data-role="base">🏟️据点</button>
+        </div>
+
+        <!-- 角色卡片渲染主体 (Card Container) -->
+        <div id="card-render-box" class="p-2.5 bg-[#fdfaf5]">
+          <!-- 动态渲染 -->
+        </div>
+
+        <!-- 底部团队行动选项 -->
+        <div class="border-t border-[#dfd2c0] bg-[#f7f0e4] p-3 text-xs">
+          <div class="font-bold text-stone-800 mb-1.5 flex items-center gap-1.5">
+            <i class="fa fa-list-alt text-amber-700"></i>团队行动的行动选项
+          </div>
+          <ul class="space-y-1 text-[11px] text-stone-700 pl-1">
+            <li class="pl-1.5 py-0.5 border-l-2 border-amber-600/40 hover:border-amber-600 hover:bg-amber-100/40 cursor-pointer rounded-r transition-all">
+              1. 🎲【侦查检定】弗兰克提前驾车绕行绿顶酒馆外围，侦察守卫布防与撤退路线。
+            </li>
+            <li class="pl-1.5 py-0.5 border-l-2 border-amber-600/40 hover:border-amber-600 hover:bg-amber-100/40 cursor-pointer rounded-r transition-all">
+              2. 🎯 全员立即出发，弗朗索瓦丝与玛德琳先行前往中央车站，弗兰克送人后去取车等候。
+            </li>
+            <li class="pl-1.5 py-0.5 border-l-2 border-amber-600/40 hover:border-amber-600 hover:bg-amber-100/40 cursor-pointer rounded-r transition-all">
+              3. ⌛ 先在套房用午餐，出发前让索恩简述凯特地盘的卫生防疫风险。
+            </li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 高清大图弹窗 -->
+  <div id="lightbox-modal" class="lightbox-modal" onclick="this.classList.remove('active')">
+    <div class="relative max-w-sm p-3 bg-stone-900 rounded-2xl border border-stone-700 shadow-2xl" onclick="event.stopPropagation()">
+      <button class="absolute top-2 right-2 text-white bg-black/60 rounded-full w-7 h-7 flex items-center justify-center hover:bg-red-600 transition-colors text-xs" onclick="document.getElementById('lightbox-modal').classList.remove('active')">
+        <i class="fa fa-times"></i>
+      </button>
+      <img id="lightbox-img" src="" alt="立绘全身大图" class="rounded-xl max-h-[75vh] w-auto mx-auto object-contain" />
+      <div id="lightbox-caption" class="text-center text-xs text-stone-300 mt-2 font-medium"></div>
+    </div>
+  </div>
+
+  <!-- 渲染脚本 -->
+  <script>
+    // 真实酒馆数据
+    const ROLES_DATA = {
+      frank: {
+        name: "弗兰克",
+        title: "🛡️弗兰克的状态",
+        portraitUrl: "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克穿衣2_compressed.jpg",
+        attributes: [
+          { key: "属性", badges: ["❤️HP:18/18", "🔮MP:17/17", "🛡️Armor:6", "🧠SAN:83/85"] },
+          { key: "穿着", text: "👔 棕色皮夹克拉链拉至胸口，突击背心贴身，墨镜挂领口" },
+          { key: "内心", text: "💭 分头行动。不喜欢，但陈能活着从更烂的地方爬出来。埃利去绿顶的时候我寸步不离。" },
+          { key: "武器", iconBadge: "🔪", badges: ["柯尔特M1911(7发·腰后)", "战壕匕首(后腰)", "军用指虎", "温彻斯特M1897(野战包)"] },
+          { key: "物品", iconBadge: "💼", badges: ["黄铜手电", "随身酒壶", "双生回响牌", "凯迪拉克车钥匙"] }
+        ]
+      },
+      elliott: {
+        name: "埃利奥特",
+        title: "🔮埃利奥特的状态",
+        portraitUrl: "https://www.imgur.la/images/2025/11/19/Eil.png",
+        attributes: [
+          { key: "属性", badges: ["❤️HP:10/10", "🔮MP:110/110", "🛡️Armor:4", "🧠SAN:59/65"] },
+          { key: "穿着", text: "👔 白衬衫扣至最上端，素色丝巾，深棕毛呢风衣搭椅背" },
+          { key: "内心", text: "💭 玛德琳的方案滴水不漏。关键在碰头时间和绿顶酒馆之间那两小时的缓冲够不够。" },
+          { key: "武器", iconBadge: "🔪", badges: ["萨维奇M1907型手枪(风衣内袋·10发)"] },
+          { key: "物品", iconBadge: "💼", badges: ["研究手札", "局势分析图", "两张请柬", "麦克维尔的日记", "双生回响牌", "红蓝铅笔"] }
+        ]
+      },
+      madeline: {
+        name: "玛德琳",
+        title: "🕵️‍♀️玛德琳的状态",
+        portraitUrl: "https://www.imgur.la/images/2026/03/06/ruanqin.jpg",
+        attributes: [
+          { key: "属性", badges: ["❤️HP:14/14", "🔮MP:14/14", "🛡️Armor:4", "🧠SAN:66/70"] },
+          { key: "穿着", text: "👔 灰色长款风衣，暗袋内藏枪与工具" },
+          { key: "内心", text: "💭 二十分钟足够。蒂莉的信使只要开口说三句话，我就知道她手里有什么没什么。" },
+          { key: "武器", iconBadge: "🔪", badges: ["柯尔特M1911(腰后·7发)", "Aster双枪(暗袋·各8发)", "战术短刃(靴筒)"] },
+          { key: "物品", iconBadge: "💼", badges: ["淑女工具包", "伪造证件包", "MKII微光手电", "急救伪装盒"] }
+        ]
+      }
+    };
+
+    let activeScheme = '1';
+    let activeRole = 'frank';
+
+    const schemeDescMap = {
+      '1': '<strong>方案 1（520px 精密左右分栏·强烈推荐 ⭐⭐⭐⭐⭐）：</strong>针对 520px~560px 实机宽度，左侧立绘精简为 145px 宽海报，右侧保留 350px 宽裕空间排布属性、穿着、内心与武器徽章。<strong>卡片总高度从 650px 暴降至 210px</strong>，所有属性 100% 一屏尽收眼底！点击立绘可放大查看原图。',
+      '2': '<strong>方案 2（光影羽化·右侧沉浸层 ⭐⭐⭐⭐）：</strong>立绘作为右侧半透羽化背景（宽 220px），左侧覆盖半透明白底文字。立绘<strong>垂直高度占用为 0</strong>，所有属性在 520px 宽度下完全不缩减空间。',
+      '3': '<strong>方案 3（微幅电影画卷 ⭐⭐⭐⭐）：</strong>立绘保留在顶部，但高度严格压缩为 115px 宽幅，下方排布属性。卡片总高度约 260px，兼顾顶部立绘习惯且大幅减少滑动。',
+      '4': '<strong>方案 4（呼吸微标·悬浮大图弹窗 ⭐⭐⭐⭐）：</strong>卡片顶部仅保留一个 52px 的圆形呼吸光圈头像，卡片主体全部给属性。鼠标悬停头像或点击可弹窗查看全身大图。',
+      'ORIGINAL': '<strong>原版展示（40vh 垂直堆叠·痛点演示）：</strong>立绘高达 40vh（约 437px），导致下方属性被严重挤到屏幕外，必须滑动滚轮才能看见穿着与武器。'
+    };
+
+    function openLightbox(url, title) {
+      const modal = document.getElementById('lightbox-modal');
+      document.getElementById('lightbox-img').src = url;
+      document.getElementById('lightbox-caption').textContent = `${title} - 全身高清立绘`;
+      modal.classList.add('active');
+    }
+
+    function renderActiveCard() {
+      const renderBox = document.getElementById('card-render-box');
+      const data = ROLES_DATA[activeRole] || ROLES_DATA.frank;
+
+      if (activeScheme === '1') {
+        // === 方案 1: 紧凑型左右分栏 ===
+        renderBox.innerHTML = `
+          <div class="character-card rounded-xl p-2.5 shadow-sm border theme-transition">
+            <h3 class="font-bold text-sm mb-2 pb-1 border-b border-[#dfd2c0] flex items-center justify-between">
+              <span>${data.title}</span>
+              <span class="text-[10px] text-amber-700 font-normal"><i class="fa fa-magic mr-1"></i>左右分栏·高度降低65%</span>
+            </h3>
+            
+            <div class="scheme-1-layout">
+              <!-- 左侧 145px 精美立绘 -->
+              <div class="scheme-1-portrait-box group" onclick="openLightbox('${data.portraitUrl}', '${data.name}')">
+                <img src="${data.portraitUrl}" alt="${data.name}" />
+                <div class="scheme-1-portrait-mask"></div>
+                <div class="scheme-1-portrait-tag">
+                  <i class="fa fa-search-plus mr-0.5"></i>点击看原图
+                </div>
+              </div>
+
+              <!-- 右侧属性内容 -->
+              <div class="scheme-1-content">
+                <ul class="space-y-1.5 text-xs text-stone-800">
+                  ${data.attributes.map(attr => `
+                    <li>
+                      <span class="font-semibold text-primary">${attr.key}:</span>
+                      ${attr.text ? `<span>${attr.text}</span>` : ''}
+                      ${attr.badges ? `
+                        <span class="item-badge-wrapper">
+                          <span class="item-badge-container">
+                            ${attr.iconBadge ? `<span class="item-badge">${attr.iconBadge}</span>` : ''}
+                            ${attr.badges.map(b => `<span class="item-badge">${b}</span>`).join('')}
+                          </span>
+                        </span>
+                      ` : ''}
+                    </li>
+                  `).join('')}
+                </ul>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (activeScheme === '2') {
+        // === 方案 2: 光影背景融合 ===
+        renderBox.innerHTML = `
+          <div class="character-card scheme-2-card rounded-xl p-2.5 shadow-sm border theme-transition">
+            <!-- 右侧羽化立绘背景 -->
+            <div class="scheme-2-backdrop">
+              <img src="${data.portraitUrl}" alt="${data.name}" />
+            </div>
+
+            <!-- 前景内容 -->
+            <div class="scheme-2-content">
+              <h3 class="font-bold text-sm mb-1.5 pb-1 border-b border-[#dfd2c0] flex items-center justify-between">
+                <span>${data.title}</span>
+                <button class="text-[10px] text-amber-700" onclick="openLightbox('${data.portraitUrl}', '${data.name}')"><i class="fa fa-search-plus mr-1"></i>原图</button>
+              </h3>
+
+              <ul class="space-y-1.5 text-xs text-stone-800">
+                ${data.attributes.map(attr => `
+                  <li>
+                    <span class="font-semibold text-primary">${attr.key}:</span>
+                    ${attr.text ? `<span>${attr.text}</span>` : ''}
+                    ${attr.badges ? `
+                      <span class="item-badge-wrapper">
+                        <span class="item-badge-container">
+                          ${attr.iconBadge ? `<span class="item-badge">${attr.iconBadge}</span>` : ''}
+                          ${attr.badges.map(b => `<span class="item-badge">${b}</span>`).join('')}
+                        </span>
+                      </span>
+                    ` : ''}
+                  </li>
+                `).join('')}
+              </ul>
+            </div>
+          </div>
+        `;
+      } else if (activeScheme === '3') {
+        // === 方案 3: 微幅电影画卷 ===
+        renderBox.innerHTML = `
+          <div class="character-card rounded-xl p-2.5 shadow-sm border theme-transition">
+            <h3 class="font-bold text-sm mb-1.5 pb-1 border-b border-[#dfd2c0]">
+              ${data.title}
+            </h3>
+
+            <!-- 115px 高度紧凑电影横幅 -->
+            <div class="scheme-3-banner" onclick="openLightbox('${data.portraitUrl}', '${data.name}')">
+              <img src="${data.portraitUrl}" alt="${data.name}" />
+              <div class="scheme-3-mask"></div>
+              <div class="absolute bottom-1 right-2 text-[9px] text-white bg-black/60 px-1.5 py-0.5 rounded">
+                <i class="fa fa-search-plus mr-1"></i>点击放大
+              </div>
+            </div>
+
+            <ul class="space-y-1.5 text-xs text-stone-800">
+              ${data.attributes.map(attr => `
+                <li>
+                  <span class="font-semibold text-primary">${attr.key}:</span>
+                  ${attr.text ? `<span>${attr.text}</span>` : ''}
+                  ${attr.badges ? `
+                    <span class="item-badge-wrapper">
+                      <span class="item-badge-container">
+                        ${attr.iconBadge ? `<span class="item-badge">${attr.iconBadge}</span>` : ''}
+                        ${attr.badges.map(b => `<span class="item-badge">${b}</span>`).join('')}
+                      </span>
+                    </span>
+                  ` : ''}
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+        `;
+      } else if (activeScheme === '4') {
+        // === 方案 4: 呼吸微标 + 悬浮大图 ===
+        renderBox.innerHTML = `
+          <div class="character-card rounded-xl p-2.5 shadow-sm border theme-transition">
+            <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-[#dfd2c0]">
+              <div class="flex items-center gap-2.5">
+                <div class="scheme-4-avatar" onclick="openLightbox('${data.portraitUrl}', '${data.name}')" title="点击查看全身立绘">
+                  <img src="${data.portraitUrl}" alt="${data.name}" />
+                </div>
+                <div>
+                  <h3 class="font-bold text-sm">${data.title}</h3>
+                  <div class="text-[10px] text-stone-500">点击头像即可查看高清立绘</div>
+                </div>
+              </div>
+              <span class="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">纯属性高密度</span>
+            </div>
+
+            <ul class="space-y-1.5 text-xs text-stone-800">
+              ${data.attributes.map(attr => `
+                <li>
+                  <span class="font-semibold text-primary">${attr.key}:</span>
+                  ${attr.text ? `<span>${attr.text}</span>` : ''}
+                  ${attr.badges ? `
+                    <span class="item-badge-wrapper">
+                      <span class="item-badge-container">
+                        ${attr.iconBadge ? `<span class="item-badge">${attr.iconBadge}</span>` : ''}
+                        ${attr.badges.map(b => `<span class="item-badge">${b}</span>`).join('')}
+                      </span>
+                    </span>
+                  ` : ''}
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+        `;
+      } else if (activeScheme === 'ORIGINAL') {
+        // === 原版痛点展示 ===
+        renderBox.innerHTML = `
+          <div class="character-card rounded-xl p-2.5 shadow-sm border theme-transition">
+            <h3 class="font-bold text-sm mb-1.5 pb-1 border-b border-[#dfd2c0]">
+              ${data.title} <span class="text-red-500 text-xs font-normal">⚠️ 原版立绘占用 40vh (437px)</span>
+            </h3>
+
+            <div class="original-portrait-box">
+              <img src="${data.portraitUrl}" alt="${data.name}" />
+            </div>
+
+            <div class="text-[11px] text-red-600 font-bold mb-1 border-t border-dashed border-red-300 pt-1">
+              ⬇️ 必须向下滑动滚轮才能看到以下属性：
+            </div>
+
+            <ul class="space-y-1.5 text-xs text-stone-800">
+              ${data.attributes.map(attr => `
+                <li>
+                  <span class="font-semibold text-primary">${attr.key}:</span>
+                  ${attr.text ? `<span>${attr.text}</span>` : ''}
+                  ${attr.badges ? `
+                    <span class="item-badge-wrapper">
+                      <span class="item-badge-container">
+                        ${attr.iconBadge ? `<span class="item-badge">${attr.iconBadge}</span>` : ''}
+                        ${attr.badges.map(b => `<span class="item-badge">${b}</span>`).join('')}
+                      </span>
+                    </span>
+                  ` : ''}
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+        `;
+      }
+    }
+
+    // 方案切换
+    document.querySelectorAll('.scheme-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.scheme-btn').forEach(b => {
+          b.classList.remove('active', 'bg-amber-500/20', 'border-amber-400', 'text-amber-200');
+          b.classList.add('bg-stone-800/80', 'border-stone-700', 'text-stone-300');
+        });
+        btn.classList.add('active', 'bg-amber-500/20', 'border-amber-400', 'text-amber-200');
+        btn.classList.remove('bg-stone-800/80', 'border-stone-700', 'text-stone-300');
+
+        activeScheme = btn.getAttribute('data-scheme');
+        document.getElementById('scheme-desc-content').innerHTML = schemeDescMap[activeScheme] || '';
+        renderActiveCard();
+      });
+    });
+
+    // 角色 Tab 切换
+    document.querySelectorAll('#character-tabs-bar .character-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#character-tabs-bar .character-tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const role = btn.getAttribute('data-role');
+        if (ROLES_DATA[role]) {
+          activeRole = role;
+          renderActiveCard();
+        }
+      });
+    });
+
+    // 容器宽度滑块
+    const slider = document.getElementById('width-slider');
+    const widthLabel = document.getElementById('width-label');
+    const tavernContainer = document.getElementById('tavern-container');
+    const resetBtn = document.getElementById('reset-width-btn');
+
+    slider.addEventListener('input', (e) => {
+      const val = e.target.value;
+      widthLabel.textContent = `${val}px`;
+      tavernContainer.style.width = `${val}px`;
+    });
+
+    resetBtn.addEventListener('click', () => {
+      slider.value = 558;
+      widthLabel.textContent = '558px';
+      tavernContainer.style.width = '558px';
+    });
+
+    // 初始渲染
+    renderActiveCard();
+  </script>
+</body>
+</html>
