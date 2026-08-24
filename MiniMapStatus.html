@@ -1310,6 +1310,120 @@ function buildPortraitHTML(roleName, portraitUrl) {
           display: none;
         }
 
+        .threshold-control {
+          border: 1px solid #332a50;
+          border-radius: 0.5rem;
+          padding: 0.75rem;
+          background-color: rgba(157, 124, 245, 0.05);
+        }
+        .threshold-control-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.75rem;
+        }
+        .threshold-label {
+          font-size: 0.875rem;
+          font-weight: 600;
+          color: #e2e8f0;
+        }
+        .day-mode .threshold-label,
+        .jade-mode .threshold-label,
+        .classic-mode .threshold-label,
+        .romantic-mode .threshold-label,
+        .fresh-mode .threshold-label {
+          color: #374151;
+        }
+        .threshold-stepper {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+        .threshold-btn {
+          width: 32px;
+          height: 28px;
+          border-radius: 0.5rem;
+          border: 1px solid #4c3d78;
+          background: rgba(157, 124, 245, 0.14);
+          color: #e2e8f0;
+          font-size: 1rem;
+          font-weight: 700;
+          line-height: 1;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        .threshold-btn:hover:not(:disabled) {
+          background: rgba(157, 124, 245, 0.24);
+          border-color: #7d6bbb;
+        }
+        .threshold-btn:disabled {
+          opacity: 0.35;
+          cursor: not-allowed;
+        }
+        .day-mode .threshold-control,
+        .jade-mode .threshold-control,
+        .classic-mode .threshold-control,
+        .romantic-mode .threshold-control,
+        .fresh-mode .threshold-control {
+          border-color: #e2e8f0;
+          background-color: #f8fafc;
+        }
+        .day-mode .threshold-btn,
+        .jade-mode .threshold-btn,
+        .classic-mode .threshold-btn {
+          border-color: #c4b5fd;
+          background: #ede9fe;
+          color: #5b21b6;
+        }
+        .day-mode .threshold-btn:hover:not(:disabled),
+        .jade-mode .threshold-btn:hover:not(:disabled),
+        .classic-mode .threshold-btn:hover:not(:disabled) {
+          background: #ddd6fe;
+        }
+        .romantic-mode .threshold-btn {
+          border-color: #f0b8c0;
+          background: #fde8eb;
+          color: #b63a4a;
+        }
+        .romantic-mode .threshold-btn:hover:not(:disabled) {
+          background: #fbd1d7;
+        }
+        .fresh-mode .threshold-btn {
+          border-color: #86efac;
+          background: #dcfce7;
+          color: #166534;
+        }
+        .fresh-mode .threshold-btn:hover:not(:disabled) {
+          background: #bbf7d0;
+        }
+        .threshold-value {
+          min-width: 2rem;
+          text-align: center;
+          font-size: 0.95rem;
+          font-weight: 700;
+          color: #e2e8f0;
+        }
+        .day-mode .threshold-value,
+        .jade-mode .threshold-value,
+        .classic-mode .threshold-value,
+        .romantic-mode .threshold-value,
+        .fresh-mode .threshold-value {
+          color: #1f2937;
+        }
+        .settings-hint {
+          margin-top: 0.5rem;
+          font-size: 0.72rem;
+          line-height: 1.4;
+          color: #94a3b8;
+        }
+        .day-mode .settings-hint,
+        .jade-mode .settings-hint,
+        .classic-mode .settings-hint,
+        .romantic-mode .settings-hint,
+        .fresh-mode .settings-hint {
+          color: #6b7280;
+        }
+
         .action-mode-options {
           display: flex;
           flex-direction: column;
@@ -2415,6 +2529,22 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </label>
           </div>
         </div>
+
+        <!-- 徽章收纳阈值 -->
+        <div class="settings-group">
+          <label class="settings-label">徽章收纳</label>
+          <div class="threshold-control">
+            <div class="threshold-control-row">
+              <span class="threshold-label">展开阈值</span>
+              <div class="threshold-stepper">
+                <button id="threshold-minus" class="threshold-btn" type="button" aria-label="减少阈值">−</button>
+                <span id="threshold-value" class="threshold-value">5</span>
+                <button id="threshold-plus" class="threshold-btn" type="button" aria-label="增加阈值">+</button>
+              </div>
+            </div>
+            <p class="settings-hint">超过此数量才显示“+N”展开按钮；未展开时徽章保持单行，超出向右侧隐藏，可横向拖动查看</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -2578,7 +2708,70 @@ const AVATAR_MAP = {
         }
       };
 
+      function getBadgeCollapseThreshold() {
+        const v = parseInt(localStorage.getItem('badgeCollapseThreshold'), 10);
+        return Number.isFinite(v) && v >= 1 && v <= 20 ? v : 5;
+      }
+
+      function applyBadgeCollapseStyle() {
+        const t = getBadgeCollapseThreshold();
+        let el = document.getElementById('badge-collapse-style');
+        if (!el) {
+          el = document.createElement('style');
+          el.id = 'badge-collapse-style';
+          document.head.appendChild(el);
+        }
+        el.textContent = `.item-badge-container.collapsed .item-badge:nth-child(n+${t + 1}){display:none}`;
+      }
+
+      function createBadgeExpandButton(badgeContainer, totalCount) {
+        const btn = document.createElement('button');
+        btn.className = 'item-expand-btn';
+        btn.title = '点击展开全部';
+        const threshold = getBadgeCollapseThreshold();
+        btn.textContent = `+${totalCount - threshold}`;
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const t = getBadgeCollapseThreshold();
+          const isExpanded = badgeContainer.classList.contains('expanded');
+          if (isExpanded) {
+            badgeContainer.classList.remove('expanded');
+            badgeContainer.classList.add('collapsed');
+            btn.textContent = `+${totalCount - t}`;
+          } else {
+            badgeContainer.classList.add('expanded');
+            badgeContainer.classList.remove('collapsed');
+            btn.textContent = '收起';
+          }
+        });
+        return btn;
+      }
+
+      function refreshExistingBadgeContainers() {
+        const t = getBadgeCollapseThreshold();
+        document.querySelectorAll('.item-badge-container').forEach(container => {
+          const wrapper = container.parentElement;
+          if (!wrapper || !wrapper.classList.contains('item-badge-wrapper')) return;
+          const count = container.querySelectorAll('.item-badge').length;
+          let btn = wrapper.querySelector('.item-expand-btn');
+          const isExpanded = container.classList.contains('expanded');
+          if (count > t) {
+            if (!isExpanded) container.classList.add('collapsed');
+            if (!btn) {
+              btn = createBadgeExpandButton(container, count);
+              wrapper.appendChild(btn);
+            }
+            btn.textContent = isExpanded ? '收起' : `+${count - t}`;
+            btn.style.display = '';
+          } else {
+            container.classList.remove('collapsed', 'expanded');
+            if (btn) btn.style.display = 'none';
+          }
+        });
+      }
+
       document.addEventListener('DOMContentLoaded', () => {
+        applyBadgeCollapseStyle();
         initSettingsPanel();
         initErrorModal();
         initThemeToggle();
@@ -2753,6 +2946,37 @@ const AVATAR_MAP = {
             }
           });
         });
+
+        const thresholdValueEl = document.getElementById('threshold-value');
+        const minusBtn = document.getElementById('threshold-minus');
+        const plusBtn = document.getElementById('threshold-plus');
+        const syncThresholdUI = () => {
+          const t = getBadgeCollapseThreshold();
+          if (thresholdValueEl) thresholdValueEl.textContent = String(t);
+          if (minusBtn) minusBtn.disabled = t <= 1;
+          if (plusBtn) plusBtn.disabled = t >= 20;
+        };
+        if (minusBtn) {
+          minusBtn.addEventListener('click', () => {
+            let t = getBadgeCollapseThreshold();
+            t = Math.max(1, t - 1);
+            localStorage.setItem('badgeCollapseThreshold', String(t));
+            syncThresholdUI();
+            applyBadgeCollapseStyle();
+            refreshExistingBadgeContainers();
+          });
+        }
+        if (plusBtn) {
+          plusBtn.addEventListener('click', () => {
+            let t = getBadgeCollapseThreshold();
+            t = Math.min(20, t + 1);
+            localStorage.setItem('badgeCollapseThreshold', String(t));
+            syncThresholdUI();
+            applyBadgeCollapseStyle();
+            refreshExistingBadgeContainers();
+          });
+        }
+        syncThresholdUI();
       }
 
       function updateDisplayMode(mode) {
@@ -6275,7 +6499,8 @@ createAttributeItem(key, value) {
       const badgeContainer = document.createElement('span');
       badgeContainer.className = 'item-badge-container';
 
-      if (itemMatches.length > 5) {
+      const badgeThreshold = getBadgeCollapseThreshold();
+      if (itemMatches.length > badgeThreshold) {
         badgeContainer.classList.add('collapsed');
       }
 
@@ -6289,24 +6514,8 @@ createAttributeItem(key, value) {
 
       wrapper.appendChild(badgeContainer);
 
-      if (itemMatches.length > 5) {
-        const expandBtn = document.createElement('button');
-        expandBtn.className = 'item-expand-btn';
-        expandBtn.textContent = `+${itemMatches.length - 5}`;
-        expandBtn.title = '点击展开全部';
-        expandBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const isExpanded = badgeContainer.classList.contains('expanded');
-          if (isExpanded) {
-            badgeContainer.classList.remove('expanded');
-            badgeContainer.classList.add('collapsed');
-            expandBtn.textContent = `+${itemMatches.length - 5}`;
-          } else {
-            badgeContainer.classList.add('expanded');
-            badgeContainer.classList.remove('collapsed');
-            expandBtn.textContent = '收起';
-          }
-        });
+      if (itemMatches.length > badgeThreshold) {
+        const expandBtn = createBadgeExpandButton(badgeContainer, itemMatches.length);
         wrapper.appendChild(expandBtn);
       }
 
