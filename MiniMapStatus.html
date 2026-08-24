@@ -155,6 +155,21 @@ function buildPortraitHTML(roleName, portraitUrl) {
   } else {
     startEngine();
   }
+
+  // 暴露给卡片复用：修复 ReferenceError（截图所示）
+  window.buildPortraitHTML = buildPortraitHTML;
+  window.openPortraitLightbox = function (url, title) {
+    const modal = document.getElementById('pc-portrait-lightbox');
+    const img = document.getElementById('pc-lightbox-img');
+    const cap = document.getElementById('pc-lightbox-cap');
+    if (!modal || !img) return;
+    let src = url;
+    try { src = encodeURI(decodeURI(url)); } catch(e) { try { src = encodeURI(url); } catch(e2) {} }
+    img.src = src;
+    img.alt = title || '';
+    if (cap) cap.textContent = title ? `${title} - 立绘原图` : '';
+    modal.classList.add('active');
+  };
 })();
 </script>
 
@@ -608,6 +623,82 @@ function buildPortraitHTML(roleName, portraitUrl) {
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(-8px); }
           to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* PC 带立绘卡片 — 方案1 紧凑左右分栏 (145px 立绘 + 自适应属性) */
+        .pc-portrait-layout {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+        }
+        .pc-portrait-box {
+          width: 100%;
+          border-radius: 8px;
+          overflow: hidden;
+          border: 1.5px solid #dfd2c0;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+          cursor: pointer;
+          background: #2a201c;
+          position: relative;
+          height: 200px;
+          flex-shrink: 0;
+        }
+        .pc-portrait-box img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          object-position: center top;
+          display: block;
+          transition: transform 0.35s ease;
+        }
+        .pc-portrait-box:hover img {
+          transform: scale(1.06);
+        }
+        .pc-portrait-mask {
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 40%);
+          pointer-events: none;
+        }
+        .pc-portrait-content {
+          flex: 1;
+          min-width: 0;
+        }
+        @media (min-width: 480px) {
+          .pc-portrait-layout {
+            flex-direction: row;
+            gap: 0.65rem;
+            align-items: stretch;
+          }
+          .pc-portrait-layout:has(.pc-portrait-box[style*="display: none"]) {
+            display: block;
+          }
+          .pc-portrait-box {
+            width: 145px;
+            min-width: 145px;
+            max-width: 145px;
+            height: 200px;
+            align-self: flex-start;
+            border-width: 2px;
+          }
+        }
+        /* PC 立绘灯箱 */
+        .pc-lightbox-modal {
+          display: none;
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.85);
+          backdrop-filter: blur(5px);
+          z-index: 99999;
+          align-items: center;
+          justify-content: center;
+        }
+        .pc-lightbox-modal.active {
+          display: flex;
+        }
+        @keyframes pcFadeIn {
+          from { opacity: 0; transform: scale(0.96); }
+          to { opacity: 1; transform: scale(1); }
         }
 
         /* 黑夜模式样式 */
@@ -1436,6 +1527,14 @@ function buildPortraitHTML(roleName, portraitUrl) {
   box-shadow: 0 3px 8px rgba(139, 195, 74, 0.15), inset 0 1px 0 #FFFFFF;
 }
 
+        /* PC 立绘边框主题适配 */
+        .day-mode .pc-portrait-box { border-color: #e2e8f0; }
+        .jade-mode .pc-portrait-box { border-color: #4a2828; }
+        .classic-mode .pc-portrait-box { border-color: #f5dfb7; }
+        .romantic-mode .pc-portrait-box { border-color: rgba(200, 182, 154, 0.5); }
+        .fresh-mode .pc-portrait-box { border-color: #DCEDC8; }
+        .night-mode .pc-portrait-box { border-color: #332a50; }
+
         #maintext-container {
           line-height: 1.8;
           transition: background-color 0.3s ease, color 0.3s ease;
@@ -2218,6 +2317,15 @@ function buildPortraitHTML(roleName, portraitUrl) {
             确定
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- PC 立绘灯箱 -->
+    <div id="pc-portrait-lightbox" class="pc-lightbox-modal" onclick="this.classList.remove('active')">
+      <div class="relative max-w-sm p-3 bg-stone-900 rounded-2xl border border-stone-700 shadow-2xl" onclick="event.stopPropagation()">
+        <button onclick="document.getElementById('pc-portrait-lightbox').classList.remove('active')" class="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-stone-800 border border-stone-600 text-stone-300 flex items-center justify-center hover:bg-stone-700" title="关闭">✕</button>
+        <img id="pc-lightbox-img" src="" alt="" class="rounded-xl max-h-[75vh] w-auto mx-auto object-contain block" />
+        <div id="pc-lightbox-cap" class="text-center text-xs text-stone-300 mt-2"></div>
       </div>
     </div>
 
@@ -5991,25 +6099,82 @@ const AVATAR_MAP = {
 
           const nameField = this.findFieldByKeywords(userData, ['名字', '姓名', '名称', 'name']);
           const userName = nameField ? userData[nameField] : '👤 未知角色';
+          const cleanName = this.formatNodeName(userName).trim();
 
           const title = document.createElement('h3');
           title.className = 'font-bold text-base mb-2 pb-1 border-b border-gray-700/30 theme-transition';
-          title.textContent = `${this.formatNodeName(userName)}的状态`;
+          title.textContent = `${cleanName}的状态`;
           card.appendChild(title);
 
+          // 方案1：145px 左立绘 + 右属性 双栏容器
+          const bodyWrapper = document.createElement('div');
+          bodyWrapper.className = 'pc-portrait-layout';
+          const portraitCol = document.createElement('div');
+          portraitCol.className = 'pc-portrait-box';
+          const infoCol = document.createElement('div');
+          infoCol.className = 'pc-portrait-content';
           const attributesList = document.createElement('ul');
           attributesList.className = 'space-y-1.5 text-sm';
-          card.appendChild(attributesList);
+          infoCol.appendChild(attributesList);
+
+          // 立绘数据源优先级：字段直连(解析为键再查表) > PORTRAIT_MAP 兜底；优化前该立绘仅供 IIFE 扫描【立绘…】，并非卡片 URL
+          let portraitUrl = '';
+          let portraitField = null;
+          const tryKeys = ['立绘', 'portrait', '立绘图', 'image', 'avatar_hd'];
+          for (const k of tryKeys) { if (userData[k] !== undefined) { portraitField = k; break; } }
+          if (!portraitField) portraitField = this.findFieldByKeywords(userData, tryKeys);
+          const rawPortrait = portraitField ? userData[portraitField] : '';
+          const extractRoleFromPortrait = (raw) => {
+            const s = String(raw || '').trim();
+            if (!s) return '';
+            // 形如 【立绘弗兰克穿衣】/【立绘埃利奥特】 -> 取中间角色名
+            const m = s.match(/【\s*立绘\s*([^】]+)\s*】/);
+            if (m) return m[1].trim();
+            // 已是 URL 则不作键解析
+            if (/^https?:\/\//i.test(s)) return '';
+            return s;
+          };
+          const roleKey = extractRoleFromPortrait(rawPortrait);
+          if (roleKey && window.PORTRAIT_MAP && typeof window.PORTRAIT_MAP === 'object') {
+            const map = window.PORTRAIT_MAP;
+            const matchedKey = Object.keys(map).find(k => k === roleKey || roleKey.includes(k) || k.includes(roleKey));
+            if (matchedKey) portraitUrl = map[matchedKey];
+          } else if (rawPortrait && typeof rawPortrait === 'string' && /^https?:\/\//i.test(rawPortrait.trim())) {
+            portraitUrl = rawPortrait.trim();
+          }
+          if (!portraitUrl && window.PORTRAIT_MAP && typeof window.PORTRAIT_MAP === 'object') {
+            const map = window.PORTRAIT_MAP;
+            const matchedKey = Object.keys(map).find(k => k === cleanName || cleanName.includes(k) || k.includes(cleanName));
+            if (matchedKey) portraitUrl = map[matchedKey];
+          }
 
           Object.keys(userData).forEach(key => {
             if (key === nameField) return;
-
+            if (key === portraitField) return;
             const attributeItem = this.createAttributeItem(key, userData[key]);
-            if (attributeItem) {
-              attributesList.appendChild(attributeItem);
-            }
+            if (attributeItem) attributesList.appendChild(attributeItem);
           });
 
+          if (portraitUrl) {
+            let encodedUrl = portraitUrl;
+            try { encodedUrl = encodeURI(decodeURI(portraitUrl)); } catch(e) { try { encodedUrl = encodeURI(portraitUrl); } catch(e2) {} }
+            const safeAlt = cleanName.replace(/"/g, '&quot;');
+            portraitCol.innerHTML = `<img src="${encodedUrl}" alt="${safeAlt}" loading="lazy" onerror="this.style.display='none'"><div class="pc-portrait-mask"></div>`;
+            portraitCol.setAttribute('role', 'button');
+            portraitCol.setAttribute('tabindex', '0');
+            portraitCol.setAttribute('aria-label', `查看 ${cleanName.replace(/'/g, "\\'")} 立绘原图`);
+            const lightboxUrl = portraitUrl;
+            portraitCol.addEventListener('click', () => window.openPortraitLightbox && window.openPortraitLightbox(lightboxUrl, cleanName));
+            portraitCol.addEventListener('keydown', (e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); window.openPortraitLightbox && window.openPortraitLightbox(lightboxUrl, cleanName); }
+            });
+          } else {
+            portraitCol.style.display = 'none';
+          }
+
+          bodyWrapper.appendChild(portraitCol);
+          bodyWrapper.appendChild(infoCol);
+          card.appendChild(bodyWrapper);
           return card;
         }
 
