@@ -23,14 +23,14 @@
   }
 
 function buildPortraitHTML(roleName, portraitUrl) {
-  const isMobile = window.matchMedia("(max-width: 768px)").matches;
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent);
 
   // 移动端：左右满幅 + 降低高度，避免“过长”
   const wrapWidth = isMobile ? "calc(100%)" : "100%";
   const wrapMarginX = isMobile ? "-2px" : "0";
-  const wrapHeight = isMobile ? "24vh" : "45vh";
+  const wrapHeight = isMobile ? "24vh" : "40vh";
   const wrapMinHeight = isMobile ? "140px" : "240px";
-  const wrapMaxHeight = isMobile ? "300px" : "520px";
+  const wrapMaxHeight = isMobile ? "300px" : "7000px";
   const imgPos = isMobile ? "center top" : "top";
 
   return `
@@ -2314,7 +2314,8 @@ function buildPortraitHTML(roleName, portraitUrl) {
       // [扩展] 人物头像映射表：可在此处自由增删人物名和对应的图片链接
       // === [新增] 高清立绘映射名单 (请在此维护立绘链接) ===
 window.PORTRAIT_MAP = {
-    "弗兰克": "https://www.imgur.la/images/2026/03/01/6500f3ccca1e5e390fc15b992b75c7d2.jpg",
+    "弗兰克脱衣": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克脱衣2_compressed.jpg",
+    "弗兰克穿衣": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克穿衣2_compressed.jpg",
     "埃利奥特": "https://www.imgur.la/images/2025/11/19/Eil.png",
     "烈阳剑尊": "https://www.imgur.la/images/2026/03/02/lieyang.jpg",
     "李长风": "https://www.imgur.la/images/2026/03/02/liichang.jpg",
@@ -2371,7 +2372,9 @@ window.PORTRAIT_MAP = {
     "列夫": "https://www.imgur.la/images/2026/03/24/lev.jpg",
     "图鲁": "https://www.imgur.la/images/2026/03/24/tulu.jpg",
     "阿维": "https://www.imgur.la/images/2026/03/24/avi.jpg",
-    "江魁锋": "https://www.imgur.la/images/2026/03/13/Gemini_Generated_Image_jx5pd4jx5pd4jx5p_compressed.jpg",
+    "军人裸上身": "https://www.imgur.la/images/2026/03/13/Gemini_Generated_Image_jx5pd4jx5pd4jx5p_compressed.jpg",
+    "军人穿衣": "https://imgur.la/images/2026/03/13/Gemini_Generated_Image_qjdewmqjdewmqjde_compressed.jpg",
+    "军人全裸": "https://imgur.la/images/2026/03/13/_compressed.jpg",
     "向震虎": "https://www.imgur.la/images/2026/04/12/_2026-02-2709h39m30s714msb76746a7791c8e01.png",
     "向震虎(投篮)": "https://www.imgur.la/images/2026/03/02/xiangzhen.jpg"
 };
@@ -2467,7 +2470,7 @@ const AVATAR_MAP = {
         }
       };
 
-      function initMainUI() {
+      document.addEventListener('DOMContentLoaded', () => {
         initSettingsPanel();
         initErrorModal();
         initThemeToggle();
@@ -2503,13 +2506,7 @@ const AVATAR_MAP = {
           const savedMode = localStorage.getItem('actionMode');
           return savedMode || 'send-to-chat';
         }
-      }
-
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initMainUI);
-      } else {
-        initMainUI();
-      }
+      });
 
       function formatMainText(text) {
         const maintextContainer = document.getElementById('maintext-container');
@@ -6395,7 +6392,7 @@ createCharacterEntry(text, categoryKey) {
         }
       }
 
-      function initMessageWatcher() {
+      document.addEventListener('DOMContentLoaded', function () {
         function getCurrentMessage() {
           try {
             if (typeof getCurrentMessageId !== 'function' || typeof getChatMessages !== 'function') {
@@ -6554,13 +6551,7 @@ function extractStatusBlock(message) {
         }
 
         window.statusBlockInitialized = true;
-      }
-
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initMessageWatcher);
-      } else {
-        initMessageWatcher();
-      }
+      });
     </script>
   </body>
 </html>
