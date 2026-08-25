@@ -58,75 +58,86 @@ function buildPortraitHTML(roleName, portraitUrl) {
   `;
 }
 
-  function pickInnermostNode(candidates) {
-    candidates.sort((a, b) => (a.textContent || "").length - (b.textContent || "").length);
-    return candidates[0] || null;
-  }
-
-  function injectOneRole(roleName, portraitUrl) {
-    const targetText = `【立绘${roleName}】`;
-    console.log(`🔎 [立绘引擎] 扫描目标：${targetText}`);
-
-    const candidates = Array.from(document.querySelectorAll(QUERY_SELECTOR)).filter((el) => {
-      if (el.getAttribute("data-pt-role") === roleName) return false;
-      if (el.querySelector('[data-pt-wrapper="1"]')) return false;
-      const txt = (el.textContent || "").replace(/\s+/g, "");
-      return txt.includes(targetText);
-    });
-
-    if (!candidates.length) {
-      console.log(`⚪ [立绘引擎] 未找到：${targetText}`);
-      return false;
-    }
-
-    const targetNode = pickInnermostNode(candidates);
-    if (!targetNode) return false;
-
-    console.log(`✅ [立绘引擎] 锁定角色：${roleName}`, targetNode);
-
-    targetNode.setAttribute("data-pt-role", roleName);
-
-    Array.from(targetNode.children).forEach((child) => {
-      if (child.tagName !== "SCRIPT" && child.tagName !== "STYLE") {
-        child.style.display = "none";
-      }
-    });
-
-    Array.from(targetNode.childNodes).forEach((node) => {
-      if (node.nodeType === 3) node.textContent = "";
-    });
-
-    targetNode.style.cssText +=
-      "padding:0 !important;border:none !important;background:transparent !important;box-shadow:none !important;display:block !important;overflow:hidden !important;";
-
-    const holder = document.createElement("div");
-    holder.innerHTML = buildPortraitHTML(roleName, portraitUrl);
-    targetNode.appendChild(holder.firstElementChild);
-
-    return true;
+  function matchPortraitUrl(rawTag, map) {
+    const clean = rawTag.replace(/\s+/g, '');
+    if (map[clean]) return { name: clean, url: map[clean] };
+    if (map[rawTag]) return { name: rawTag, url: map[rawTag] };
+    const matchedKey = Object.keys(map).find((k) => k === clean || clean.includes(k) || k.includes(clean));
+    if (matchedKey) return { name: matchedKey, url: map[matchedKey] };
+    return null;
   }
 
   function scanAllRoles() {
     attemptCount++;
-    const portraitMap = getPortraitMap();
-    const entries = Object.entries(portraitMap);
+    const map = getPortraitMap();
+    const entries = Object.entries(map);
 
-    console.log(`🧭 [立绘引擎] 第 ${attemptCount}/${MAX_ATTEMPTS} 轮扫描`);
+    console.log(`🧭 [立绘引擎] 第 ${attemptCount}/${MAX_ATTEMPTS} 轮扫描 (单次DOM遍历模式)`);
 
     if (!entries.length) {
       if (attemptCount < MAX_ATTEMPTS) scheduleNextScan();
       return;
     }
 
+    const bodyText = document.body ? (document.body.innerText || document.body.textContent || "") : "";
+    if (!bodyText.includes("【立绘") && !bodyText.includes("【 立绘")) {
+      if (attemptCount < MAX_ATTEMPTS) {
+        scheduleNextScan();
+      } else {
+        console.log("🛌 [立绘引擎] 达到最大轮次，停止扫描。");
+      }
+      return;
+    }
+
+    const allElements = document.querySelectorAll(QUERY_SELECTOR);
+    const tagRegex = /【\s*立绘\s*([^】]+)\s*】/g;
     let replacedCount = 0;
 
-    // 关键：完整扫描整个映射表，不中途 return
-    entries.forEach(([roleName, portraitUrl]) => {
-      if (!roleName || !portraitUrl) return;
-      if (injectOneRole(roleName, portraitUrl)) replacedCount++;
+    allElements.forEach((el) => {
+      if (el.getAttribute("data-pt-role") || el.querySelector('[data-pt-wrapper="1"]')) return;
+
+      const txt = el.textContent || "";
+      if (!txt.includes("【立绘") && !txt.includes("【 立绘")) return;
+
+      const hasMatchingChild = Array.from(el.children).some((child) => {
+        const cTxt = child.textContent || "";
+        return cTxt.includes("【立绘") || cTxt.includes("【 立绘");
+      });
+      if (hasMatchingChild) return;
+
+      let match;
+      tagRegex.lastIndex = 0;
+      while ((match = tagRegex.exec(txt)) !== null) {
+        const rawRole = match[1].trim();
+        const found = matchPortraitUrl(rawRole, map);
+        if (found) {
+          console.log(`✅ [立绘引擎] 锁定并渲染角色：${found.name}（原始标签：${rawRole}）`, el);
+          el.setAttribute("data-pt-role", found.name);
+
+          Array.from(el.children).forEach((child) => {
+            if (child.tagName !== "SCRIPT" && child.tagName !== "STYLE") {
+              child.style.display = "none";
+            }
+          });
+
+          Array.from(el.childNodes).forEach((node) => {
+            if (node.nodeType === 3) node.textContent = "";
+          });
+
+          el.style.cssText +=
+            "padding:0 !important;border:none !important;background:transparent !important;box-shadow:none !important;display:block !important;overflow:hidden !important;";
+
+          const holder = document.createElement("div");
+          holder.innerHTML = buildPortraitHTML(found.name, found.url);
+          el.appendChild(holder.firstElementChild);
+
+          replacedCount++;
+          break;
+        }
+      }
     });
 
-    console.log(`📊 [立绘引擎] 本轮结果：替换 ${replacedCount}/${entries.length}`);
+    console.log(`📊 [立绘引擎] 本轮结果：匹配并替换 ${replacedCount} 处立绘`);
 
     if (attemptCount < MAX_ATTEMPTS) {
       scheduleNextScan();
@@ -2553,8 +2564,8 @@ function buildPortraitHTML(roleName, portraitUrl) {
       // [扩展] 人物头像映射表：可在此处自由增删人物名和对应的图片链接
       // === [新增] 高清立绘映射名单 (请在此维护立绘链接) ===
 window.PORTRAIT_MAP = {
-    "弗兰克脱衣": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克脱衣2_compressed.jpg",
-    "弗兰克穿衣": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克穿衣2_compressed.jpg",
+    "弗兰克(脱)": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克脱衣2_compressed.jpg",
+    "弗兰克": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克穿衣2_compressed.jpg",
     "埃利奥特": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/埃利奥特_compressed.jpg",
     "爱德华": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/爱德华_compressed.jpg",
     "玛德琳": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/玛德琳_compressed.jpg",
