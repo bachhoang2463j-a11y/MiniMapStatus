@@ -3369,6 +3369,20 @@ function buildPortraitHTML(roleName, portraitUrl) {
               </div>
             </div>
 
+            <!-- 人设提示词 -->
+            <div class="roster-surface p-2.5 rounded-xl border border-gray-700/10">
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-[11px] font-semibold text-gray-300">🎭 人设提示词（可选 · 更新 AI 撰写此角色内心/穿着时遵从）</span>
+              </div>
+              <textarea
+                id="mms-roster-persona"
+                rows="4"
+                spellcheck="false"
+                class="form-input w-full"
+                style="resize: vertical; min-height: 70px"
+                placeholder="例：性格沉稳寡言，说话简短直接。着装偏实用主义，永远穿着防风外套和军靴。内心活动以观察分析和警惕为主，很少表露情感。面对危险时冷静但不冷血。"></textarea>
+            </div>
+
             <div class="flex justify-end gap-2 pt-1 border-t border-gray-700/10">
               <button id="mms-roster-add" class="px-4 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 shadow-sm" type="button">
                 保存并加入名册
@@ -9318,6 +9332,7 @@ createCharacterEntry(text, categoryKey) {
         lines.push('');
         lines.push('## 固定成员规则（名单见用户消息）');
         lines.push('- 剧情提及固定成员 → 输出其条目（校验字段用命令，自由字段全量）。');
+        lines.push('- 若固定成员附有人设说明，撰写其内心、穿着、行为描述时必须遵从该人设（性格、说话风格、着装偏好、思考方式）。');
         lines.push('- 剧情明确显示其不在场 → 输出条目且内心字段写"不在场"，其余字段省略。');
         lines.push('- 剧情完全未提及 → 整个条目省略（程序自动保留其上次数值并标注）。');
         lines.push('');
@@ -10074,6 +10089,9 @@ createCharacterEntry(text, categoryKey) {
                 const keys = (r.attrs || []).map((a) => a.key).join('、');
                 const free = (r.freeFields && r.freeFields.length ? r.freeFields : ['穿着', '内心']).join('、');
                 userPrompt += '- ' + (mmsPlainName(r.name) || r.name) + '（属性键：' + (keys || '无') + '；自由字段：' + free + '）\n';
+                if (r.personaPrompt && String(r.personaPrompt).trim()) {
+                  userPrompt += '  人设：' + String(r.personaPrompt).trim() + '\n';
+                }
               }
               userPrompt += '</固定成员>\n\n';
             }
@@ -11338,6 +11356,9 @@ createCharacterEntry(text, categoryKey) {
               '</div>' +
               '<div class="flex items-center gap-1 my-1 flex-wrap">' + metricChips + '</div>' +
               '<div class="text-[10px] truncate">' + freeSnippet + '</div>' +
+              (r.personaPrompt
+                ? '<div class="text-[10px] truncate text-primary/70 mt-0.5">🎭 ' + String(r.personaPrompt).replace(/</g, '&lt;').slice(0, 30) + '…</div>'
+                : '') +
               '</div>' +
               '</div>' +
               '<div class="flex items-center gap-1 flex-shrink-0 pt-0.5">' +
@@ -11405,6 +11426,7 @@ createCharacterEntry(text, categoryKey) {
             freeInitials: freeInitials,
             weapons: get('mms-roster-weapons'),
             items: get('mms-roster-items'),
+            personaPrompt: get('mms-roster-persona'),
           };
 
           const roster = this.loadRoster();
@@ -11697,7 +11719,7 @@ createCharacterEntry(text, categoryKey) {
           if (idx == null) {
             if (titleEl) titleEl.textContent = '添加新角色至常驻名册';
             if (iconEl) iconEl.className = 'fa fa-user-plus';
-            for (const id of ['mms-roster-name', 'mms-roster-portrait', 'mms-roster-avatar', 'mms-roster-role', 'mms-roster-weapons', 'mms-roster-items']) {
+            for (const id of ['mms-roster-name', 'mms-roster-portrait', 'mms-roster-avatar', 'mms-roster-role', 'mms-roster-weapons', 'mms-roster-items', 'mms-roster-persona']) {
               const el = document.getElementById(id);
               if (el) el.value = '';
             }
@@ -11718,6 +11740,7 @@ createCharacterEntry(text, categoryKey) {
             set('mms-roster-role', r.role);
             set('mms-roster-weapons', r.weapons);
             set('mms-roster-items', r.items);
+            set('mms-roster-persona', r.personaPrompt);
             for (const a of r.attrs || []) {
               const m = String(a.value || '').match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/);
               this.appendAttrRow(a.key || '', m ? m[1] : a.value || '', m ? m[2] : '');
