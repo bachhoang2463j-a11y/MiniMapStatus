@@ -9299,6 +9299,7 @@ createCharacterEntry(text, categoryKey) {
           lines.push('- 据点字段：名称为自由文本；现金与' + (baseFieldList || '清单字段') + '为数值/清单字段。');
         }
         lines.push('- 若当前状态中存在其他自定义模块（如线索、情报等' + (baseOn ? '' : '、据点') + '），按其原有结构全量输出，不要丢弃。');
+        lines.push('- 严禁自行发明新的顶层模块或重复已有模块的变体（如已有「情报」再输出「局势情报」「防疫指南」）。只在当前状态已有模块的键名下更新，不要另起新键名。');
         lines.push('- 各模块描述格式沿用当前状态的风格（emoji、【】名称、[ ]物品括号等）。');
         lines.push('');
         lines.push('## 校验字段：只输出命令，禁止全量重写');
@@ -9836,11 +9837,27 @@ createCharacterEntry(text, categoryKey) {
         writeState(floorId, state) {
           // 写入前统一规范化，确保存储的永远是干净的模块化格式（无旧用户列表残留）
           const normalized = mmsNormalizeState(state) || state;
-          const vars = {
-            stat_data: normalized,
-            $mms_meta: { hash: this.hashStr(this.messageText), ts: Date.now() },
-          };
-          insertOrAssignVariables(vars, { type: 'message', message_id: floorId });
+          // 用 replaceVariables 整体替换 stat_data（insertOrAssign 的深合并无法删除旧键，
+          // 导致编辑器里删掉的模块/字段写不进去）
+          try {
+            if (typeof replaceVariables === 'function') {
+              const existing = getVariables({ type: 'message', message_id: floorId }) || {};
+              delete existing.__test_marker;
+              const next = Object.assign({}, existing, {
+                stat_data: normalized,
+                $mms_meta: { hash: this.hashStr(this.messageText), ts: Date.now() },
+              });
+              replaceVariables(next, { type: 'message', message_id: floorId });
+              return;
+            }
+          } catch (e) {
+            console.warn('[MMS] replaceVariables 失败，回退到 insertOrAssign:', e);
+          }
+          // 降级：无 replaceVariables 时用 insertOrAssign（旧键可能残留）
+          insertOrAssignVariables(
+            { stat_data: normalized, $mms_meta: { hash: this.hashStr(this.messageText), ts: Date.now() } },
+            { type: 'message', message_id: floorId },
+          );
         },
 
         // 从目标楼层往前找最近一份状态：优先变量快照，其次旧式 Status_block 文本
@@ -11851,14 +11868,14 @@ createCharacterEntry(text, categoryKey) {
                 if (!this.updating) this.setIndicator(null);
               }, 2000);
             } else {
-              this.setIndicator('updating', '检测到楼层内容变化，正在重新更新…');
-              this.maybeAutoUpdate();
+              // 内容变化（swipe/编辑/旧数据）：仅提示，不自动更新——手动点「立即更新」按钮触发
+              this.setIndicator('error', '状态与楼层内容不一致（swipe/编辑/旧数据）。点击此处或设置→立即更新 手动刷新');
             }
             if (this.isLastAssistantFloor) this.ensureInjection(state, floorId);
           } else {
             const legacyYaml = extractStatusBlock(this.messageText);
             if (legacyYaml) {
-              // 旧格式楼层：解析 → 规范化 → 渲染
+              // 旧格式楼层：解析 → 规范化 → 渲染（自动转换仅在最新AI楼执行一次）
               let legacyState = null;
               try {
                 const parsed = jsyaml.load(legacyYaml);
@@ -11872,19 +11889,20 @@ createCharacterEntry(text, categoryKey) {
                 updateYamlDataSource(legacyYaml);
                 setTimeout(() => reRenderStatusBar(), 100);
               }
-              this.maybeAutoUpdate(); // 旧格式楼层：异步生成变量快照
+              this.maybeAutoUpdate(); // 旧格式楼层首次转变量快照
             } else {
+              // 新式标记点楼层（无 stat_data）：如果是最新AI楼且从未有过任何变量 → 首次自动更新
               const prev = await this.findPrevState(floorId);
               if (prev) {
                 this.renderFromState(prev.state);
-                this.setIndicator('updating', '状态更新中…');
+                this.setIndicator('error', '状态更新中…点击或「立即更新」手动刷新');
               } else {
                 const t = document.getElementById('time-display');
                 const l = document.getElementById('location-display');
                 if (t) t.textContent = '⏳ 等待状态数据';
                 if (l) l.textContent = '📍 首次使用：设置 → 立即更新 或 从本楼导入';
+                this.maybeAutoUpdate(); // 完全无数据时首次自动跑
               }
-              this.maybeAutoUpdate();
             }
           }
 
@@ -11898,6 +11916,20 @@ createCharacterEntry(text, categoryKey) {
                 if (payload && payload.message_id === this.floorId) {
                   this.setIndicator('error', '更新失败：' + payload.error + '（点击重试）');
                 }
+              });
+              // 自动更新的唯一触发点：新AI楼层生成完毕（不是内容变化/swipe/编辑）
+              const newMsgEv =
+                (typeof tavern_events !== 'undefined' && tavern_events && tavern_events.MESSAGE_RECEIVED) ||
+                'message_received';
+              eventOn(newMsgEv, (messageId) => {
+                try {
+                  if (messageId == null) return;
+                  if (messageId !== this.floorId) return; // 只处理自己楼层
+                  // 检查该楼是否已有有效状态（有则不重复跑）
+                  const vars = this.readFloorVars(this.floorId);
+                  if (vars && vars.stat_data) return;
+                  this.maybeAutoUpdate();
+                } catch (e) { /* 忽略 */ }
               });
             } catch (e) {
               /* 事件系统异常不影响渲染 */
