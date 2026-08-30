@@ -3252,16 +3252,16 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <i class="fa fa-users mr-1"></i>固定角色名册
             </button>
             <button id="tab-btn-theme" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
-              <i class="fa fa-paint-brush mr-1"></i>界面与主题
-            </button>
-            <button id="tab-btn-behavior" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
-              <i class="fa fa-mouse-pointer mr-1"></i>行为交互
+              <i class="fa fa-paint-brush mr-1"></i>界面与交互
             </button>
             <button id="tab-btn-ai" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
               <i class="fa fa-magic mr-1"></i>独立 AI 更新
             </button>
             <button id="tab-btn-maps" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
               <i class="fa fa-map-o mr-1"></i>地图管理
+            </button>
+            <button id="tab-btn-history" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
+              <i class="fa fa-history mr-1"></i>历史回顾
             </button>
           </div>
         </div>
@@ -3496,12 +3496,8 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </div>
           </div>
           <p class="settings-hint">超过此数量才显示"+N"展开按钮；未展开时徽章保持单行，超出向右侧隐藏，可横向拖动查看</p>
-        </div>
 
-        <!-- ============================================================ -->
-        <!-- Tab 3：行为交互 -->
-        <!-- ============================================================ -->
-        <div id="tab-content-behavior" class="p-3.5 space-y-3" style="display: none">
+          <!-- 行动选项点击处理（原行为交互tab合并） -->
           <div class="settings-group">
             <label class="settings-label">行动选项点击处理</label>
             <div class="action-mode-options">
@@ -3706,6 +3702,27 @@ function buildPortraitHTML(roleName, portraitUrl) {
             点击选择标签后一键迁入对应地图（标签在两栏间互斥，重置则回池）；只有分配到对应地图的标签会出现在发给更新
             AI 的提示词白名单中（关闭的地图整体不注入）；标签来源：SVG 矢量场景与 BACKGROUND_MAP 外链图片（带缩略图标记）
           </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- Tab 6：历史回顾 -->
+        <!-- ============================================================ -->
+        <div id="tab-content-history" class="p-3.5 space-y-3" style="display: none">
+          <div class="flex justify-between items-center roster-surface rounded-xl border border-gray-700/10 px-3 py-2">
+            <div>
+              <span class="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                <i class="fa fa-history text-primary"></i> 修改历史
+                <span id="mms-history-count" class="mms-count-badge">0 条</span>
+              </span>
+              <p class="text-[10px] text-gray-400 mt-0.5">每轮更新记录一次快照；相对上轮增加标绿、删除/降低标红；可随时恢复到任一快照</p>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <label class="text-[10px] text-gray-400" for="mms-history-limit">上限</label>
+              <input id="mms-history-limit" type="number" min="1" max="50" step="1" style="width: 52px" class="form-input" />
+              <button id="mms-history-clear" class="mms-btn" type="button" style="padding: 2px 8px">清空历史</button>
+            </div>
+          </div>
+          <div id="mms-history-list" class="space-y-2"></div>
         </div>
       </div>
     </div>
@@ -4108,10 +4125,10 @@ const AVATAR_MAP = {
       // 方案二：设置视图就地整栏切换（无遮罩模态）
       const MMS_SETTING_TAB_NAMES = {
         roster: '固定角色名册',
-        theme: '界面与主题',
-        behavior: '行为交互',
+        theme: '界面与交互',
         ai: '独立 AI 更新',
         maps: '地图管理',
+        history: '历史回顾',
       };
 
       function mmsToggleSettingsView(show) {
@@ -4131,16 +4148,16 @@ const AVATAR_MAP = {
         const tabBtns = {
           roster: document.getElementById('tab-btn-roster'),
           theme: document.getElementById('tab-btn-theme'),
-          behavior: document.getElementById('tab-btn-behavior'),
           ai: document.getElementById('tab-btn-ai'),
           maps: document.getElementById('tab-btn-maps'),
+          history: document.getElementById('tab-btn-history'),
         };
         const tabContents = {
           roster: document.getElementById('tab-content-roster'),
           theme: document.getElementById('tab-content-theme'),
-          behavior: document.getElementById('tab-content-behavior'),
           ai: document.getElementById('tab-content-ai'),
           maps: document.getElementById('tab-content-maps'),
+          history: document.getElementById('tab-content-history'),
         };
         Object.keys(tabBtns).forEach(k => {
           if (tabBtns[k]) {
@@ -8838,6 +8855,122 @@ createCharacterEntry(text, categoryKey) {
       }
 
       // 据点固定模块模板：名称/现金基线 + 自定义清单字段
+      // ---------- 历史回顾：状态差异计算 ----------
+
+      // 从状态中提取量化数据点（角色属性/物品数量/据点现金/清单数量/人物在场/地图地标）
+      function mmsExtractQuantPoints(state) {
+        const points = new Map();
+        const root = state && (state['状态栏'] || state);
+        if (!root || typeof root !== 'object') return points;
+
+        const setPoint = (path, value, label) => {
+          points.set(path, { value, label });
+        };
+
+        // 角色属性与物品
+        const chars = Array.isArray(root['角色列表']) ? root['角色列表'] : [];
+        for (const entry of chars) {
+          const c = entry && (entry['角色'] || entry['用户'] || entry);
+          if (!c || typeof c !== 'object') continue;
+          const nf = mmsFindNameField(c);
+          const name = nf ? String(c[nf] || '') : '';
+          const plain = mmsPlainName(name) || name;
+          if (!plain) continue;
+          // 属性段解析
+          const attrs = mmsParseAttrList(c['属性'] || '');
+          for (const a of attrs) {
+            setPoint('attr:' + plain + ':' + a.display, a.value, plain + '·' + a.display + ' = ' + a.value);
+          }
+          // 物品清单解析
+          const items = mmsParseItemList(c['物品'] || c['武器'] || '');
+          for (const it of items.items) {
+            const cnt = it.count != null ? it.count : 1;
+            setPoint('item:' + plain + ':' + it.name, cnt, plain + '·' + it.name + ' ×' + cnt);
+          }
+          // 在场状态
+          setPoint('char:' + plain, 1, plain + ' 在场');
+        }
+
+        // 据点
+        const B = root['据点'];
+        if (B && typeof B === 'object') {
+          const cashNum = String(B['现金'] || '').match(/-?\d[\d,]*(?:\.\d+)?/);
+          if (cashNum) setPoint('base:cash', parseFloat(cashNum[0].replace(/,/g, '')), '据点·现金 = ' + B['现金']);
+          for (const k of Object.keys(B)) {
+            if (k === '名称' || k === '现金') continue;
+            const list = mmsParseItemList(String(B[k] || ''));
+            for (const it of list.items) {
+              const cnt = it.count != null ? it.count : 1;
+              setPoint('base:' + k + ':' + it.name, cnt, '据点·' + it.name + ' ×' + cnt);
+            }
+          }
+        }
+
+        // 人物在场
+        const P = root['人物'];
+        if (P && typeof P === 'object') {
+          for (const cat of Object.keys(P)) {
+            const arr = Array.isArray(P[cat]) ? P[cat] : [];
+            for (const line of arr) {
+              const m = String(line || '').match(/【([^】]+)】/);
+              if (m) setPoint('person:' + cat + ':' + m[1], 1, cat + '·' + m[1]);
+            }
+          }
+        }
+
+        // 地图地标
+        for (const mapKey of ['小地图', '大地图']) {
+          const M = root[mapKey];
+          if (M && typeof M === 'object') {
+            for (const scene of Object.keys(M)) {
+              const arr = Array.isArray(M[scene]) ? M[scene] : [];
+              for (const line of arr) {
+                const m = String(line || '').match(/【([^】]+)】/);
+                if (m) setPoint('map:' + mapKey + ':' + m[1], 1, mapKey + '·' + m[1]);
+              }
+            }
+          }
+        }
+
+        return points;
+      }
+
+      // 比较两份状态：新增标绿(type=add)、删除/数值降低标红(type=remove/desc)
+      function mmsDiffStates(prevState, newState) {
+        const diff = [];
+        const prevPts = mmsExtractQuantPoints(prevState);
+        const newPts = mmsExtractQuantPoints(newState);
+
+        // 新增 / 数值变化
+        for (const [key, pt] of newPts) {
+          const old = prevPts.get(key);
+          if (!old) {
+            diff.push({ type: 'add', label: pt.label, detail: '新增' });
+          } else {
+            const oldV = typeof old.value === 'number' ? old.value : mmsAttrToNumber(old.value);
+            const newV = typeof pt.value === 'number' ? pt.value : mmsAttrToNumber(pt.value);
+            if (oldV != null && newV != null) {
+              if (newV < oldV) {
+                diff.push({ type: 'desc', label: pt.label, detail: old.value + ' → ' + pt.value });
+              } else if (newV > oldV) {
+                diff.push({ type: 'add', label: pt.label, detail: old.value + ' → ' + pt.value });
+              }
+            } else if (String(old.value) !== String(pt.value)) {
+              diff.push({ type: 'desc', label: pt.label, detail: old.value + ' → ' + pt.value });
+            }
+          }
+        }
+
+        // 删除
+        for (const [key, pt] of prevPts) {
+          if (!newPts.has(key)) {
+            diff.push({ type: 'remove', label: pt.label, detail: '已移除' });
+          }
+        }
+
+        return diff;
+      }
+
       function mmsTemplateBase(baseCfg) {
         const b = {};
         if (baseCfg.name) b['名称'] = baseCfg.name;
@@ -9461,6 +9594,190 @@ createCharacterEntry(text, categoryKey) {
           }
         },
 
+        // ---------- 历史回顾（快照 + diff） ----------
+
+        loadHistory() {
+          const fallback = { limit: 10, entries: [] };
+          try {
+            if (!this.env.hasVarsApi) return fallback;
+            const chatVars = getVariables({ type: 'chat' }) || {};
+            const h = chatVars && chatVars.$mms_history;
+            if (!h || typeof h !== 'object') return fallback;
+            const lim = parseInt(h.limit, 10);
+            return {
+              limit: isNaN(lim) ? 10 : Math.max(1, Math.min(50, lim)),
+              entries: Array.isArray(h.entries) ? h.entries.filter(Boolean) : [],
+            };
+          } catch (e) {
+            return fallback;
+          }
+        },
+
+        saveHistory(history) {
+          try {
+            if (!this.env.hasVarsApi) return;
+            insertOrAssignVariables({ $mms_history: history }, { type: 'chat' });
+          } catch (e) {
+            console.warn('[MMS] 保存历史失败:', e);
+          }
+        },
+
+        // 追加一轮快照（prevState 更新前，newState 更新后），超限移除最旧（锁定除外）
+        appendHistory(prevState, newState, floorId) {
+          try {
+            const history = this.loadHistory();
+            const diff = mmsDiffStates(prevState, newState);
+            history.entries.push({
+              ts: Date.now(),
+              floorId: floorId,
+              diff: diff,
+              // 快照只存"更新前"与"更新后"两份精简数据（恢复时写入 newState； prevState 用于渲染diff）
+              state: JSON.parse(JSON.stringify(newState)),
+              locked: false,
+            });
+            // 上限控制：优先移除最旧的未锁定条目
+            while (history.entries.length > history.limit) {
+              const idx = history.entries.findIndex((e) => !e.locked);
+              if (idx === -1) break; // 全部锁定，不再移除
+              history.entries.splice(idx, 1);
+            }
+            this.saveHistory(history);
+          } catch (e) {
+            console.warn('[MMS] 追加历史失败:', e);
+          }
+        },
+
+        // 状态差异：相对 prevState，newState 中新增标绿（type=add），删除/数值降低标红（type=remove/del）
+        mmsRenderHistoryList() {
+          const listEl = document.getElementById('mms-history-list');
+          const countEl = document.getElementById('mms-history-count');
+          if (!listEl) return;
+          const history = this.loadHistory();
+          if (countEl) countEl.textContent = history.entries.length + ' 条';
+          listEl.innerHTML = '';
+          if (!history.entries.length) {
+            listEl.innerHTML = '<div class="text-xs text-gray-500 py-2">暂无历史记录。每轮状态更新会自动记录一次快照</div>';
+            return;
+          }
+          // 倒序：最新在前
+          const entries = [...history.entries].reverse();
+          entries.forEach((entry, rIdx) => {
+            const idx = history.entries.length - 1 - rIdx; // 原始索引
+            const time = new Date(entry.ts).toLocaleString();
+            const item = document.createElement('details');
+            item.className = 'roster-surface rounded-xl border border-gray-700/10';
+            const diffCount = entry.diff ? entry.diff.length : 0;
+            const addCount = entry.diff ? entry.diff.filter((d) => d.type === 'add').length : 0;
+            const delCount = entry.diff ? entry.diff.filter((d) => d.type !== 'add').length : 0;
+            item.innerHTML =
+              '<summary class="px-3 py-2 cursor-pointer flex justify-between items-center list-none text-xs">' +
+              '<span class="font-semibold text-gray-300"><i class="fa fa-clock-o text-primary mr-1"></i>' +
+              time + ' · 第' + (entry.floorId != null ? entry.floorId : '?') + '楼</span>' +
+              '<span class="flex items-center gap-1.5">' +
+              (diffCount ? '<span class="text-emerald-500">+' + addCount + '</span><span class="text-red-400">-' + delCount + '</span>' : '<span class="text-gray-500">无变化</span>') +
+              '<span class="text-[10px] text-gray-500">详情</span></span>' +
+              '</summary>' +
+              '<div class="px-3 pb-2.5 space-y-1.5" data-history-body="' + idx + '"></div>';
+            listEl.appendChild(item);
+
+            // 展开时渲染diff明细（懒加载）
+            item.addEventListener('toggle', () => {
+              if (!item.open) return;
+              const body = item.querySelector('[data-history-body]');
+              if (body && body.dataset.rendered) return;
+              if (body) {
+                body.dataset.rendered = '1';
+                this.mmsRenderHistoryDiff(body, entry, idx);
+              }
+            });
+          });
+        },
+
+        mmsRenderHistoryDiff(body, entry, idx) {
+          const esc = (s) =>
+            String(s == null ? '' : s)
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+          const diff = entry.diff || [];
+          let html = '';
+          if (!diff.length) {
+            html = '<div class="text-[11px] text-gray-500">本轮无量化数据变化</div>';
+          } else {
+            for (const d of diff) {
+              const color = d.type === 'add' ? 'text-emerald-500' : 'text-red-400';
+              const icon = d.type === 'add' ? '▲' : d.type === 'remove' ? '✕' : '▼';
+              html +=
+                '<div class="text-[11px] ' + color + ' flex items-start gap-1.5">' +
+                '<span>' + icon + '</span><span>' + esc(d.label) +
+                (d.detail ? ' <span class="opacity-70">(' + esc(d.detail) + ')</span>' : '') +
+                '</span></div>';
+            }
+          }
+          // 操作按钮
+          html +=
+            '<div class="flex justify-end gap-1.5 pt-1.5 border-t border-gray-700/10 mt-1.5">' +
+            '<button data-history-lock="' + idx + '" class="mms-btn" style="padding:2px 8px" type="button">' +
+            (entry.locked ? '🔒 已锁定（点击解锁）' : '🔓 锁定') + '</button>' +
+            '<button data-history-del="' + idx + '" class="mms-btn" style="padding:2px 8px" type="button">删除</button>' +
+            '<button data-history-restore="' + idx + '" class="mms-btn mms-btn-primary" style="padding:2px 8px" type="button">恢复此快照</button>' +
+            '</div>';
+          body.innerHTML = html;
+
+          body.querySelector('[data-history-lock]').addEventListener('click', () => {
+            const h = this.loadHistory();
+            if (h.entries[idx]) h.entries[idx].locked = !h.entries[idx].locked;
+            this.saveHistory(h);
+            this.mmsRenderHistoryList();
+          });
+          body.querySelector('[data-history-del]').addEventListener('click', () => {
+            const h = this.loadHistory();
+            h.entries.splice(idx, 1);
+            this.saveHistory(h);
+            this.mmsRenderHistoryList();
+          });
+          body.querySelector('[data-history-restore]').addEventListener('click', () => {
+            const h = this.loadHistory();
+            const snap = h.entries[idx];
+            if (!snap || !snap.state) return;
+            if (!confirm('恢复到 ' + new Date(snap.ts).toLocaleString() + ' 的快照？当前状态将被覆盖')) return;
+            this.writeState(this.floorId, snap.state);
+            this.renderFromState(snap.state);
+            if (this.checkLastAssistantFloor(this.floorId)) this.ensureInjection(snap.state, this.floorId);
+            this.setIndicator('ok', '已恢复快照');
+            setTimeout(() => {
+              if (!this.updating) this.setIndicator(null);
+            }, 3000);
+            if (this.env.hasEventApi) {
+              eventEmit(MMS_EVENT_UPDATED, { message_id: this.floorId, state: snap.state });
+            }
+          });
+        },
+
+        initHistoryUI() {
+          const limitEl = document.getElementById('mms-history-limit');
+          if (limitEl) {
+            limitEl.value = String(this.loadHistory().limit);
+            limitEl.addEventListener('change', () => {
+              const h = this.loadHistory();
+              const v = parseInt(limitEl.value, 10);
+              h.limit = isNaN(v) ? 10 : Math.max(1, Math.min(50, v));
+              limitEl.value = String(h.limit);
+              this.saveHistory(h);
+              this.mmsRenderHistoryList();
+            });
+          }
+          const clearBtn = document.getElementById('mms-history-clear');
+          if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+              if (!confirm('清空全部修改历史？')) return;
+              this.saveHistory({ limit: this.loadHistory().limit, entries: [] });
+              this.mmsRenderHistoryList();
+            });
+          }
+          this.mmsRenderHistoryList();
+        },
+
         saveRoster(roster) {
           try {
             if (!this.env.hasVarsApi) return;
@@ -9807,6 +10124,9 @@ createCharacterEntry(text, categoryKey) {
                 );
                 this.saveAbsence(absence);
                 this.sanitizeState(state);
+
+                // 历史快照：记录更新前→更新后的差异
+                this.appendHistory(prev ? prev.state : null, state, targetFloorId);
 
                 this.writeState(targetFloorId, state);
 
@@ -10161,6 +10481,7 @@ createCharacterEntry(text, categoryKey) {
           }
 
           this.initRosterUI();
+          this.initHistoryUI();
         },
 
         // ---------- API 预设 UI ----------
