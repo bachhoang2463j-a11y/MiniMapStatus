@@ -2906,6 +2906,27 @@ function buildPortraitHTML(roleName, portraitUrl) {
         opacity: 0.5;
         cursor: not-allowed;
       }
+      .mms-core-prompt-readonly {
+        background: rgba(0, 0, 0, 0.15);
+        color: #9ca3af;
+        font-size: 11px;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        line-height: 1.5;
+      }
+      .mms-core-prompt-readonly.unlocked {
+        background: rgba(0, 0, 0, 0.35);
+        color: inherit;
+        border-color: #6366f1;
+      }
+      .romantic-mode .mms-core-prompt-readonly,
+      .classic-mode .mms-core-prompt-readonly {
+        background: rgba(0, 0, 0, 0.06);
+      }
+      @media (max-width: 520px) {
+        #mms-llm-help-grid {
+          grid-template-columns: 1fr !important;
+        }
+      }
     </style>
 
     <div id="mms-main-view" class="w-full px-1.5 py-4">
@@ -3144,12 +3165,12 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </button>
           </div>
 
-          <!-- 添加角色表单抽屉（默认收起） -->
+          <!-- 添加/编辑角色表单抽屉（默认收起） -->
           <div id="mms-roster-form" class="roster-form-card p-3 rounded-2xl border border-primary/30 space-y-3" style="display: none">
             <div class="flex justify-between items-center border-b border-gray-700/15 pb-2">
               <div class="flex items-center gap-1.5 text-xs font-bold text-primary">
-                <i class="fa fa-user-plus"></i>
-                <span>添加新角色至常驻名册</span>
+                <i class="fa fa-user-plus" id="mms-roster-form-icon"></i>
+                <span id="mms-roster-form-title">添加新角色至常驻名册</span>
               </div>
               <button id="mms-roster-cancel" class="text-gray-400 hover:text-gray-200 text-xs" type="button">
                 <i class="fa fa-times"></i>
@@ -3164,15 +3185,25 @@ function buildPortraitHTML(roleName, portraitUrl) {
               </div>
               <div>
                 <label class="text-[11px] font-semibold text-gray-300 block mb-1">立绘标签 / 链接 (可选)</label>
-                <input id="mms-roster-portrait" type="text" class="form-input w-full" placeholder="如：【立绘林有声】，留空按名字匹配" spellcheck="false" />
+                <input id="mms-roster-portrait" type="text" class="form-input w-full" list="mms-portrait-list" placeholder="如：【立绘林有声】/ 名称 / 网址" spellcheck="false" />
               </div>
             </div>
 
-            <!-- 身份头衔 -->
-            <div>
-              <label class="text-[11px] font-semibold text-gray-300 block mb-1">身份头衔 / 描述</label>
-              <input id="mms-roster-role" type="text" class="form-input w-full" placeholder="如：调查员 / 语言学者，或 青云宗剑修弟子" spellcheck="false" />
+            <!-- 头像（小地图显示）+ 身份头衔 -->
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-[11px] font-semibold text-gray-300 block mb-1">头像（小地图显示，可选）</label>
+                <input id="mms-roster-avatar" type="text" class="form-input w-full" list="mms-avatar-list" placeholder="名称 / 网址，留空按名字匹配" spellcheck="false" />
+              </div>
+              <div>
+                <label class="text-[11px] font-semibold text-gray-300 block mb-1">身份头衔 / 描述</label>
+                <input id="mms-roster-role" type="text" class="form-input w-full" placeholder="如：调查员 / 语言学者" spellcheck="false" />
+              </div>
             </div>
+
+            <!-- 内置图片名称下拉（立绘 / 头像） -->
+            <datalist id="mms-portrait-list"></datalist>
+            <datalist id="mms-avatar-list"></datalist>
 
             <!-- 核心校验属性（数值三列动态行） -->
             <div class="roster-surface p-2.5 rounded-xl border border-gray-700/10 space-y-2">
@@ -3221,7 +3252,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </div>
           </div>
 
-          <!-- 名册卡片列表（头像 + 数值胶囊 + 摘要 + 删除） -->
+          <!-- 名册卡片列表（头像 + 数值胶囊 + 摘要 + 编辑/删除） -->
           <div id="mms-roster-list" class="space-y-2"></div>
 
           <!-- 占位文案 -->
@@ -3393,23 +3424,93 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </div>
           </div>
 
-          <!-- 自定义提示词 -->
+          <!-- 更新提示词（系统提示词 + 自定义提示词 + LLM协助） -->
           <div class="settings-group">
-            <label class="settings-label">自定义更新提示词</label>
+            <div class="flex justify-between items-center">
+              <label class="settings-label">更新提示词</label>
+              <button id="mms-llm-help-btn" class="mms-btn" type="button">
+                <i class="fa fa-magic mr-1"></i>LLM 协助
+              </button>
+            </div>
             <div class="mms-field">
-              <label for="mms-custom-prompt">系统提示词（完全替换内置默认，可自定义卡片类型协议）</label>
+              <label for="mms-core-prompt">
+                系统提示词（协议核心 · 默认只读，<b>双击解锁编辑</b>，清空保存即恢复内置默认）
+              </label>
+              <textarea id="mms-core-prompt" rows="8" spellcheck="false" readonly class="mms-core-prompt-readonly"></textarea>
+              <p class="settings-hint">此处完整展示发送给更新 LLM 的协议核心（模块结构 + 命令语法 + 固定成员规则）</p>
+            </div>
+            <div class="mms-field">
+              <label for="mms-custom-prompt">
+                自定义提示词（追加在系统提示词之后 · 可定义线索/情报等自定义卡片格式）
+              </label>
               <textarea
                 id="mms-custom-prompt"
-                rows="10"
+                rows="6"
                 spellcheck="false"
-                placeholder="留空使用内置默认提示词（跑团状态栏数据管理员 v2：模块结构 + 命令协议 + 固定成员规则）。&#10;&#10;发送给更新AI的内容固定为：&#10;[系统] 本提示词&#10;[用户] &lt;当前状态&gt;上一次的状态YAML + &lt;固定成员&gt;名册 + &lt;前情提要&gt;往前N-1楼AI正文 + &lt;最新剧情&gt;本楼正文&#10;&#10;不包含：世界书、角色卡、用户人设、酒馆预设、用户楼层。"
+                placeholder="## 自定义卡片模块（示例格式，按需修改）&#10;若剧情涉及以下模块，按此结构全量输出，AI 省略时系统会保留上次内容：&#10;&quot;线索&quot;: { &quot;已知线索&quot;: [&quot;线索内容…&quot;], &quot;待查证&quot;: [&quot;…&quot;] }&#10;&quot;情报&quot;: { &quot;江湖传闻&quot;: [&quot;…&quot;] }&#10;&#10;也可以只写简单要求（如&quot;增加一个关系网卡片&quot;），然后点右上角 LLM 协助生成标准格式。"
               ></textarea>
               <div class="flex justify-end mt-1">
-                <button id="mms-prompt-reset" class="mms-btn" type="button" style="padding: 3px 10px">恢复默认提示词</button>
+                <button id="mms-prompt-reset" class="mms-btn" type="button" style="padding: 3px 10px">清空自定义提示词</button>
               </div>
             </div>
             <p class="settings-hint">配置保存在酒馆助手的全局变量中（跟随用户存档，PC / 手机共用）</p>
           </div>
+
+          <!-- Debug 模式 -->
+          <div class="settings-group">
+            <label class="mms-toggle-row" style="margin-bottom: 8px">
+              <input type="checkbox" id="mms-debug-toggle" />
+              <span>Debug 模式（记录发送给独立 LLM 的完整提示词与返回结果）</span>
+            </label>
+            <div id="mms-debug-panel" class="roster-surface rounded-xl border border-gray-700/10 p-2.5 space-y-2" style="display: none">
+              <div class="flex justify-between items-center">
+                <span class="text-xs font-bold text-gray-300"><i class="fa fa-bug text-primary mr-1"></i>最近一次请求</span>
+                <div class="flex gap-1.5">
+                  <button id="mms-debug-copy" class="mms-btn" type="button" style="padding: 2px 8px">复制</button>
+                  <button id="mms-debug-clear" class="mms-btn" type="button" style="padding: 2px 8px">清空</button>
+                </div>
+              </div>
+              <div id="mms-debug-content" class="text-[11px] font-mono text-gray-400 space-y-2 max-h-72 overflow-y-auto"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MMS：LLM 协助生成自定义提示词（双栏弹窗） -->
+    <div id="mms-llm-help-modal" class="settings-panel">
+      <div class="settings-content theme-transition">
+        <div class="flex justify-between items-center mb-3">
+          <h2 class="text-base font-bold text-gray-300 flex items-center">
+            <i class="fa fa-magic text-primary mr-2"></i>LLM 协助 · 生成自定义提示词
+          </h2>
+          <button id="mms-llm-help-close" class="theme-btn rounded-full hover:bg-gray-700/30" title="关闭">
+            <i class="fa fa-times"></i>
+          </button>
+        </div>
+        <p class="text-[11px] text-gray-400 mb-3 leading-relaxed">
+          右栏用自然语言描述你的需求（如"增加线索卡片，记录已发现的线索和待查证的问题"），发送一次 API 请求后，
+          AI 会返回符合状态栏协议的自定义提示词填入左栏——你可以继续手动修改，满意后点「应用」保存。
+        </p>
+        <div class="grid grid-cols-1 gap-3" style="grid-template-columns: 1fr 1fr" id="mms-llm-help-grid">
+          <div class="mms-field">
+            <label>当前自定义提示词（可编辑 · AI 结果会填入此处）</label>
+            <textarea id="mms-llm-help-current" rows="12" spellcheck="false" class="text-[11px] font-mono"></textarea>
+          </div>
+          <div class="flex flex-col gap-2">
+            <div class="mms-field" style="flex: 1">
+              <label>你的要求（自然语言）</label>
+              <textarea id="mms-llm-help-request" rows="9" spellcheck="false" placeholder="例：增加一个「线索」卡片模块，包含已知线索与待查证两组；再增加「情报」模块记录江湖传闻"></textarea>
+            </div>
+            <button id="mms-llm-help-send" class="mms-btn mms-btn-primary" type="button">
+              <i class="fa fa-paper-plane mr-1"></i>发送请求
+            </button>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-3 pt-2 border-t border-gray-700/20">
+          <button id="mms-llm-help-apply" class="mms-btn mms-btn-primary" type="button">
+            <i class="fa fa-check mr-1"></i>应用到自定义提示词
+          </button>
         </div>
       </div>
     </div>
@@ -8705,6 +8806,8 @@ createCharacterEntry(text, categoryKey) {
             contextFloors: 2,
             temperature: 0.3,
             maxTokens: 4096,
+            corePrompt: '', // 系统提示词覆盖（空=内置默认）
+            debug: false,
           };
           try {
             if (!this.env.hasVarsApi) return defaults;
@@ -9051,10 +9154,15 @@ createCharacterEntry(text, categoryKey) {
               '\n</最新剧情>\n\n请输出更新后的完整状态栏 JSON。';
 
             const customApi = this.buildCustomApi(cfg);
-            const sysPrompt =
-              cfg.systemPrompt && String(cfg.systemPrompt).trim()
-                ? String(cfg.systemPrompt)
+            // 系统提示词 = 协议核心（可覆盖）+ 自定义提示词（追加）
+            const corePrompt =
+              cfg.corePrompt && String(cfg.corePrompt).trim()
+                ? String(cfg.corePrompt)
                 : MMS_UPDATE_SYSTEM_PROMPT;
+            const extraPrompt = cfg.systemPrompt && String(cfg.systemPrompt).trim()
+              ? '\n\n' + String(cfg.systemPrompt).trim()
+              : '';
+            const sysPrompt = corePrompt + extraPrompt;
             let lastError = null;
 
             for (let attempt = 0; attempt < 3; attempt++) {
@@ -9073,6 +9181,8 @@ createCharacterEntry(text, categoryKey) {
 
                 const result = await generateRaw(config);
                 const raw = typeof result === 'string' ? result : (result && result.content) || '';
+                // Debug：记录本次请求的完整提示词与原始返回
+                this.debugLog(sysPrompt, userPrompt, raw, customApi);
                 const parsed = this.parseStateOutput(raw);
                 const aiState = mmsNormalizeState(parsed) || parsed;
                 // 合并：校验命令应用 + 固定名册 + 自定义模块兜底
@@ -9351,6 +9461,132 @@ createCharacterEntry(text, categoryKey) {
               this.saveConfig(c);
             });
           }
+
+          // ---------- 系统提示词：只读展示 + 双击解锁编辑 ----------
+          const coreTa = document.getElementById('mms-core-prompt');
+          if (coreTa) {
+            const syncCorePrompt = () => {
+              const c = this.loadConfig();
+              coreTa.value = c.corePrompt && String(c.corePrompt).trim() ? String(c.corePrompt) : MMS_UPDATE_SYSTEM_PROMPT;
+            };
+            syncCorePrompt();
+            coreTa.addEventListener('dblclick', () => {
+              coreTa.removeAttribute('readonly');
+              coreTa.classList.remove('mms-core-prompt-readonly');
+              coreTa.classList.add('unlocked');
+              coreTa.title = '编辑中：清空并失焦即恢复内置默认';
+              coreTa.focus();
+            });
+            coreTa.addEventListener('blur', () => {
+              const c = this.loadConfig();
+              const text = coreTa.value.trim();
+              if (!text || text === MMS_UPDATE_SYSTEM_PROMPT) {
+                delete c.corePrompt; // 清空或与内置一致 → 恢复默认
+              } else {
+                c.corePrompt = coreTa.value;
+              }
+              this.saveConfig(c);
+              coreTa.setAttribute('readonly', 'readonly');
+              coreTa.classList.add('mms-core-prompt-readonly');
+              coreTa.classList.remove('unlocked');
+              coreTa.title = '双击解锁编辑';
+              syncCorePrompt();
+            });
+          }
+
+          // ---------- Debug 模式 ----------
+          const debugChk = document.getElementById('mms-debug-toggle');
+          const debugPanel = document.getElementById('mms-debug-panel');
+          if (debugChk) {
+            debugChk.checked = !!cfg.debug;
+            const syncDebugPanel = () => {
+              if (debugPanel) debugPanel.style.display = debugChk.checked ? 'block' : 'none';
+              if (debugChk.checked) this.renderDebugPanel(this.loadDebugEntry());
+            };
+            debugChk.addEventListener('change', () => {
+              const c = this.loadConfig();
+              c.debug = debugChk.checked;
+              this.saveConfig(c);
+              syncDebugPanel();
+            });
+            syncDebugPanel();
+          }
+          const debugCopy = document.getElementById('mms-debug-copy');
+          if (debugCopy) {
+            debugCopy.addEventListener('click', () => {
+              const entry = this.loadDebugEntry();
+              if (!entry) return;
+              const text =
+                '=== [system] ===\n' +
+                entry.sysPrompt +
+                '\n\n=== [user] ===\n' +
+                entry.userPrompt +
+                '\n\n=== LLM返回 ===\n' +
+                entry.response;
+              try {
+                navigator.clipboard.writeText(text).then(
+                  () => {
+                    debugCopy.textContent = '已复制';
+                    setTimeout(() => (debugCopy.textContent = '复制'), 1500);
+                  },
+                  () => alert('复制失败，请手动选择文本'),
+                );
+              } catch (e) {
+                alert('复制失败：' + e.message);
+              }
+            });
+          }
+          const debugClear = document.getElementById('mms-debug-clear');
+          if (debugClear) {
+            debugClear.addEventListener('click', () => {
+              const content = document.getElementById('mms-debug-content');
+              if (content) content.innerHTML = '<div class="text-gray-500 text-xs">暂无记录</div>';
+              if (this.floorId != null && this.env.hasVarsApi) {
+                try {
+                  insertOrAssignVariables({ $mms_debug: null }, { type: 'message', message_id: this.floorId });
+                } catch (e) { /* 忽略 */ }
+              }
+            });
+          }
+
+          // ---------- LLM 协助弹窗 ----------
+          const helpBtn = document.getElementById('mms-llm-help-btn');
+          const helpModal = document.getElementById('mms-llm-help-modal');
+          const helpClose = document.getElementById('mms-llm-help-close');
+          const helpCurrent = document.getElementById('mms-llm-help-current');
+          if (helpBtn && helpModal) {
+            helpBtn.addEventListener('click', () => {
+              if (helpCurrent) helpCurrent.value = (this.loadConfig().systemPrompt || '');
+              helpModal.style.display = 'flex';
+              document.body.style.overflow = 'hidden';
+            });
+          }
+          const closeHelp = () => {
+            if (helpModal) helpModal.style.display = 'none';
+            document.body.style.overflow = '';
+          };
+          if (helpClose) helpClose.addEventListener('click', closeHelp);
+          if (helpModal) {
+            helpModal.addEventListener('click', (e) => {
+              if (e.target === helpModal) closeHelp();
+            });
+          }
+          const helpSend = document.getElementById('mms-llm-help-send');
+          if (helpSend) helpSend.addEventListener('click', () => this.llmHelpGenerate());
+          const helpApply = document.getElementById('mms-llm-help-apply');
+          if (helpApply && helpCurrent) {
+            helpApply.addEventListener('click', () => {
+              const c = this.loadConfig();
+              const text = helpCurrent.value.trim();
+              if (text) c.systemPrompt = text;
+              else delete c.systemPrompt;
+              this.saveConfig(c);
+              const ta = document.getElementById('mms-custom-prompt');
+              if (ta) ta.value = text;
+              closeHelp();
+            });
+          }
+
           const sourceSel = document.getElementById('mms-api-source');
           if (sourceSel) {
             sourceSel.value = cfg.source || 'custom';
@@ -9371,18 +9607,19 @@ createCharacterEntry(text, categoryKey) {
         initRosterUI() {
           if (!this.env.hasVarsApi) return;
 
+          // 内置图片名称下拉 + 名册头像覆盖
+          this.fillImageDatalists();
+          this.applyRosterAvatars(this.loadRoster());
           this.renderRosterList();
 
           const newBtn = document.getElementById('mms-roster-new');
           const form = document.getElementById('mms-roster-form');
           if (newBtn && form) {
             newBtn.addEventListener('click', () => {
-              const opening = form.style.display === 'none' || form.style.display === '';
-              form.style.display = opening ? 'block' : 'none';
-              if (opening) {
-                this.seedRosterForm();
-                const nameEl = document.getElementById('mms-roster-name');
-                if (nameEl) nameEl.focus();
+              if (form.style.display === 'block') {
+                form.style.display = 'none';
+              } else {
+                this.openRosterForm(null);
               }
             });
             form.style.display = 'none';
@@ -9550,9 +9787,13 @@ createCharacterEntry(text, categoryKey) {
               '</div>' +
               '</div>' +
               '<div class="flex items-center gap-1 flex-shrink-0 pt-0.5">' +
+              '<button class="attr-row-del roster-edit-btn" title="编辑此角色" style="color: #9ca3af"><i class="fa fa-pencil"></i></button>' +
               '<button class="attr-row-del roster-del-btn" title="从名册移除"><i class="fa fa-trash-o"></i></button>' +
               '</div>';
 
+            card.querySelector('.roster-edit-btn').addEventListener('click', () => {
+              this.openRosterForm(idx);
+            });
             card.querySelector('.roster-del-btn').addEventListener('click', () => {
               if (!confirm('确定要从常驻名册中移除「' + plain + '」吗？')) return;
               const rr = this.loadRoster();
@@ -9603,6 +9844,7 @@ createCharacterEntry(text, categoryKey) {
           const entry = {
             name: name,
             portraitTag: get('mms-roster-portrait'),
+            avatar: get('mms-roster-avatar'),
             role: get('mms-roster-role'),
             attrs: attrs,
             freeFields: freeFields,
@@ -9613,28 +9855,39 @@ createCharacterEntry(text, categoryKey) {
 
           const roster = this.loadRoster();
           const nk = mmsNormalizeName(name);
-          if (roster.characters.some((c) => mmsNormalizeName(c.name) === nk)) {
+          const isEdit = this.rosterEditIndex != null;
+          if (!isEdit && roster.characters.some((c) => mmsNormalizeName(c.name) === nk)) {
             alert('名册中已存在同名角色');
             return;
           }
-          roster.characters.push(entry);
+          if (isEdit) {
+            roster.characters[this.rosterEditIndex] = entry;
+          } else {
+            roster.characters.push(entry);
+          }
           this.saveRoster(roster);
+          this.applyRosterAvatars(roster);
           this.renderRosterList();
 
-          // 清空表单并收起
-          for (const id of ['mms-roster-name', 'mms-roster-portrait', 'mms-roster-role', 'mms-roster-weapons', 'mms-roster-items']) {
-            const el = document.getElementById(id);
-            if (el) el.value = '';
-          }
-          const attrRows = document.getElementById('mms-attr-rows');
-          if (attrRows) attrRows.innerHTML = '';
-          const freeRows = document.getElementById('mms-free-rows');
-          if (freeRows) freeRows.innerHTML = '';
+          // 收起表单并复位为新增模式
+          this.rosterEditIndex = null;
           const form = document.getElementById('mms-roster-form');
           if (form) form.style.display = 'none';
 
           // 立即应用到当前状态：新角色当场出现在角色列表（无需等待下次AI更新）
           this.applyRosterNow();
+        },
+
+        // 名册头像覆盖到 AVATAR_MAP（小地图按名字取头像）
+        applyRosterAvatars(roster) {
+          const map = this.getAvatarMap();
+          if (!map) return;
+          for (const r of (roster && roster.characters) || []) {
+            if (!r || !r.avatar) continue;
+            const url = this.resolveAvatarUrl(r.avatar);
+            const plain = mmsPlainName(r.name);
+            if (url && plain) map[plain] = url;
+          }
         },
 
         // 把名册增量合并进当前楼层状态：只插入缺失的固定角色，绝不改动/删除其他角色
@@ -9659,6 +9912,206 @@ createCharacterEntry(text, categoryKey) {
           } catch (e) {
             console.warn('[MMS] 应用名册失败:', e);
           }
+        },
+
+        // ---------- Debug 日志（发送提示词与返回结果） ----------
+
+        debugLog(sysPrompt, userPrompt, raw, customApi) {
+          try {
+            const cfg = this.loadConfig();
+            if (!cfg.debug) return;
+            const entry = {
+              ts: new Date().toLocaleString(),
+              api: { url: customApi.apiurl || '当前酒馆连接', model: customApi.model || '默认' },
+              sysPrompt: sysPrompt,
+              userPrompt: userPrompt,
+              response: String(raw || ''),
+            };
+            // 存入本楼变量（$前缀对AI不可见）；只保留最近一条
+            if (this.floorId != null && this.env.hasVarsApi) {
+              insertOrAssignVariables({ $mms_debug: entry }, { type: 'message', message_id: this.floorId });
+            }
+            this.renderDebugPanel(entry);
+          } catch (e) {
+            console.warn('[MMS] debug记录失败:', e);
+          }
+        },
+
+        loadDebugEntry() {
+          try {
+            if (this.floorId == null || !this.env.hasVarsApi) return null;
+            const vars = this.readFloorVars(this.floorId);
+            return (vars && vars.$mms_debug) || null;
+          } catch (e) {
+            return null;
+          }
+        },
+
+        renderDebugPanel(entry) {
+          const content = document.getElementById('mms-debug-content');
+          if (!content || !entry) return;
+          const esc = (s) =>
+            String(s || '')
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+          content.innerHTML =
+            '<div class="text-gray-500">' + esc(entry.ts) + ' · ' + esc(entry.api.url) + ' · ' + esc(entry.api.model) + '</div>' +
+            '<div><div class="font-bold text-gray-300 mb-0.5">[system] 发送的提示词</div><pre class="whitespace-pre-wrap break-all bg-black/30 rounded p-2 m-0">' + esc(entry.sysPrompt) + '</pre></div>' +
+            '<div><div class="font-bold text-gray-300 mb-0.5">[user] 发送的用户消息</div><pre class="whitespace-pre-wrap break-all bg-black/30 rounded p-2 m-0">' + esc(entry.userPrompt) + '</pre></div>' +
+            '<div><div class="font-bold text-emerald-400 mb-0.5">LLM 返回</div><pre class="whitespace-pre-wrap break-all bg-emerald-900/10 rounded p-2 m-0">' + esc(entry.response) + '</pre></div>';
+        },
+
+        // ---------- LLM 协助生成自定义提示词 ----------
+
+        async llmHelpGenerate() {
+          const currentEl = document.getElementById('mms-llm-help-current');
+          const requestEl = document.getElementById('mms-llm-help-request');
+          const sendBtn = document.getElementById('mms-llm-help-send');
+          if (!requestEl || !currentEl) return;
+          const request = requestEl.value.trim();
+          if (!request) {
+            alert('请先在右栏填写你的要求');
+            return;
+          }
+          if (!this.env.hasGenApi) {
+            alert('当前环境不支持独立生成');
+            return;
+          }
+          if (sendBtn) {
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>请求中…';
+          }
+          try {
+            const cfg = this.loadConfig();
+            const helpSys =
+              '你是 SillyTavern 状态栏插件的提示词工程师。插件通过一个独立 LLM 维护跑团状态数据（JSON，顶层键「状态栏」，含日期/地点/小地图/角色列表/人物/据点/行动选项等模块）。' +
+              '用户的系统提示词已包含模块结构与校验命令协议（[HP-2]式命令），自定义提示词会追加在系统提示词之后。\n' +
+              '请依据用户要求，为「自定义卡片模块」编写一段提示词：说明模块名（状态栏顶层的新键）、JSON 结构（含字段与示例）、内容更新规则。' +
+              '要求：输出纯文本提示词本体（可含##小节），不要解释你的思路，不要输出代码块围栏，控制在300字以内。';
+            const helpUser =
+              (currentEl.value.trim() ? '<当前已有的自定义提示词>\n' + currentEl.value.trim() + '\n</当前已有的自定义提示词>\n\n' : '') +
+              '<我的要求>\n' + request + '\n</我的要求>\n\n请输出完善后的完整自定义提示词（整合当前已有内容与新要求）。';
+            const config = {
+              ordered_prompts: [
+                { role: 'system', content: helpSys },
+                { role: 'user', content: helpUser },
+              ],
+              custom_api: this.buildCustomApi(cfg),
+              should_silence: true,
+              generation_id: 'mms-llm-help-' + Date.now(),
+            };
+            const result = await generateRaw(config);
+            let text = typeof result === 'string' ? result : (result && result.content) || '';
+            text = text.replace(/^```[a-zA-Z]*\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+            if (!text) throw new Error('AI 返回为空');
+            currentEl.value = text;
+            requestEl.value = '';
+          } catch (e) {
+            alert('LLM 协助失败：' + (e && e.message ? e.message : e));
+          } finally {
+            if (sendBtn) {
+              sendBtn.disabled = false;
+              sendBtn.innerHTML = '<i class="fa fa-paper-plane mr-1"></i>发送请求';
+            }
+          }
+        },
+
+        // ---------- 名册编辑 ----------
+
+        // 表单当前编辑的名册索引（null=新增模式）
+        rosterEditIndex: null,
+
+        openRosterForm(idx) {
+          const form = document.getElementById('mms-roster-form');
+          const titleEl = document.getElementById('mms-roster-form-title');
+          const iconEl = document.getElementById('mms-roster-form-icon');
+          if (!form) return;
+          this.rosterEditIndex = idx == null ? null : idx;
+          // 清空动态行
+          const attrRows = document.getElementById('mms-attr-rows');
+          if (attrRows) attrRows.innerHTML = '';
+          const freeRows = document.getElementById('mms-free-rows');
+          if (freeRows) freeRows.innerHTML = '';
+
+          if (idx == null) {
+            if (titleEl) titleEl.textContent = '添加新角色至常驻名册';
+            if (iconEl) iconEl.className = 'fa fa-user-plus';
+            for (const id of ['mms-roster-name', 'mms-roster-portrait', 'mms-roster-avatar', 'mms-roster-role', 'mms-roster-weapons', 'mms-roster-items']) {
+              const el = document.getElementById(id);
+              if (el) el.value = '';
+            }
+            this.seedRosterForm();
+          } else {
+            const roster = this.loadRoster();
+            const r = roster.characters[idx];
+            if (!r) return;
+            if (titleEl) titleEl.textContent = '编辑常驻角色：' + (mmsPlainName(r.name) || r.name);
+            if (iconEl) iconEl.className = 'fa fa-pencil';
+            const set = (id, v) => {
+              const el = document.getElementById(id);
+              if (el) el.value = v == null ? '' : String(v);
+            };
+            set('mms-roster-name', r.name);
+            set('mms-roster-portrait', r.portraitTag);
+            set('mms-roster-avatar', r.avatar);
+            set('mms-roster-role', r.role);
+            set('mms-roster-weapons', r.weapons);
+            set('mms-roster-items', r.items);
+            for (const a of r.attrs || []) {
+              const m = String(a.value || '').match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/);
+              this.appendAttrRow(a.key || '', m ? m[1] : a.value || '', m ? m[2] : '');
+            }
+            const freeFields = r.freeFields && r.freeFields.length ? r.freeFields : ['内心', '穿着'];
+            for (const f of freeFields) {
+              this.appendFreeRow(f, (r.freeInitials && r.freeInitials[f]) || '');
+            }
+          }
+          form.style.display = 'block';
+          form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        },
+
+        // 头像URL解析：名称→AVATAR_MAP、URL直用
+        resolveAvatarUrl(input) {
+          const s = String(input || '').trim();
+          if (!s) return '';
+          if (/^https?:\/\//i.test(s)) return s;
+          const map = this.getAvatarMap();
+          if (map) {
+            const matchedKey = Object.keys(map).find(
+              (k) => k === s || s.includes(k) || k.includes(s),
+            );
+            if (matchedKey) return map[matchedKey];
+          }
+          return '';
+        },
+
+        // AVATAR_MAP/PORTRAIT_MAP 是主脚本的 const（词法作用域），此处同作用域直接引用
+        getAvatarMap() {
+          try {
+            return typeof AVATAR_MAP !== 'undefined' ? AVATAR_MAP : null;
+          } catch (e) {
+            return null;
+          }
+        },
+
+        // 填充内置图片名称下拉（datalist）
+        fillImageDatalists() {
+          const portraitList = document.getElementById('mms-portrait-list');
+          const avatarList = document.getElementById('mms-avatar-list');
+          const portraitMap = typeof PORTRAIT_MAP !== 'undefined' ? PORTRAIT_MAP : window.PORTRAIT_MAP;
+          const avatarMap = this.getAvatarMap();
+          const fill = (dl, map) => {
+            if (!dl || !map || typeof map !== 'object') return;
+            dl.innerHTML = '';
+            Object.keys(map).forEach((k) => {
+              const opt = document.createElement('option');
+              opt.value = k;
+              dl.appendChild(opt);
+            });
+          };
+          fill(portraitList, portraitMap);
+          fill(avatarList, avatarMap);
         },
 
         // ---------- 启动 ----------
