@@ -2938,10 +2938,10 @@ function buildPortraitHTML(roleName, portraitUrl) {
           class="bg-gradient-to-r from-primary/20 to-primary/5 px-4 py-2.5 rounded-t-3xl border-b border-gray-700/20 theme-transition"
         >
           <div class="flex justify-between items-center">
-            <!-- 日期和地点信息（方案二双行布局：地点在上，时间在下） -->
-            <div class="flex flex-col gap-y-1 text-sm text-gray-300">
-              <span id="location-display" class="whitespace-nowrap flex items-center">加载中...</span>
-              <span id="time-display" class="whitespace-nowrap flex items-center">加载中...</span>
+            <!-- 日期和地点信息（单行自适应，长度超出时自动换行） -->
+            <div class="flex flex-wrap items-center gap-x-4 text-sm text-gray-300">
+              <span id="location-display" class="whitespace-nowrap">加载中...</span>
+              <span id="time-display" class="whitespace-nowrap">加载中...</span>
             </div>
 
             <!-- 操作区：状态更新指示器 / 编辑数据 / 设置 -->
@@ -2968,9 +2968,9 @@ function buildPortraitHTML(roleName, portraitUrl) {
 
         <!-- 文章正文区域 -->
         <div id="maintext-container" class="px-4 py-3 text-base leading-relaxed w-full"></div>
-        <!-- 角色状态详情 - 保留折叠设计 -->
+        <!-- 角色状态详情 - 保留折叠设计（默认收起，与原版一致） -->
         <div class="border-t border-gray-700/20 theme-transition">
-          <details class="w-full group" open>
+          <details class="w-full group">
             <summary
               class="w-full px-4 py-2.5 font-semibold cursor-pointer flex justify-between items-center list-none hover:bg-primary/10 transition-colors theme-transition text-sm"
             >
@@ -3255,7 +3255,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
           <!-- 名册卡片列表（头像 + 数值胶囊 + 摘要 + 编辑/删除） -->
           <div id="mms-roster-list" class="space-y-2"></div>
 
-          <!-- 占位文案 -->
+          <!-- 占位文案与缺席阈值 -->
           <div class="flex gap-2 pt-1">
             <div class="mms-field" style="flex: 1">
               <label for="mms-absent-text">未提及占位文案</label>
@@ -3265,8 +3265,14 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <label for="mms-present-text">在场未详占位文案</label>
               <input id="mms-present-text" type="text" placeholder="在场·本轮未详" spellcheck="false" />
             </div>
+            <div class="mms-field" style="width: 110px">
+              <label for="mms-absent-threshold">缺席阈值</label>
+              <input id="mms-absent-threshold" type="number" min="0" max="20" step="1" placeholder="3" />
+            </div>
           </div>
-          <p class="settings-hint">名册保存在本聊天的变量中（随聊天导出）；删除角色只影响后续显示，不影响已存楼层</p>
+          <p class="settings-hint">
+            名册角色被 AI 连续漏输出时，前 N 轮（默认 3）保留上轮的自由属性显示；超过 N 轮才替换为占位文案。名册保存在本聊天的变量中（随聊天导出）
+          </p>
         </div>
 
         <!-- ============================================================ -->
@@ -3472,6 +3478,28 @@ function buildPortraitHTML(roleName, portraitUrl) {
               </div>
               <div id="mms-debug-content" class="text-[11px] font-mono text-gray-400 space-y-2 max-h-72 overflow-y-auto"></div>
             </div>
+          </div>
+
+          <!-- 配置导入 / 导出（提示词与 API 预设可独立迁移） -->
+          <div class="settings-group">
+            <label class="settings-label">配置导入 / 导出</label>
+            <div class="flex gap-2 mb-2">
+              <button id="mms-export-prompt" class="mms-btn" type="button">
+                <i class="fa fa-file-text-o mr-1"></i>导出提示词
+              </button>
+              <button id="mms-export-api" class="mms-btn" type="button">
+                <i class="fa fa-plug mr-1"></i>导出 API 预设
+              </button>
+            </div>
+            <div class="mms-field">
+              <label for="mms-io-text">导入/导出内容（导出自动填入并复制到剪贴板；导入时粘贴 JSON 后点下方按钮）</label>
+              <textarea id="mms-io-text" rows="4" spellcheck="false" class="text-[11px] font-mono" placeholder='导出的 JSON 会出现在这里；导入时把 JSON 粘贴到此处'></textarea>
+            </div>
+            <div class="flex justify-end gap-2">
+              <button id="mms-import-prompt" class="mms-btn" type="button">导入为提示词</button>
+              <button id="mms-import-api" class="mms-btn" type="button">导入为 API 预设</button>
+            </div>
+            <p class="settings-hint">两者独立导出/导入，可跨聊天、跨设备迁移；API 预设含密钥，请注意保管</p>
           </div>
         </div>
       </div>
@@ -8526,7 +8554,9 @@ createCharacterEntry(text, categoryKey) {
       }
 
       // 合并单个角色：base=基底（上次状态或名册模板），aiChar=AI输出（可null）
-      function mmsMergeChar(base, aiChar, rosterEntry, storyText, displayCfg) {
+      // absenceCount: 该角色连续缺席轮数（null=非更新场景，不适用阈值）
+      // threshold: 连续缺席超过该轮数才显示占位文案，之前保留上轮自由字段
+      function mmsMergeChar(base, aiChar, rosterEntry, storyText, displayCfg, absenceCount, threshold) {
         const src = aiChar && typeof aiChar === 'object' ? aiChar : null;
         const b = base && typeof base === 'object' ? base : {};
         const c = {};
@@ -8548,17 +8578,24 @@ createCharacterEntry(text, categoryKey) {
           if (['名字', '属性', '武器', '物品'].includes(k)) continue;
           c[k] = src[k];
         }
-        // 基底自由字段：AI未输出的保留（衣物持续存在，心理每轮更新）
+        // 基底自由字段：AI未输出的保留
         for (const k of Object.keys(b)) {
           if (['名字', '属性', '武器', '物品'].includes(k)) continue;
           if (!(k in c)) c[k] = b[k];
         }
 
-        // AI整体漏输出该角色：内心=占位（名称命中正文→在场·本轮未详），其余自由字段保留上次
+        // AI整体漏输出该角色：
+        // - 缺席未超阈值（默认3轮）→ 保留上轮自由字段（内心/穿着均显示上轮相同）
+        // - 超过阈值 → 内心替换为占位（名称命中正文→在场未详文案；否则→未提及文案）
         if (!src && rosterEntry) {
-          const plain = mmsPlainName(rosterEntry.name);
-          const hit = plain && storyText && storyText.includes(plain);
-          c['内心'] = hit ? displayCfg.presentText : displayCfg.absentText;
+          const overThreshold =
+            absenceCount != null && threshold != null && absenceCount > threshold;
+          if (overThreshold || absenceCount == null) {
+            const plain = mmsPlainName(rosterEntry.name);
+            const hit = plain && storyText && storyText.includes(plain);
+            c['内心'] = hit ? displayCfg.presentText : displayCfg.absentText;
+          }
+          // 未超阈值：c 已继承基底的内心等自由字段，什么都不做
         }
         return c;
       }
@@ -8605,11 +8642,14 @@ createCharacterEntry(text, categoryKey) {
       }
 
       // 总合并：prev=上次状态(已规范化)，aiOut=AI输出(已规范化)，roster=名册，storyText=本轮正文
-      function mmsMergeState(prev, aiOut, roster, storyText) {
+      // absenceMap：缺席轮数表（对象，会被原地更新：AI输出该角色→清零，漏输出→+1），null=不计数
+      function mmsMergeState(prev, aiOut, roster, storyText, absenceMap) {
         const displayCfg = {
           absentText: (roster && roster.absentText) || '本轮未提及',
           presentText: (roster && roster.presentText) || '在场·本轮未详',
         };
+        const threshold =
+          roster && roster.absentThreshold != null ? Number(roster.absentThreshold) : 3;
         const rosterChars = (roster && roster.characters) || [];
         const prevRoot = prev && (prev['状态栏'] || prev) ? prev['状态栏'] || prev : {};
         const aiRoot = aiOut && (aiOut['状态栏'] || aiOut) ? aiOut['状态栏'] || aiOut : {};
@@ -8637,7 +8677,15 @@ createCharacterEntry(text, categoryKey) {
             const ai = nk ? aiChars.get(nk) : null;
             const prevC = nk ? prevChars.get(nk) : null;
             const base = prevC || mmsTemplateChar(r, displayCfg);
-            list.push({ 角色: mmsMergeChar(base, ai, r, storyText, displayCfg) });
+            // 缺席计数：AI输出该角色→清零；漏输出→+1
+            let absenceCount = null;
+            if (absenceMap) {
+              absenceCount = ai ? 0 : (absenceMap[nk] || 0) + 1;
+              absenceMap[nk] = absenceCount;
+            }
+            list.push({
+              角色: mmsMergeChar(base, ai, r, storyText, displayCfg, absenceCount, threshold),
+            });
           }
           for (const [nk, ai] of aiChars) {
             if (used.has(nk)) continue;
@@ -8646,7 +8694,7 @@ createCharacterEntry(text, categoryKey) {
           }
           if (list.length) R['角色列表'] = list;
         } else if (prevRoot['角色列表'] || rosterChars.length) {
-          // AI 整体省略角色列表模块：上次角色全量保留 + 名册增量覆盖（不丢任何角色）
+          // AI 整体省略角色列表模块：上次角色全量保留 + 名册增量覆盖（不丢任何角色，不计数）
           const aug = mmsApplyRosterToState({ 状态栏: prevRoot }, roster, storyText);
           const augList = aug && aug['状态栏'] && aug['状态栏']['角色列表'];
           if (augList && augList.length) R['角色列表'] = augList;
@@ -8831,20 +8879,48 @@ createCharacterEntry(text, categoryKey) {
         // ---------- 固定角色名册（聊天变量，随聊天导出） ----------
 
         loadRoster() {
-          const fallback = { characters: [], absentText: '本轮未提及', presentText: '在场·本轮未详' };
+          const fallback = {
+            characters: [],
+            absentText: '本轮未提及',
+            presentText: '在场·本轮未详',
+            absentThreshold: 3,
+          };
           try {
             if (!this.env.hasVarsApi) return fallback;
             const chatVars = getVariables({ type: 'chat' }) || {};
             const r = chatVars && chatVars.$mms_roster;
             if (!r || typeof r !== 'object') return fallback;
+            const t = parseInt(r.absentThreshold, 10);
             return {
               characters: Array.isArray(r.characters) ? r.characters.filter(Boolean) : [],
               absentText: r.absentText || fallback.absentText,
               presentText: r.presentText || fallback.presentText,
+              absentThreshold: isNaN(t) ? fallback.absentThreshold : t,
             };
           } catch (e) {
             console.warn('[MMS] 读取名册失败:', e);
             return fallback;
+          }
+        },
+
+        // 缺席轮数表（聊天变量 $mms_absence：{ 名字规范化键: 连续缺席轮数 }）
+        loadAbsence() {
+          try {
+            if (!this.env.hasVarsApi) return {};
+            const chatVars = getVariables({ type: 'chat' }) || {};
+            const a = chatVars && chatVars.$mms_absence;
+            return a && typeof a === 'object' ? a : {};
+          } catch (e) {
+            return {};
+          }
+        },
+
+        saveAbsence(absence) {
+          try {
+            if (!this.env.hasVarsApi) return;
+            insertOrAssignVariables({ $mms_absence: absence || {} }, { type: 'chat' });
+          } catch (e) {
+            console.warn('[MMS] 保存缺席轮数失败:', e);
           }
         },
 
@@ -9185,13 +9261,16 @@ createCharacterEntry(text, categoryKey) {
                 this.debugLog(sysPrompt, userPrompt, raw, customApi);
                 const parsed = this.parseStateOutput(raw);
                 const aiState = mmsNormalizeState(parsed) || parsed;
-                // 合并：校验命令应用 + 固定名册 + 自定义模块兜底
+                // 合并：校验命令应用 + 固定名册 + 自定义模块兜底 + 缺席轮数维护
+                const absence = this.loadAbsence();
                 const state = mmsMergeState(
                   prev ? prev.state : null,
                   aiState,
                   roster,
                   latest || '',
+                  absence,
                 );
+                this.saveAbsence(absence);
                 this.sanitizeState(state);
 
                 this.writeState(targetFloorId, state);
@@ -9648,6 +9727,28 @@ createCharacterEntry(text, categoryKey) {
           };
           bindRosterText('mms-absent-text', 'absentText', '本轮未提及');
           bindRosterText('mms-present-text', 'presentText', '在场·本轮未详');
+          // 缺席阈值（0=每次漏输出立即显示占位文案）
+          const thresholdEl = document.getElementById('mms-absent-threshold');
+          if (thresholdEl) {
+            thresholdEl.value = String(this.loadRoster().absentThreshold);
+            thresholdEl.addEventListener('change', () => {
+              const rr = this.loadRoster();
+              const t = parseInt(thresholdEl.value, 10);
+              rr.absentThreshold = isNaN(t) ? 3 : Math.max(0, Math.min(20, t));
+              thresholdEl.value = String(rr.absentThreshold);
+              this.saveRoster(rr);
+            });
+          }
+
+          // 配置导入/导出（提示词与API预设独立）
+          const expPrompt = document.getElementById('mms-export-prompt');
+          if (expPrompt) expPrompt.addEventListener('click', () => this.exportPromptConfig());
+          const expApi = document.getElementById('mms-export-api');
+          if (expApi) expApi.addEventListener('click', () => this.exportApiConfig());
+          const impPrompt = document.getElementById('mms-import-prompt');
+          if (impPrompt) impPrompt.addEventListener('click', () => this.importPromptConfig());
+          const impApi = document.getElementById('mms-import-api');
+          if (impApi) impApi.addEventListener('click', () => this.importApiConfig());
         },
 
         // 表单动态行：数值属性（名称 + 当前/上限）
@@ -10015,6 +10116,112 @@ createCharacterEntry(text, categoryKey) {
               sendBtn.innerHTML = '<i class="fa fa-paper-plane mr-1"></i>发送请求';
             }
           }
+        },
+
+        // ---------- 配置导入 / 导出（提示词与API预设独立） ----------
+
+        ioFill(text, okMsg) {
+          const ta = document.getElementById('mms-io-text');
+          if (ta) ta.value = text;
+          try {
+            navigator.clipboard.writeText(text).catch(() => {});
+          } catch (e) { /* 剪贴板不可用则只填入文本框 */ }
+          this.setIndicator('ok', okMsg);
+          setTimeout(() => {
+            if (!this.updating) this.setIndicator(null);
+          }, 2500);
+        },
+
+        exportPromptConfig() {
+          const cfg = this.loadConfig();
+          const payload = {
+            type: 'mms-prompt-config',
+            v: 1,
+            corePrompt: cfg.corePrompt || '',
+            customPrompt: cfg.systemPrompt || '',
+          };
+          this.ioFill(JSON.stringify(payload, null, 2), '提示词已导出并复制');
+        },
+
+        exportApiConfig() {
+          const cfg = this.loadConfig();
+          const payload = {
+            type: 'mms-api-config',
+            v: 1,
+            source: cfg.source,
+            apiUrl: cfg.apiUrl,
+            apiKey: cfg.apiKey,
+            model: cfg.model,
+            preset: cfg.preset,
+            contextFloors: cfg.contextFloors,
+          };
+          this.ioFill(JSON.stringify(payload, null, 2), 'API 预设已导出并复制');
+        },
+
+        ioParse() {
+          const ta = document.getElementById('mms-io-text');
+          if (!ta || !ta.value.trim()) {
+            alert('请先把导出的 JSON 粘贴到文本框');
+            return null;
+          }
+          try {
+            return JSON.parse(ta.value.trim());
+          } catch (e) {
+            alert('JSON 解析失败：' + e.message);
+            return null;
+          }
+        },
+
+        importPromptConfig() {
+          const data = this.ioParse();
+          if (!data) return;
+          if (data.type !== 'mms-prompt-config') {
+            alert('这不是提示词配置（type 应为 mms-prompt-config）');
+            return;
+          }
+          const c = this.loadConfig();
+          if (data.corePrompt && String(data.corePrompt).trim()) c.corePrompt = String(data.corePrompt);
+          else delete c.corePrompt;
+          if (data.customPrompt && String(data.customPrompt).trim()) c.systemPrompt = String(data.customPrompt);
+          else delete c.systemPrompt;
+          this.saveConfig(c);
+          // 刷新UI
+          const coreTa = document.getElementById('mms-core-prompt');
+          if (coreTa) coreTa.value = c.corePrompt || MMS_UPDATE_SYSTEM_PROMPT;
+          const customTa = document.getElementById('mms-custom-prompt');
+          if (customTa) customTa.value = c.systemPrompt || '';
+          this.setIndicator('ok', '提示词已导入');
+          setTimeout(() => {
+            if (!this.updating) this.setIndicator(null);
+          }, 2500);
+        },
+
+        importApiConfig() {
+          const data = this.ioParse();
+          if (!data) return;
+          if (data.type !== 'mms-api-config') {
+            alert('这不是 API 预设（type 应为 mms-api-config）');
+            return;
+          }
+          const c = this.loadConfig();
+          const fields = ['source', 'apiUrl', 'apiKey', 'model', 'preset'];
+          for (const f of fields) {
+            if (data[f] != null && data[f] !== '') c[f] = data[f];
+          }
+          if (data.contextFloors != null) c.contextFloors = data.contextFloors;
+          this.saveConfig(c);
+          // 刷新UI
+          const bind = { 'mms-api-url': 'apiUrl', 'mms-api-key': 'apiKey', 'mms-api-model': 'model', 'mms-api-preset': 'preset', 'mms-context-floors': 'contextFloors' };
+          for (const [id, key] of Object.entries(bind)) {
+            const el = document.getElementById(id);
+            if (el && c[key] != null) el.value = c[key];
+          }
+          const sourceSel = document.getElementById('mms-api-source');
+          if (sourceSel && c.source) sourceSel.value = c.source;
+          this.setIndicator('ok', 'API 预设已导入');
+          setTimeout(() => {
+            if (!this.updating) this.setIndicator(null);
+          }, 2500);
         },
 
         // ---------- 名册编辑 ----------
