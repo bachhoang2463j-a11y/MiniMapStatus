@@ -3391,12 +3391,17 @@ function buildPortraitHTML(roleName, portraitUrl) {
               </div>
             </div>
 
-            <!-- 据点固定模块 -->
+            <!-- 据点固定模块（勾选=激活，点击名称=折叠/展开编辑） -->
           <div class="roster-surface rounded-xl border border-gray-700/10 p-2.5 space-y-2.5">
-            <label class="mms-toggle-row">
-              <input type="checkbox" id="mms-base-enabled" />
-              <span class="text-xs font-bold text-gray-300">🏟️ 固定据点模块（常驻显示，现金与清单字段受命令协议保护）</span>
-            </label>
+            <div class="flex justify-between items-center">
+              <label class="mms-toggle-row" style="flex: 0 0 auto">
+                <input type="checkbox" id="mms-base-enabled" />
+                <span class="text-xs font-bold text-gray-300">🏟️ 固定据点模块</span>
+              </label>
+              <button id="mms-base-collapse" class="mms-btn" type="button" style="padding: 2px 10px" title="折叠/展开编辑">
+                <i class="fa fa-chevron-down" id="mms-base-collapse-icon"></i> <span id="mms-base-collapse-text">编辑</span>
+              </button>
+            </div>
             <div id="mms-base-form" class="space-y-2" style="display: none">
               <div class="grid grid-cols-2 gap-2">
                 <div>
@@ -10967,18 +10972,32 @@ createCharacterEntry(text, categoryKey) {
           if (modeFixed) modeFixed.addEventListener('click', () => setMode('fixed'));
           syncModeUI();
 
-          // 据点固定模块
+          // 据点固定模块（激活勾选与折叠展开解耦）
           const baseChk = document.getElementById('mms-base-enabled');
           const baseForm = document.getElementById('mms-base-form');
-          const syncBaseForm = () => {
-            if (baseForm) baseForm.style.display = baseChk && baseChk.checked ? 'block' : 'none';
+          const baseCollapseBtn = document.getElementById('mms-base-collapse');
+          const baseCollapseIcon = document.getElementById('mms-base-collapse-icon');
+          const baseCollapseText = document.getElementById('mms-base-collapse-text');
+          // 折叠状态独立存储（不随激活变化）
+          let baseExpanded = false;
+          const syncBaseCollapse = () => {
+            if (baseForm) baseForm.style.display = baseExpanded ? 'block' : 'none';
+            if (baseCollapseIcon) baseCollapseIcon.className = baseExpanded ? 'fa fa-chevron-up' : 'fa fa-chevron-down';
+            if (baseCollapseText) baseCollapseText.textContent = baseExpanded ? '收起' : '编辑';
           };
+          if (baseCollapseBtn) {
+            baseCollapseBtn.addEventListener('click', () => {
+              baseExpanded = !baseExpanded;
+              syncBaseCollapse();
+            });
+          }
+          syncBaseCollapse();
+          // 勾选只管激活，不动折叠
           if (baseChk) {
             baseChk.addEventListener('change', () => {
               const rr = this.loadRoster();
               rr.base.enabled = baseChk.checked;
               this.saveRoster(rr);
-              syncBaseForm();
               if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
               this.applyRosterNow();
             });
@@ -10998,7 +11017,6 @@ createCharacterEntry(text, categoryKey) {
           const baseAddBtn = document.getElementById('mms-base-add-row');
           if (baseAddBtn) baseAddBtn.addEventListener('click', () => this.appendBaseRow('', ''));
           this.renderBaseForm();
-          syncBaseForm();
 
           // 地图开关
           const bindMapToggle = (id, key) => {
