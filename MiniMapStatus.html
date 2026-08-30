@@ -2928,6 +2928,52 @@ function buildPortraitHTML(roleName, portraitUrl) {
         }
       }
 
+      /* ===== YAML 编辑器（主题感知配色） ===== */
+      .mms-yaml-input {
+        background: rgba(20, 20, 30, 0.85);
+        border: 1px solid rgba(120, 120, 140, 0.35);
+        color: #d4d4d8;
+        outline: none;
+        line-height: 1.6;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        transition: border-color 0.2s ease;
+      }
+      .mms-yaml-input:focus {
+        border-color: #9d7cf5;
+      }
+      .romantic-mode .mms-yaml-input {
+        background: #faf8f4;
+        border-color: #d4c5a9;
+        color: #4a3f30;
+      }
+      .romantic-mode .mms-yaml-input:focus {
+        border-color: #a08b6a;
+      }
+      .classic-mode .mms-yaml-input {
+        background: #fefbf5;
+        border-color: #e9d5b0;
+        color: #5d4423;
+      }
+      .classic-mode .mms-yaml-input:focus {
+        border-color: #d9a856;
+      }
+      .day-mode .mms-yaml-input {
+        background: #ffffff;
+        border-color: #e2e8f0;
+        color: #1e293b;
+      }
+      .day-mode .mms-yaml-input:focus {
+        border-color: #7c3aed;
+      }
+      .fresh-mode .mms-yaml-input {
+        background: #f9fcf5;
+        border-color: #c5e1a5;
+        color: #33691e;
+      }
+      .fresh-mode .mms-yaml-input:focus {
+        border-color: #689f38;
+      }
+
       /* ===== 地图管理三栏（窄空间纵向三行，无固定高度，随标签数自然增高） ===== */
       .map-tags-layout {
         display: flex;
@@ -3114,7 +3160,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
             id="mms-yaml-editor"
             spellcheck="false"
             rows="18"
-            class="w-full text-xs font-mono bg-black/30 border border-gray-700/40 rounded-lg p-3 text-gray-200 focus:outline-none resize-y"
+            class="mms-yaml-input w-full text-xs font-mono rounded-lg p-3 resize-y"
             style="min-height: 240px"
           ></textarea>
           <div id="mms-edit-error" class="text-xs text-red-400 mt-2 font-mono" style="display: none"></div>
@@ -7801,7 +7847,7 @@ createAttributeItem(key, value) {
     const valueStr = value.toString();
     const itemMatches = valueStr.match(/\[([^\]]+)\]/g);
 
-    if (itemMatches && itemMatches.length >= 2) {
+    if (itemMatches && itemMatches.length >= 1) {
       const labelSpan = document.createElement('span');
       labelSpan.className = 'font-medium text-primary';
       labelSpan.textContent = `${this.formatNodeName(key)}: `;
@@ -8283,7 +8329,7 @@ createCharacterEntry(text, categoryKey) {
 
       const MMS_COORD_MIN = 10;
       const MMS_COORD_MAX = 90;
-      const MMS_KNOWN_MODULES = ['日期和时间', '地点', '小地图', '大地图', '角色列表', '人物', '据点', '行动选项'];
+      const MMS_KNOWN_MODULES = ['日期和时间', '地点', '小地图', '大地图', '角色列表', '人物', '据点', '行动选项', '用户列表'];
 
       // ---------- 地图标签池（SVG 场景 + BACKGROUND_MAP 外链图片，互斥三栏：pool/mini/big） ----------
 
@@ -8488,11 +8534,12 @@ createCharacterEntry(text, categoryKey) {
           }
         }
 
-        if (map) out['小地图'] = map;
-        if (charList.length) out['角色列表'] = charList;
-        if (people) out['人物'] = people;
-        if (base) out['据点'] = base;
-        if (action) out['行动选项'] = action;
+        // 模块化结构优先：已有模块键不覆盖（防止旧用户列表转换结果覆盖较新的模块数据）
+        if (map && !out['小地图']) out['小地图'] = map;
+        if (charList.length && !out['角色列表']) out['角色列表'] = charList;
+        if (people && !out['人物']) out['人物'] = people;
+        if (base && !out['据点']) out['据点'] = base;
+        if (action && !out['行动选项']) out['行动选项'] = action;
 
         return { 状态栏: out };
       }
@@ -9031,6 +9078,8 @@ createCharacterEntry(text, categoryKey) {
         else if (prevRoot['行动选项']) R['行动选项'] = prevRoot['行动选项'];
 
         // 自定义模块：AI输出透传；AI省略保留上次（累积内容不丢失）
+        // 注意：用户列表是旧格式遗留键，已在 MMS_KNOWN_MODULES 中标记为已知，
+        // 此处不会作为自定义模块透传（normalizeState 负责转换为模块化结构）
         for (const k of Object.keys(aiRoot)) {
           if (MMS_KNOWN_MODULES.includes(k)) continue;
           R[k] = aiRoot[k];
@@ -9339,8 +9388,10 @@ createCharacterEntry(text, categoryKey) {
         },
 
         writeState(floorId, state) {
+          // 写入前统一规范化，确保存储的永远是干净的模块化格式（无旧用户列表残留）
+          const normalized = mmsNormalizeState(state) || state;
           const vars = {
-            stat_data: state,
+            stat_data: normalized,
             $mms_meta: { hash: this.hashStr(this.messageText), ts: Date.now() },
           };
           insertOrAssignVariables(vars, { type: 'message', message_id: floorId });
@@ -9421,9 +9472,7 @@ createCharacterEntry(text, categoryKey) {
             const content =
               '<当前状态数据（系统自动维护，反映最新楼层结束时的状态）>\n' +
               yaml +
-              '\n</当前状态数据>\n' +
-              '撰写正文时必须与以上数据保持一致（HP、物品数量、人物位置、现金等量化数据以本数据为准，不得矛盾）。' +
-              '你不需要输出任何状态栏数据；把回复正文包裹在 <maintext></maintext> 中，并在回复的最末尾单独一行输出标记：【状态栏标记点】';
+              '\n</当前状态数据>';
             uninjectPrompts([MMS_INJECT_ID]);
             injectPrompts([
               {
