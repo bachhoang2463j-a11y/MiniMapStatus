@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MiniMapStatus - 古典模式现代设置重构</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet" />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              classic: {
+                50: '#fefbf5',
+                100: '#fdf6e9',
+                200: '#faeed7',
+                300: '#f5dfb7',
+                400: '#e9c887',
+                500: '#d9a856',
+                600: '#c28c40',
+                700: '#a06c30',
+                800: '#7d5428',
+                900: '#644423',
+              },
+            },
+            fontFamily: {
+              sans: ['Inter', 'system-ui', 'sans-serif'],
+              serif: ['Georgia', 'Cambria', 'Noto Serif SC', 'serif'],
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      /* 全局过渡效果 */
+      .theme-transition {
+        transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+      }
+
+      /* 真实酒馆羊皮纸质感背景 */
+      .tavern-wrapper {
+        min-height: 100vh;
+        background: #eae0cf url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 1.5rem 0.75rem;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      }
+      .tavern-container {
+        width: 100%;
+        max-width: 560px;
+      }
+
+      /* =========================================================
+         古典配色专属视觉系统 (Classic Mode Dedicated Theme)
+         彻底消除脏灰、冷蓝与突兀的紫色，统一为典雅沉香琥珀金与羊皮纸暖墨色
+         ========================================================= */
+
+      /* 状态栏大卡片容器 */
+      .classic-mode .status-block {
+        background: linear-gradient(135deg, #fefcf8 0%, #faf4e8 50%, #f6ecdc 100%);
+        border: 1px solid #dfc9a8;
+        box-shadow: 0 8px 25px rgba(100, 68, 35, 0.08), inset 0 0 15px rgba(255, 255, 255, 0.6);
+        color: #5c4028;
+      }
+
+      /* 顶部信息栏与设置 Header */
+      .classic-mode .header-gradient {
+        background: linear-gradient(to right, rgba(217, 168, 86, 0.25), rgba(217, 168, 86, 0.04));
+        border-bottom: 1px solid #ebd9c0;
+      }
+
+      /* 核心主行动按钮 (如 "✓ 完成", "+ 添加角色") -> 羊皮纸雅金微浮雕胶囊 */
+      .classic-mode .btn-primary {
+        background: linear-gradient(180deg, #fdfbf7 0%, #f7efe1 100%);
+        color: #7a4f21;
+        border: 1.5px solid #d9b888;
+        box-shadow: 0 1px 4px rgba(125, 84, 40, 0.12), inset 0 1px 0 #ffffff;
+        font-weight: 700;
+        transition: all 0.2s ease;
+      }
+      .classic-mode .btn-primary:hover {
+        background: linear-gradient(180deg, #ffffff 0%, #faeed7 100%);
+        border-color: #b58343;
+        color: #59330e;
+        box-shadow: 0 3px 8px rgba(125, 84, 40, 0.18), inset 0 1px 0 #ffffff;
+        transform: translateY(-1px);
+      }
+      .classic-mode .btn-primary .fa {
+        color: #9c682c;
+      }
+      .classic-mode .btn-primary:hover .fa {
+        color: #7a4f21;
+      }
+
+      /* 次级按钮 (如 "从本楼导入", "立即更新", "恢复默认") */
+      .classic-mode .btn-secondary {
+        background: linear-gradient(180deg, #fefefc 0%, #f5efe6 100%);
+        border: 1px solid #decbb4;
+        color: #8c6f4f;
+        box-shadow: 0 1px 2px rgba(125, 84, 40, 0.06);
+        transition: all 0.2s ease;
+      }
+      .classic-mode .btn-secondary:hover {
+        background: #ffffff;
+        border-color: #c8a876;
+        color: #5c3e21;
+      }
+
+      /* 顶部 Tab 导航栏 */
+      .classic-mode .setting-tab-btn {
+        color: #8c7052;
+        transition: all 0.18s ease;
+        position: relative;
+        font-weight: 500;
+      }
+      .classic-mode .setting-tab-btn:hover {
+        color: #5c3b19;
+      }
+      .classic-mode .setting-tab-btn.active {
+        color: #945f24;
+        font-weight: 700;
+      }
+      .classic-mode .setting-tab-btn.active::after {
+        content: '';
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        right: 0;
+        height: 2.5px;
+        background: #a06c30;
+        border-radius: 2px;
+      }
+
+      /* 古典输入框、下拉框与文本域 (彻底解决脏灰黑块问题) */
+      .classic-mode .classic-input {
+        background: #fdfaf4;
+        border: 1px solid #dec7a5;
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 12.5px;
+        color: #4a321d;
+        outline: none;
+        box-shadow: inset 0 1px 2px rgba(125, 84, 40, 0.05);
+        transition: all 0.2s ease;
+      }
+      .classic-mode .classic-input::placeholder {
+        color: #a89178;
+        opacity: 0.85;
+      }
+      .classic-mode .classic-input:focus {
+        background: #ffffff;
+        border-color: #a06c30;
+        box-shadow: 0 0 0 2.5px rgba(160, 108, 48, 0.18), inset 0 1px 2px rgba(0, 0, 0, 0.03);
+      }
+
+      /* 单选选项卡片 (如 "显示模式" / "行动选项点击处理") -> 暖皮纸白与琥珀金高亮 */
+      .classic-mode .option-card {
+        background: linear-gradient(145deg, #fdfcf9 0%, #fbf6ec 100%);
+        border: 1.5px solid #ebd7bc;
+        border-radius: 12px;
+        padding: 10px 14px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .classic-mode .option-card:hover {
+        background: linear-gradient(145deg, #ffffff 0%, #f8f0df 100%);
+        border-color: #d1ab75;
+        transform: translateY(-1px);
+      }
+      .classic-mode .option-card.selected {
+        background: linear-gradient(145deg, #fef9ef 0%, #f8ebd4 100%);
+        border-color: #a87232;
+        box-shadow: 0 3px 10px rgba(160, 108, 48, 0.14);
+      }
+
+      /* 单选圆点 (Radio Circle) -> 琥珀金 */
+      .classic-mode .custom-radio {
+        width: 17px;
+        height: 17px;
+        border-radius: 50%;
+        border: 2px solid #b89b78;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        margin-top: 2px;
+        transition: all 0.2s ease;
+        background: #ffffff;
+      }
+      .classic-mode .option-card.selected .custom-radio {
+        border-color: #a06c30;
+      }
+      .classic-mode .custom-radio-dot {
+        width: 7.5px;
+        height: 7.5px;
+        border-radius: 50%;
+        background: #a06c30;
+        transform: scale(0);
+        transition: transform 0.2s ease;
+      }
+      .classic-mode .option-card.selected .custom-radio-dot {
+        transform: scale(1);
+      }
+
+      /* 角色名册卡片 (Roster Card) */
+      .classic-mode .roster-item-card {
+        background: linear-gradient(145deg, #fdfbf7 0%, #f7efe1 100%);
+        border: 1px solid #e2cfb4;
+        border-radius: 12px;
+        padding: 10px 12px;
+        box-shadow: 0 2px 6px rgba(100, 68, 35, 0.04);
+        transition: all 0.2s ease;
+      }
+      .classic-mode .roster-item-card:hover {
+        border-color: #c28c40;
+        box-shadow: 0 4px 12px rgba(160, 108, 48, 0.1);
+        transform: translateY(-1px);
+      }
+
+      /* 数值校验胶囊 (Metric Badge) */
+      .classic-mode .metric-chip {
+        background: linear-gradient(145deg, #fbf2e2 0%, #f6e6cd 100%);
+        border: 1px solid #e5caa2;
+        color: #8c531d;
+        font-weight: 600;
+        padding: 1.5px 7px;
+        border-radius: 6px;
+        font-size: 11px;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      /* 物品标签 (Item Badge) */
+      .classic-mode .item-badge {
+        background: linear-gradient(145deg, #fdfbf7 0%, #f4e9d6 100%);
+        border: 1px solid #d9be95;
+        color: #70481d;
+        box-shadow: 0 1px 2px rgba(125, 84, 40, 0.08);
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+
+      /* 主题微缩调色盘胶囊栏 */
+      .classic-mode .theme-palette-bar {
+        background: #f5ecd8;
+        border: 1px solid #dfcbb0;
+        border-radius: 9999px;
+        padding: 3px 6px;
+        box-shadow: inset 0 1px 3px rgba(125, 84, 40, 0.08);
+      }
+      .classic-mode .theme-dot {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        transition: all 0.2s ease;
+        color: #9c8065;
+      }
+      .classic-mode .theme-dot .fa {
+        color: inherit;
+      }
+      .classic-mode .theme-dot:hover {
+        background: rgba(255, 255, 255, 0.7);
+        color: #6e4822;
+      }
+      .classic-mode .theme-dot:hover .fa {
+        color: #6e4822;
+      }
+      .classic-mode .theme-dot.active {
+        background: linear-gradient(145deg, #e4b265 0%, #c48c3a 100%);
+        color: #ffffff;
+        box-shadow: 0 2px 5px rgba(160, 108, 48, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+      }
+      .classic-mode .theme-dot.active .fa {
+        color: #ffffff !important;
+      }
+
+      /* 步进器按钮 (- / +) */
+      .classic-mode .stepper-btn {
+        width: 28px;
+        height: 26px;
+        border-radius: 6px;
+        background: #fbf5ea;
+        border: 1px solid #dec7a5;
+        color: #7d5428;
+        font-weight: bold;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .classic-mode .stepper-btn:hover:not(:disabled) {
+        background: #faeed7;
+        border-color: #a06c30;
+        color: #4a2d10;
+      }
+
+      /* 复选框 (Checkbox) */
+      .classic-mode input[type="checkbox"] {
+        accent-color: #a06c30;
+      }
+
+      /* 角色切换按钮栏 (主界面) */
+      .classic-mode .character-tab-btn {
+        background: linear-gradient(145deg, rgba(217, 168, 86, 0.12), rgba(217, 168, 86, 0.05));
+        border: 1px solid rgba(217, 168, 86, 0.3);
+        color: #8c5e28;
+        padding: 0.25rem 0.65rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .classic-mode .character-tab-btn:hover {
+        background: linear-gradient(145deg, rgba(217, 168, 86, 0.25), rgba(217, 168, 86, 0.12));
+        border-color: #c28c40;
+      }
+      .classic-mode .character-tab-btn.active {
+        background: linear-gradient(145deg, #e9c887 0%, #d9a856 100%);
+        color: #ffffff;
+        border-color: #c28c40;
+        font-weight: bold;
+        box-shadow: 0 2px 6px rgba(160, 108, 48, 0.25);
+      }
+
+      /* PC 卡片立绘 */
+      .classic-mode .pc-portrait-box {
+        border-color: #deb885;
+      }
+
+      .view-panel {
+        animation: fadeIn 0.22s ease-out;
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-4px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    </style>
+</head>
+<body class="classic-mode">
+  <div class="tavern-wrapper">
+    <div class="tavern-container">
+
+      <!-- ========================================================================= -->
+      <!-- 主界面视图 (点击 ⚙ 立即就地平滑切入设置面板) -->
+      <!-- ========================================================================= -->
+      <div id="main-view" class="view-panel w-full">
+        <div class="status-block mb-4 rounded-3xl overflow-hidden theme-transition w-full">
+          <!-- 顶部信息栏 -->
+          <div class="header-gradient px-4 py-2.5 rounded-t-3xl flex justify-between items-center">
+            <div class="flex flex-col gap-y-0.5 text-xs text-[#7d5428]">
+              <span class="font-bold flex items-center gap-1.5 text-[13px] text-[#5a3818]">
+                <span>📍</span> 悉尼 · 澳大利亚酒店 - 总督套房 · 玄关与主客厅
+              </span>
+              <span class="flex items-center gap-1.5 text-[11.5px] opacity-90">
+                <span>⏰</span> 1925年 · 6月13日 · 12:40 · 潜伏期
+              </span>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div class="flex items-center gap-1.5 flex-shrink-0 self-start mt-0.5">
+              <button class="w-7 h-7 rounded-full btn-secondary flex items-center justify-center text-xs" title="编辑数据">
+                <i class="fa fa-pencil"></i>
+              </button>
+              <button class="w-7 h-7 rounded-full btn-primary flex items-center justify-center text-xs" title="设置" onclick="toggleView('settings')">
+                <i class="fa fa-cog"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- 角色状态详情 -->
+          <div class="border-t border-[#ebd8be]">
+            <details class="w-full group" open>
+              <summary class="w-full px-4 py-2.5 font-bold cursor-pointer flex justify-between items-center list-none hover:bg-[#faeed7]/50 transition-colors text-xs text-[#6e461f]">
+                <span class="flex items-center gap-2">
+                  <i class="fa fa-users text-[#a06c30]"></i> 角色状态详情
+                  <span class="text-[10px] px-2 py-0.5 rounded-full bg-[#faeed7] text-[#8c531d] border border-[#e5caa2] font-mono">
+                    <span id="main-char-count">4</span> 名常驻角色
+                  </span>
+                </span>
+                <i class="fa fa-chevron-down text-[#a06c30] transition-transform duration-300 group-open:rotate-180 text-xs"></i>
+              </summary>
+
+              <div class="border-t border-[#ebd8be]/60">
+                <!-- 角色选项卡 -->
+                <div id="main-char-tabs" class="flex flex-wrap gap-1.5 p-3 pb-2">
+                  <!-- 动态渲染 Tab -->
+                </div>
+
+                <!-- 角色卡片详情区 -->
+                <div id="main-char-card" class="p-3 pt-0">
+                  <!-- 动态渲染卡片内容 -->
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <!-- 行动选项区域 -->
+          <div class="border-t border-[#ebd8be] bg-gradient-to-b from-transparent to-[#faeed7]/40 rounded-b-2xl p-3 pt-2.5">
+            <h3 class="font-bold flex items-center text-xs text-[#644423] mb-2">
+              <i class="fa fa-list-alt text-[#a06c30] mr-1.5"></i> 团队行动的行动选项
+            </h3>
+            <ul class="space-y-1.5 text-xs text-[#5c3e21]">
+              <li class="pl-2.5 py-1 border-l-2 border-[#a06c30] hover:bg-[#faeed7]/40 transition-colors rounded-r">
+                1. 🧴 【防疫准备】全员使用杀虫粉揉搓衣物，并用尤加利油浸润手帕，做好个人防护。
+              </li>
+              <li class="pl-2.5 py-1 border-l-2 border-[#a06c30] hover:bg-[#faeed7]/40 transition-colors rounded-r">
+                2. 🚶 【分头行动】玛德琳与弗朗索瓦丝先行出发前往中央车站，执行侦察与接头任务。
+              </li>
+              <li class="pl-2.5 py-1 border-l-2 border-[#a06c30] hover:bg-[#faeed7]/40 transition-colors rounded-r">
+                3. 🚗 【汇合出发】埃利奥特与索恩稍后下楼，在约定时间与弗兰克的凯迪拉克汇合。
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ========================================================================= -->
+      <!-- 设置界面视图 (古典典雅重构版：无遮罩，就地整栏切换，全要素高清可读) -->
+      <!-- ========================================================================= -->
+      <div id="settings-view" class="view-panel w-full" style="display: none;">
+        <div class="status-block mb-4 rounded-3xl overflow-hidden theme-transition w-full">
+          <!-- 设置 Header 导航栏 -->
+          <div class="header-gradient px-4 pt-3 pb-0 rounded-t-3xl border-b border-[#ebd9c0]">
+            <div class="flex justify-between items-center mb-2.5">
+              <div class="flex items-center gap-2 text-xs font-semibold text-[#7d5428]">
+                <span class="opacity-80">状态栏设置</span>
+                <span class="opacity-50">/</span>
+                <span class="text-[#8c531d] font-bold flex items-center gap-1.5">
+                  <i class="fa fa-sliders text-[#a06c30]"></i>
+                  <span id="current-tab-title">固定角色名册</span>
+                </span>
+              </div>
+              <button class="btn-primary px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1" onclick="toggleView('main')">
+                <i class="fa fa-check"></i> 完成
+              </button>
+            </div>
+
+            <!-- 4 大模块导航 Tab -->
+            <div class="flex gap-4 text-xs font-medium border-b border-[#dec7a5]/60 overflow-x-auto">
+              <button id="tab-roster-btn" class="pb-2 setting-tab-btn active" onclick="switchSettingTab('roster')">
+                <i class="fa fa-id-card-o mr-1"></i>固定角色名册
+              </button>
+              <button id="tab-theme-btn" class="pb-2 setting-tab-btn" onclick="switchSettingTab('theme')">
+                <i class="fa fa-paint-brush mr-1"></i>界面与主题
+              </button>
+              <button id="tab-behavior-btn" class="pb-2 setting-tab-btn" onclick="switchSettingTab('behavior')">
+                <i class="fa fa-mouse-pointer mr-1"></i>行为交互
+              </button>
+              <button id="tab-ai-btn" class="pb-2 setting-tab-btn" onclick="switchSettingTab('ai')">
+                <i class="fa fa-magic mr-1"></i>独立 AI 更新
+              </button>
+            </div>
+          </div>
+
+
+          <!-- ========================================================= -->
+          <!-- 模块 1: 【固定角色名册】 (对应截图 1 修复) -->
+          <!-- ========================================================= -->
+          <div id="tab-roster-content" class="p-3.5 space-y-3">
+            <!-- 名册标题条与添加按钮 -->
+            <div class="flex justify-between items-center bg-[#fdfaf3] px-3.5 py-2.5 rounded-xl border border-[#e5d2b8] shadow-sm">
+              <div>
+                <span class="text-xs font-bold text-[#5c3b19] flex items-center gap-1.5">
+                  <i class="fa fa-id-card text-[#a06c30]"></i>
+                  常驻名册清单
+                  <span id="roster-badge" class="metric-chip ml-1">4 名</span>
+                </span>
+                <p class="text-[10.5px] text-[#8c6f4f] mt-0.5">保持完整角色卡常驻，解决剧情输出过长被裁切为盟友的问题</p>
+              </div>
+              <button class="btn-primary px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 flex-shrink-0" onclick="toggleAddForm()">
+                <i class="fa fa-plus"></i> 添加角色
+              </button>
+            </div>
+
+            <!-- 添加角色表单 (内嵌展开) -->
+            <div id="add-char-form" class="bg-[#fefdfa] p-3.5 rounded-2xl border-2 border-[#c28c40]/60 shadow-md space-y-3" style="display: none;">
+              <div class="flex justify-between items-center border-b border-[#ebd8be] pb-2">
+                <span class="text-xs font-bold text-[#8c531d] flex items-center gap-1.5">
+                  <i class="fa fa-user-plus text-[#a06c30]"></i>
+                  添加新角色至常驻名册
+                </span>
+                <button class="text-[#8c7052] hover:text-[#5c3b19] text-xs" onclick="toggleAddForm()">
+                  <i class="fa fa-times"></i>
+                </button>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label class="text-[11px] font-bold text-[#6e461f] block mb-1">角色姓名 *</label>
+                  <input id="form-name" type="text" class="w-full classic-input" placeholder="如：林有声 / 埃利奥特" />
+                </div>
+                <div>
+                  <label class="text-[11px] font-bold text-[#6e461f] block mb-1">立绘标签 / 链接</label>
+                  <input id="form-portrait" type="text" class="w-full classic-input" placeholder="如：【立绘林有声】" />
+                </div>
+              </div>
+
+              <div>
+                <label class="text-[11px] font-bold text-[#6e461f] block mb-1">身份头衔 / 描述</label>
+                <input id="form-role" type="text" class="w-full classic-input" placeholder="如：调查员 / 语言学者 或 青云宗剑修弟子" />
+              </div>
+
+              <!-- 校验属性 (自由定制) -->
+              <div class="bg-[#fcf8f0] p-2.5 rounded-xl border border-[#e8d7be] space-y-2">
+                <div class="flex justify-between items-center">
+                  <span class="text-xs font-bold text-[#6e461f]">核心数值校验属性 (不限类型，自由定义)</span>
+                  <button type="button" class="text-[11px] text-[#a06c30] hover:underline font-bold" onclick="addMetricRow()">
+                    + 增加属性
+                  </button>
+                </div>
+                <div id="form-metric-rows" class="space-y-1.5">
+                  <div class="flex items-center gap-1.5 metric-row-item">
+                    <input type="text" class="classic-input flex-1 m-name" placeholder="属性名" value="气血" />
+                    <input type="text" class="classic-input w-16 text-center m-cur" placeholder="当前值" value="100" />
+                    <span class="text-[#a06c30] font-bold text-xs">/</span>
+                    <input type="text" class="classic-input w-16 text-center m-max" placeholder="上限" value="100" />
+                    <button type="button" class="text-[#a89178] hover:text-red-600 p-1 text-xs" onclick="this.parentElement.remove()"><i class="fa fa-trash-o"></i></button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 自由属性 -->
+              <div class="bg-[#fcf8f0] p-2.5 rounded-xl border border-[#e8d7be] space-y-2">
+                <div class="flex justify-between items-center">
+                  <span class="text-xs font-bold text-[#6e461f]">自由属性与初始物品</span>
+                  <button type="button" class="text-[11px] text-[#a06c30] hover:underline font-bold" onclick="addFreeRow()">
+                    + 增加自由项
+                  </button>
+                </div>
+                <div id="form-free-rows" class="space-y-1.5">
+                  <div class="flex items-center gap-1.5 free-row-item">
+                    <input type="text" class="classic-input w-24 f-key" placeholder="键名" value="内心" />
+                    <input type="text" class="classic-input flex-1 f-val" placeholder="内容" value="平静凝神，保持警惕" />
+                    <button type="button" class="text-[#a89178] hover:text-red-600 p-1 text-xs" onclick="this.parentElement.remove()"><i class="fa fa-trash-o"></i></button>
+                  </div>
+                  <div class="flex items-center gap-1.5 free-row-item">
+                    <input type="text" class="classic-input w-24 f-key" placeholder="键名" value="携带物品" />
+                    <input type="text" class="classic-input flex-1 f-val" placeholder="内容" value="[杀虫粉] [尤加利油手帕]" />
+                    <button type="button" class="text-[#a89178] hover:text-red-600 p-1 text-xs" onclick="this.parentElement.remove()"><i class="fa fa-trash-o"></i></button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-2 pt-1">
+                <button type="button" class="btn-secondary px-3 py-1.5 rounded-lg text-xs font-medium" onclick="toggleAddForm()">取消</button>
+                <button type="button" class="btn-primary px-4 py-1.5 rounded-lg text-xs font-bold" onclick="saveCharacter()">保存并加入名册</button>
+              </div>
+            </div>
+
+            <!-- 名册卡片列表 (修复截图 1 的苍白文字与脏灰输入框) -->
+            <div id="roster-list" class="space-y-2.5">
+              <!-- 动态渲染已有名册 -->
+            </div>
+
+            <!-- 未提及与在场未详占位文案 (彻底修复截图 1 的脏灰黑块) -->
+            <div class="grid grid-cols-2 gap-2.5 pt-1">
+              <div>
+                <label class="text-[11px] font-bold text-[#6e461f] block mb-1">未提及占位文案</label>
+                <input type="text" class="w-full classic-input font-medium" value="本轮未提及" />
+              </div>
+              <div>
+                <label class="text-[11px] font-bold text-[#6e461f] block mb-1">在场未详占位文案</label>
+                <input type="text" class="w-full classic-input font-medium" value="在场·本轮未详" />
+              </div>
+            </div>
+
+            <p class="text-[10px] text-[#8c6f4f] text-center pt-1 opacity-80">
+              名册保存在本聊天的变量中（随聊天导出）；删除角色只影响后续显示，不影响已存楼层
+            </p>
+          </div>
+
+
+          <!-- ========================================================= -->
+          <!-- 模块 2: 【界面与主题】 (对应截图 2 修复) -->
+          <!-- ========================================================= -->
+          <div id="tab-theme-content" class="p-3.5 space-y-3.5" style="display: none;">
+            <!-- 主题风格选择 -->
+            <div class="flex items-center justify-between py-1 border-b border-[#ebd8be]">
+              <div>
+                <span class="text-xs font-bold text-[#5c3b19] block">主题风格</span>
+                <span class="text-[11px] text-[#a06c30] font-semibold">当前：古典模式</span>
+              </div>
+              
+              <!-- 修复截图 2 的主题胶囊栏 -->
+              <div class="theme-palette-bar flex items-center gap-1.5">
+                <button class="theme-dot" title="修仙 (❤)" onclick="switchThemePreview('romantic')"><i class="fa fa-heart"></i></button>
+                <button class="theme-dot" title="白天 (☼)" onclick="switchThemePreview('day')"><i class="fa fa-sun-o"></i></button>
+                <button class="theme-dot" title="血色 (🗡)" onclick="switchThemePreview('jade')"><i class="fa fa-leaf"></i></button>
+                <button class="theme-dot active" title="古典 (📖)" onclick="switchThemePreview('classic')"><i class="fa fa-book"></i></button>
+                <button class="theme-dot" title="黑夜 (🌙)" onclick="switchThemePreview('night')"><i class="fa fa-moon-o"></i></button>
+                <button class="theme-dot" title="清新 (🍃)" onclick="switchThemePreview('fresh')"><i class="fa fa-envira"></i></button>
+              </div>
+            </div>
+
+            <!-- 显示模式选择 (修复截图 2 的冷蓝底色与紫色单选圆点) -->
+            <div>
+              <span class="text-xs font-bold text-[#5c3b19] block mb-2">显示模式</span>
+              <div class="space-y-2">
+                <div class="option-card" onclick="selectDisplayMode(this, 'integrated')">
+                  <div class="custom-radio"><div class="custom-radio-dot"></div></div>
+                  <div>
+                    <span class="text-xs font-bold text-[#5c3b19] block">一体式美化</span>
+                    <span class="text-[11px] text-[#8c6f4f]">显示完整的故事内容和状态信息</span>
+                  </div>
+                </div>
+
+                <div class="option-card selected" onclick="selectDisplayMode(this, 'status-only')">
+                  <div class="custom-radio"><div class="custom-radio-dot"></div></div>
+                  <div>
+                    <span class="text-xs font-bold text-[#5c3b19] block">美化状态栏</span>
+                    <span class="text-[11px] text-[#8c6f4f]">仅显示状态信息，隐藏正文内容</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 徽章折叠阈值 (修复截图 2 的灰突突步进器) -->
+            <div class="bg-[#fdfaf3] p-3 rounded-xl border border-[#e5d2b8] space-y-1.5">
+              <div class="flex justify-between items-center">
+                <div>
+                  <span class="text-xs font-bold text-[#5c3b19] block">徽章折叠阈值</span>
+                  <span class="text-[10.5px] text-[#8c6f4f]">单行超出数量向右折叠，可横向拖动查看</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <button class="stepper-btn" onclick="adjustThreshold(-1)">−</button>
+                  <span id="threshold-num" class="text-xs font-bold text-[#a06c30] w-6 text-center">4</span>
+                  <button class="stepper-btn" onclick="adjustThreshold(1)">+</button>
+                </div>
+              </div>
+              <p class="text-[10px] text-[#8c6f4f] opacity-85">
+                超过此数量才显示"+N"展开按钮；未展开时徽章保持单行，超出向右侧隐藏
+              </p>
+            </div>
+          </div>
+
+
+          <!-- ========================================================= -->
+          <!-- 模块 3: 【行为交互】 (对应截图 3 修复) -->
+          <!-- ========================================================= -->
+          <div id="tab-behavior-content" class="p-3.5 space-y-3" style="display: none;">
+            <div>
+              <span class="text-xs font-bold text-[#5c3b19] block mb-2">行动选项点击处理</span>
+              <div class="space-y-2">
+                <!-- 修复截图 3 的紫色单选圆圈 -->
+                <div class="option-card selected" onclick="selectActionMode(this)">
+                  <div class="custom-radio"><div class="custom-radio-dot"></div></div>
+                  <div>
+                    <span class="text-xs font-bold text-[#5c3b19] block">发送到酒馆聊天框</span>
+                    <span class="text-[11px] text-[#8c6f4f]">点击后将选项文本添加到聊天输入框中</span>
+                  </div>
+                </div>
+
+                <div class="option-card" onclick="selectActionMode(this)">
+                  <div class="custom-radio"><div class="custom-radio-dot"></div></div>
+                  <div>
+                    <span class="text-xs font-bold text-[#5c3b19] block">点击直接执行</span>
+                    <span class="text-[11px] text-[#8c6f4f]">点击后立即发送消息并触发回复</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <!-- ========================================================= -->
+          <!-- 模块 4: 【独立 AI 更新】 (对应截图 4 全面修复) -->
+          <!-- ========================================================= -->
+          <div id="tab-ai-content" class="p-3.5 space-y-3" style="display: none;">
+            <!-- 独立更新引擎信息卡 (修复粉紫/灰块) -->
+            <div class="bg-[#fdfaf3] p-3 rounded-xl border border-[#e5d2b8] space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="text-xs font-bold text-[#5c3b19] flex items-center gap-1.5">
+                  <i class="fa fa-microchip text-[#a06c30]"></i> 独立更新引擎
+                </span>
+                <span class="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-[#f4e9d6] text-[#8c531d] border border-[#e5caa2]">
+                  ● 状态同步
+                </span>
+              </div>
+              <p class="text-[11px] text-[#7d5428] leading-relaxed">
+                分流模型独立更新状态数据，不占用主模型上下文与酒馆预设；剧情未输出状态卡时自动从名册提取并接续更新。
+              </p>
+              <label class="flex items-center gap-2 text-xs font-semibold text-[#5c3b19] cursor-pointer pt-0.5">
+                <input type="checkbox" checked class="w-4 h-4 rounded" />
+                <span>自动更新状态（楼层完成或内容变化时触发）</span>
+              </label>
+              <div class="flex gap-2 pt-1">
+                <button class="btn-primary px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5">
+                  <i class="fa fa-refresh"></i> 立即更新状态
+                </button>
+                <button class="btn-secondary px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5">
+                  <i class="fa fa-download"></i> 从本楼导入快照
+                </button>
+              </div>
+            </div>
+
+            <!-- 独立更新 AI 接口表单 (修复截图 4 中所有深灰黑块) -->
+            <div class="space-y-2.5 pt-1">
+              <span class="text-xs font-bold text-[#5c3b19] block border-b border-[#ebd8be] pb-1">
+                独立更新 AI 接口设置
+              </span>
+
+              <div>
+                <label class="text-[11px] font-bold text-[#6e461f] block mb-1">API 源</label>
+                <select class="w-full classic-input font-medium">
+                  <option>自定义 (OpenAI 兼容)</option>
+                  <option>OpenAI</option>
+                  <option>DeepSeek</option>
+                  <option>Claude</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="text-[11px] font-bold text-[#6e461f] block mb-1">API 地址（端点）</label>
+                <input type="text" class="w-full classic-input font-mono text-xs" value="https://gcli.ggchan.dev/v1" />
+              </div>
+
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-[11px] font-bold text-[#6e461f] block mb-1">API 密钥</label>
+                  <input type="password" class="w-full classic-input font-mono text-xs" value="sk-xxxxxxxxxxxxxxxxxxxxxxxx" />
+                </div>
+                <div>
+                  <label class="text-[11px] font-bold text-[#6e461f] block mb-1">模型名称</label>
+                  <input type="text" class="w-full classic-input font-mono text-xs" value="gemini-3-flash-preview" />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-[11px] font-bold text-[#6e461f] block mb-1">酒馆代理预设（可选）</label>
+                  <input type="text" class="w-full classic-input" placeholder="预设名称，优先于地址/密钥" />
+                </div>
+                <div>
+                  <label class="text-[11px] font-bold text-[#6e461f] block mb-1">剧情回溯楼层数</label>
+                  <input type="number" class="w-full classic-input text-center font-bold" value="2" min="1" max="10" />
+                </div>
+              </div>
+
+              <!-- 自定义更新提示词 (修复截图 4 中完全不可读的灰黑文本框) -->
+              <div>
+                <label class="text-[11px] font-bold text-[#6e461f] block mb-1">自定义更新提示词</label>
+                <textarea class="w-full classic-input font-mono text-[11px] leading-relaxed h-28 resize-y" placeholder="留空使用内置默认提示词（跑团状态栏数据管理员 v2：模块结构 + 命令协议 + 固定成员规则）。&#10;&#10;发送给更新AI的内容固定为：&#10;[系统] 本提示词&#10;[用户] &lt;当前状态&gt;上一次的状态YAML + &lt;固定成员&gt;名册 + &lt;前情提要&gt;往前N-1楼AI正文 + &lt;最新剧情&gt;本楼正文&#10;&#10;不包含：世界书、角色卡、用户人设、酒馆预设、用户楼层。"></textarea>
+                <div class="flex justify-end mt-1.5">
+                  <button class="btn-secondary px-3 py-1 rounded-lg text-xs font-semibold">恢复默认提示词</button>
+                </div>
+              </div>
+            </div>
+
+            <p class="text-[10px] text-[#8c6f4f] text-center pt-1 opacity-80">
+              配置保存在酒馆助手的全局变量中（跟随用户存档，PC / 手机共用）
+            </p>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // 预设名册数据
+    let roster = [
+      {
+        name: "玛德琳",
+        role: "常驻角色",
+        portraitUrl: "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/玛德琳_compressed.jpg",
+        metrics: [{ name: "气血", cur: 100, max: 100 }],
+        freeAttrs: [{ key: "内心", val: "—" }, { key: "穿着", val: "—" }]
+      },
+      {
+        name: "埃利奥特",
+        role: "调查员 / 语言学者",
+        portraitUrl: "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/埃利奥特_compressed.jpg",
+        metrics: [{ name: "健康度", cur: 90, max: 100 }, { name: "理智值", cur: 68, max: 80 }],
+        freeAttrs: [{ key: "内心", val: "盘算谈判策略" }, { key: "携带物品", val: "[杀虫粉] [尤加利油手帕] [柯尔特M1911]" }]
+      },
+      {
+        name: "弗兰克",
+        role: "退伍军人 / 司机保镖",
+        portraitUrl: "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克穿衣2_compressed.jpg",
+        metrics: [{ name: "体能状态", cur: 95, max: 100 }],
+        freeAttrs: [{ key: "默认穿着", val: "深灰色风衣" }, { key: "携带物品", val: "[点三八左轮] [凯迪拉克钥匙]" }]
+      },
+      {
+        name: "林有声",
+        role: "青云宗真传 / 随行剑修",
+        portraitUrl: "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/林有声_compressed.jpg",
+        metrics: [{ name: "气血", cur: 100, max: 100 }, { name: "真元", cur: 85, max: 85 }],
+        freeAttrs: [{ key: "境界功法", val: "筑基中期 · 青莲御剑诀" }, { key: "随身法宝", val: "[青锋法剑] [清心玉佩]" }]
+      }
+    ];
+
+    let activeMainCharIndex = 0;
+    let thresholdValue = 4;
+
+    function toggleView(viewType) {
+      const mainView = document.getElementById('main-view');
+      const settingsView = document.getElementById('settings-view');
+      if (viewType === 'settings') {
+        mainView.style.display = 'none';
+        settingsView.style.display = 'block';
+        renderRosterList();
+      } else {
+        settingsView.style.display = 'none';
+        mainView.style.display = 'block';
+        renderMainView();
+      }
+    }
+
+    function switchSettingTab(tabKey) {
+      const tabMap = {
+        roster: { btn: 'tab-roster-btn', content: 'tab-roster-content', title: '固定角色名册' },
+        theme: { btn: 'tab-theme-btn', content: 'tab-theme-content', title: '界面与主题' },
+        behavior: { btn: 'tab-behavior-btn', content: 'tab-behavior-content', title: '行为交互' },
+        ai: { btn: 'tab-ai-btn', content: 'tab-ai-content', title: '独立 AI 更新' },
+      };
+
+      Object.keys(tabMap).forEach(k => {
+        const btn = document.getElementById(tabMap[k].btn);
+        const cnt = document.getElementById(tabMap[k].content);
+        if (btn) btn.classList.remove('active');
+        if (cnt) cnt.style.display = 'none';
+      });
+
+      const active = tabMap[tabKey];
+      if (active) {
+        const btn = document.getElementById(active.btn);
+        const cnt = document.getElementById(active.content);
+        if (btn) btn.classList.add('active');
+        if (cnt) cnt.style.display = 'block';
+        document.getElementById('current-tab-title').textContent = active.title;
+      }
+    }
+
+    function renderRosterList() {
+      const listContainer = document.getElementById('roster-list');
+      const badge = document.getElementById('roster-badge');
+      const mainCount = document.getElementById('main-char-count');
+      if (badge) badge.textContent = `${roster.length} 名`;
+      if (mainCount) mainCount.textContent = roster.length;
+
+      if (!listContainer) return;
+      listContainer.innerHTML = '';
+
+      roster.forEach((char, idx) => {
+        const card = document.createElement('div');
+        card.className = 'roster-item-card flex items-start justify-between gap-3';
+
+        const metricsHtml = char.metrics.map(m => 
+          `<span class="metric-chip">${m.name}: ${m.cur}/${m.max}</span>`
+        ).join(' ');
+
+        const freeHtml = char.freeAttrs.map(f => 
+          `<span class="text-[#7d5428] mr-2">${f.key}: <span class="text-[#4a321d] font-medium">${f.val}</span></span>`
+        ).join('');
+
+        card.innerHTML = `
+          <div class="flex items-start gap-3 min-w-0 flex-1">
+            <div class="w-10 h-10 rounded-lg overflow-hidden border border-[#deb885] flex-shrink-0 bg-[#e8d7be]">
+              <img src="${char.portraitUrl}" alt="${char.name}" class="w-full h-full object-cover" onerror="this.outerHTML='<div class=\\'w-full h-full flex items-center justify-center text-xs font-bold text-[#8c531d]\\'>${char.name.slice(0,1)}</div>'" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-[#4a3018]">${char.name}</span>
+                <span class="text-[11px] text-[#8c6f4f]">(${char.role})</span>
+              </div>
+              <div class="my-1 flex flex-wrap gap-1">
+                ${metricsHtml}
+              </div>
+              <div class="text-[11px] leading-tight">
+                ${freeHtml}
+              </div>
+            </div>
+          </div>
+          <button class="text-[#a89178] hover:text-red-600 p-1.5 text-xs rounded hover:bg-[#faeed7] transition-colors" onclick="deleteCharacter(${idx})" title="删除">
+            <i class="fa fa-trash-o"></i>
+          </button>
+        `;
+        listContainer.appendChild(card);
+      });
+    }
+
+    function renderMainView() {
+      const tabs = document.getElementById('main-char-tabs');
+      const cardContainer = document.getElementById('main-char-card');
+      if (!tabs || !cardContainer) return;
+
+      tabs.innerHTML = '';
+      roster.forEach((char, idx) => {
+        const btn = document.createElement('button');
+        btn.className = `character-tab-btn ${idx === activeMainCharIndex ? 'active' : ''}`;
+        btn.textContent = char.name;
+        btn.onclick = () => {
+          activeMainCharIndex = idx;
+          renderMainView();
+        };
+        tabs.appendChild(btn);
+      });
+
+      if (roster.length === 0) {
+        cardContainer.innerHTML = '<div class="text-center py-4 text-xs text-[#8c6f4f]">名册暂无角色，请进入设置添加</div>';
+        return;
+      }
+
+      const activeChar = roster[activeMainCharIndex] || roster[0];
+      const metricsList = activeChar.metrics.map(m => 
+        `<li><span class="font-bold text-[#a06c30]">${m.name}:</span> ${m.cur}/${m.max}</li>`
+      ).join('');
+
+      const freeList = activeChar.freeAttrs.map(f => {
+        if (f.val && f.val.includes('[')) {
+          const matches = f.val.match(/\[([^\]]+)\]/g) || [];
+          const badges = matches.map(b => `<span class="item-badge">${b.slice(1,-1)}</span>`).join(' ');
+          return `<li><span class="font-bold text-[#a06c30]">${f.key}: </span>${badges}</li>`;
+        }
+        return `<li><span class="font-bold text-[#a06c30]">${f.key}:</span> ${f.val}</li>`;
+      }).join('');
+
+      cardContainer.innerHTML = `
+        <div class="bg-[#fdfaf4] rounded-xl border border-[#ebd8be] p-3 shadow-sm">
+          <h3 class="font-bold text-sm text-[#4a3018] mb-2 pb-1 border-b border-[#ebd8be]">${activeChar.name}的状态</h3>
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="w-[125px] h-[160px] rounded-lg overflow-hidden border-2 border-[#deb885] flex-shrink-0 bg-[#2a201c] relative">
+              <img src="${activeChar.portraitUrl}" alt="${activeChar.name}" class="w-full h-full object-cover" onerror="this.style.display='none'" />
+              <div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+            </div>
+            <div class="flex-1 text-xs space-y-1.5 text-[#5c3e21]">
+              <div><span class="font-bold text-[#a06c30]">身份:</span> ${activeChar.role}</div>
+              <ul class="space-y-1">
+                ${metricsList}
+                ${freeList}
+              </ul>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function toggleAddForm() {
+      const form = document.getElementById('add-char-form');
+      if (!form) return;
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+      if (form.style.display === 'block') {
+        document.getElementById('form-name').focus();
+      }
+    }
+
+    function addMetricRow() {
+      const c = document.getElementById('form-metric-rows');
+      const div = document.createElement('div');
+      div.className = 'flex items-center gap-1.5 metric-row-item';
+      div.innerHTML = `
+        <input type="text" class="classic-input flex-1 m-name" placeholder="属性名 (如 灵力/HP)" />
+        <input type="text" class="classic-input w-16 text-center m-cur" placeholder="当前值" value="100" />
+        <span class="text-[#a06c30] font-bold text-xs">/</span>
+        <input type="text" class="classic-input w-16 text-center m-max" placeholder="上限" value="100" />
+        <button type="button" class="text-[#a89178] hover:text-red-600 p-1 text-xs" onclick="this.parentElement.remove()"><i class="fa fa-trash-o"></i></button>
+      `;
+      c.appendChild(div);
+    }
+
+    function addFreeRow() {
+      const c = document.getElementById('form-free-rows');
+      const div = document.createElement('div');
+      div.className = 'flex items-center gap-1.5 free-row-item';
+      div.innerHTML = `
+        <input type="text" class="classic-input w-24 f-key" placeholder="键名" />
+        <input type="text" class="classic-input flex-1 f-val" placeholder="内容" />
+        <button type="button" class="text-[#a89178] hover:text-red-600 p-1 text-xs" onclick="this.parentElement.remove()"><i class="fa fa-trash-o"></i></button>
+      `;
+      c.appendChild(div);
+    }
+
+    function saveCharacter() {
+      const name = document.getElementById('form-name').value.trim();
+      if (!name) {
+        alert('请输入角色姓名！');
+        return;
+      }
+      const role = document.getElementById('form-role').value.trim() || '常驻角色';
+      const portrait = document.getElementById('form-portrait').value.trim();
+
+      const metrics = [];
+      document.querySelectorAll('.metric-row-item').forEach(r => {
+        const n = r.querySelector('.m-name').value.trim();
+        const cur = parseInt(r.querySelector('.m-cur').value.trim()) || 0;
+        const max = parseInt(r.querySelector('.m-max').value.trim()) || 100;
+        if (n) metrics.push({ name: n, cur, max });
+      });
+
+      const freeAttrs = [];
+      document.querySelectorAll('.free-row-item').forEach(r => {
+        const k = r.querySelector('.f-key').value.trim();
+        const v = r.querySelector('.f-val').value.trim();
+        if (k) freeAttrs.push({ key: k, val: v });
+      });
+
+      roster.push({
+        name,
+        role,
+        portraitUrl: portrait || 'https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/玛德琳_compressed.jpg',
+        metrics: metrics.length > 0 ? metrics : [{ name: "气血", cur: 100, max: 100 }],
+        freeAttrs: freeAttrs.length > 0 ? freeAttrs : [{ key: "内心", val: "处于待机戒备状态" }]
+      });
+
+      renderRosterList();
+      toggleAddForm();
+      document.getElementById('form-name').value = '';
+      document.getElementById('form-role').value = '';
+      document.getElementById('form-portrait').value = '';
+    }
+
+    function deleteCharacter(idx) {
+      if (confirm(`确定要移除角色「${roster[idx].name}」吗？`)) {
+        roster.splice(idx, 1);
+        if (activeMainCharIndex >= roster.length) {
+          activeMainCharIndex = Math.max(0, roster.length - 1);
+        }
+        renderRosterList();
+      }
+    }
+
+    function selectDisplayMode(card, mode) {
+      card.parentElement.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+    }
+
+    function selectActionMode(card) {
+      card.parentElement.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+    }
+
+    function adjustThreshold(delta) {
+      thresholdValue = Math.max(1, Math.min(20, thresholdValue + delta));
+      document.getElementById('threshold-num').textContent = thresholdValue;
+    }
+
+    function switchThemePreview(theme) {
+      alert(`已切换至【${theme}】主题预览`);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      renderMainView();
+      renderRosterList();
+    });
+  </script>
+</body>
+</html>

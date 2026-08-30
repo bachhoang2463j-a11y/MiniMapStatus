@@ -1230,21 +1230,34 @@ function buildPortraitHTML(roleName, portraitUrl) {
 
         .day-mode .display-mode-option,
         .jade-mode .display-mode-option,
-        .classic-mode .display-mode-option,
-        .romantic-mode .display-mode-option,
         .fresh-mode .display-mode-option {
           border-color: #e2e8f0;
           background-color: #f8fafc;
         }
+        .romantic-mode .display-mode-option,
+        .romantic-mode .action-mode-option {
+          border-color: #ebd9c0;
+          background: linear-gradient(145deg, #fdfcf9 0%, #f7f2ea 100%);
+        }
+        .classic-mode .display-mode-option,
+        .classic-mode .action-mode-option {
+          border-color: #ebd7bc;
+          background: linear-gradient(145deg, #fdfcf9 0%, #fbf6ec 100%);
+        }
         .day-mode .display-mode-option:hover,
-        .jade-mode .display-mode-option:hover,
-        .classic-mode .display-mode-option:hover {
+        .jade-mode .display-mode-option:hover {
           background-color: #f1f5f9;
           border-color: rgba(124, 58, 237, 0.3);
         }
-        .romantic-mode .display-mode-option:hover {
-          background-color: #fdeaea;
-          border-color: rgba(227, 103, 116, 0.3);
+        .romantic-mode .display-mode-option:hover,
+        .romantic-mode .action-mode-option:hover {
+          background: linear-gradient(145deg, #ffffff 0%, #fbf5eb 100%);
+          border-color: #c8b69a;
+        }
+        .classic-mode .display-mode-option:hover,
+        .classic-mode .action-mode-option:hover {
+          background: linear-gradient(145deg, #ffffff 0%, #f8f0df 100%);
+          border-color: #d1ab75;
         }
         .fresh-mode .display-mode-option:hover {
           background-color: #dcfce7;
@@ -1252,66 +1265,88 @@ function buildPortraitHTML(roleName, portraitUrl) {
         }
         .day-mode .option-title,
         .jade-mode .option-title,
-        .classic-mode .option-title,
-        .romantic-mode .option-title,
         .fresh-mode .option-title {
           color: #374151;
         }
+        .romantic-mode .option-title {
+          color: #4a3f30;
+        }
+        .classic-mode .option-title {
+          color: #5c3b19;
+        }
         .day-mode .option-desc,
         .jade-mode .option-desc,
-        .classic-mode .option-desc,
-        .romantic-mode .option-desc,
         .fresh-mode .option-desc {
           color: #6b7280;
         }
+        .romantic-mode .option-desc {
+          color: #8c8476;
+        }
+        .classic-mode .option-desc {
+          color: #8c6f4f;
+        }
         .day-mode .radio-custom,
         .jade-mode .radio-custom,
-        .classic-mode .radio-custom,
-        .romantic-mode .radio-custom,
         .fresh-mode .radio-custom {
           border-color: #9ca3af;
         }
+        .romantic-mode .radio-custom {
+          border-color: #c8b69a;
+          background: #ffffff;
+        }
+        .classic-mode .radio-custom {
+          border-color: #b89b78;
+          background: #ffffff;
+        }
         .day-mode .display-mode-option input[type='radio']:checked + .radio-custom,
-        .jade-mode .display-mode-option input[type='radio']:checked + .radio-custom,
-        .classic-mode .display-mode-option input[type='radio']:checked + .radio-custom {
+        .jade-mode .display-mode-option input[type='radio']:checked + .radio-custom {
           border-color: #7c3aed;
         }
         .romantic-mode .display-mode-option input[type='radio']:checked + .radio-custom {
-          border-color: #d14455;
+          border-color: #ad997b;
+        }
+        .classic-mode .display-mode-option input[type='radio']:checked + .radio-custom {
+          border-color: #a06c30;
         }
         .fresh-mode .display-mode-option input[type='radio']:checked + .radio-custom {
           border-color: #16a34a;
         }
         .day-mode .radio-custom::after,
-        .jade-mode .radio-custom::after,
-        .classic-mode .radio-custom::after {
+        .jade-mode .radio-custom::after {
           background-color: #7c3aed;
         }
         .romantic-mode .radio-custom::after {
-          background-color: #d14455;
+          background-color: #ad997b;
+        }
+        .classic-mode .radio-custom::after {
+          background-color: #a06c30;
         }
         .fresh-mode .radio-custom::after {
           background-color: #16a34a;
         }
 
         .day-mode .action-mode-option input[type='radio']:checked + .radio-custom,
-        .jade-mode .action-mode-option input[type='radio']:checked + .radio-custom,
-        .classic-mode .action-mode-option input[type='radio']:checked + .radio-custom {
+        .jade-mode .action-mode-option input[type='radio']:checked + .radio-custom {
           border-color: #7c3aed;
         }
         .romantic-mode .action-mode-option input[type='radio']:checked + .radio-custom {
-          border-color: #d14455;
+          border-color: #ad997b;
+        }
+        .classic-mode .action-mode-option input[type='radio']:checked + .radio-custom {
+          border-color: #a06c30;
         }
         .fresh-mode .action-mode-option input[type='radio']:checked + .radio-custom {
           border-color: #16a34a;
         }
         .day-mode .action-mode-option .radio-custom::after,
-        .jade-mode .action-mode-option .radio-custom::after,
-        .classic-mode .action-mode-option .radio-custom::after {
+        .jade-mode .action-mode-option .radio-custom::after {
           background-color: #7c3aed;
         }
         .romantic-mode .action-mode-option .radio-custom::after {
-          background-color: #d14455;
+          background-color: #ad997b;
+        }
+        .classic-mode .action-mode-option .radio-custom::after {
+          background-color: #a06c30;
         }
         .fresh-mode .action-mode-option .radio-custom::after {
           background-color: #16a34a;
@@ -1340,10 +1375,14 @@ function buildPortraitHTML(roleName, portraitUrl) {
         }
         .day-mode .threshold-label,
         .jade-mode .threshold-label,
-        .classic-mode .threshold-label,
-        .romantic-mode .threshold-label,
         .fresh-mode .threshold-label {
           color: #374151;
+        }
+        .romantic-mode .threshold-label {
+          color: #4a3f30;
+        }
+        .classic-mode .threshold-label {
+          color: #5c3b19;
         }
         .threshold-stepper {
           display: inline-flex;
@@ -1373,31 +1412,46 @@ function buildPortraitHTML(roleName, portraitUrl) {
         }
         .day-mode .threshold-control,
         .jade-mode .threshold-control,
-        .classic-mode .threshold-control,
-        .romantic-mode .threshold-control,
         .fresh-mode .threshold-control {
           border-color: #e2e8f0;
           background-color: #f8fafc;
         }
+        .romantic-mode .threshold-control {
+          border-color: #ebd9c0;
+          background-color: #fdfaf3;
+        }
+        .classic-mode .threshold-control {
+          border-color: #e5d2b8;
+          background-color: #fdfaf3;
+        }
         .day-mode .threshold-btn,
-        .jade-mode .threshold-btn,
-        .classic-mode .threshold-btn {
+        .jade-mode .threshold-btn {
           border-color: #c4b5fd;
           background: #ede9fe;
           color: #5b21b6;
         }
         .day-mode .threshold-btn:hover:not(:disabled),
-        .jade-mode .threshold-btn:hover:not(:disabled),
-        .classic-mode .threshold-btn:hover:not(:disabled) {
+        .jade-mode .threshold-btn:hover:not(:disabled) {
           background: #ddd6fe;
         }
+        .classic-mode .threshold-btn {
+          border-color: #dec7a5;
+          background: #fbf5ea;
+          color: #7d5428;
+        }
+        .classic-mode .threshold-btn:hover:not(:disabled) {
+          background: #faeed7;
+          border-color: #a06c30;
+          color: #4a2d10;
+        }
         .romantic-mode .threshold-btn {
-          border-color: #f0b8c0;
-          background: #fde8eb;
-          color: #b63a4a;
+          border-color: #d9ccba;
+          background: #fbf9f5;
+          color: #5c4d3c;
         }
         .romantic-mode .threshold-btn:hover:not(:disabled) {
-          background: #fbd1d7;
+          background: #f5f0e6;
+          border-color: #c8b69a;
         }
         .fresh-mode .threshold-btn {
           border-color: #86efac;
@@ -1416,8 +1470,15 @@ function buildPortraitHTML(roleName, portraitUrl) {
         }
         .day-mode .threshold-value,
         .jade-mode .threshold-value,
-        .classic-mode .threshold-value,
-        .romantic-mode .threshold-value,
+        .fresh-mode .threshold-value {
+          color: #1e293b;
+        }
+        .classic-mode .threshold-value {
+          color: #a06c30;
+        }
+        .romantic-mode .threshold-value {
+          color: #5c4d3c;
+        }
         .fresh-mode .threshold-value {
           color: #1f2937;
         }
@@ -2434,7 +2495,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
         height: 15px;
       }
 
-      /* ===== 方案二：分栏仪表盘设置视图（demo融合，重点适配古典/修仙） ===== */
+      /* ===== 方案二：分栏仪表盘设置视图（demo融合，重点适配古典/修仙/白天等全模式） ===== */
       .view-panel {
         animation: mms-view-in 0.25s ease;
       }
@@ -2474,32 +2535,296 @@ function buildPortraitHTML(roleName, portraitUrl) {
         background-color: currentColor;
         border-radius: 2px;
       }
-      .romantic-mode .setting-tab-btn,
+
+      /* --- 古典模式 (Classic Mode) 全局深度美化与可读性修复 --- */
       .classic-mode .setting-tab-btn {
-        color: #8c8476;
+        color: #8c7052;
       }
-      .romantic-mode .setting-tab-btn.active,
+      .classic-mode .setting-tab-btn:hover {
+        color: #5c3b19;
+      }
       .classic-mode .setting-tab-btn.active {
-        color: currentColor;
+        color: #945f24;
+        font-weight: 700;
+      }
+      .classic-mode .setting-tab-btn.active::after {
+        background-color: #a06c30;
+        height: 2.5px;
       }
 
+      .classic-mode .roster-surface {
+        background: #fdfaf3 !important;
+        border-color: #e5d2b8 !important;
+      }
+      .classic-mode .roster-form-card {
+        background: #fefdfa !important;
+        border: 1.5px solid #c28c40 !important;
+        box-shadow: 0 4px 15px rgba(160, 108, 48, 0.1) !important;
+      }
+      .classic-mode .form-input,
+      .classic-mode .mms-field > input,
+      .classic-mode .mms-field > select,
+      .classic-mode .mms-field > textarea,
+      .classic-mode #mms-absent-text,
+      .classic-mode #mms-present-text {
+        background: #fdfaf4 !important;
+        border: 1px solid #dec7a5 !important;
+        border-radius: 8px;
+        color: #4a321d !important;
+        box-shadow: inset 0 1px 2px rgba(125, 84, 40, 0.05);
+      }
+      .classic-mode .form-input::placeholder,
+      .classic-mode .mms-field > input::placeholder,
+      .classic-mode .mms-field > textarea::placeholder,
+      .classic-mode #mms-absent-text::placeholder,
+      .classic-mode #mms-present-text::placeholder {
+        color: #a89178 !important;
+        opacity: 0.85;
+      }
+      .classic-mode .form-input:focus,
+      .classic-mode .mms-field > input:focus,
+      .classic-mode .mms-field > select:focus,
+      .classic-mode .mms-field > textarea:focus,
+      .classic-mode #mms-absent-text:focus,
+      .classic-mode #mms-present-text:focus {
+        background: #ffffff !important;
+        border-color: #a06c30 !important;
+        box-shadow: 0 0 0 2.5px rgba(160, 108, 48, 0.18), inset 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+      }
+      .classic-mode .mms-field > label,
+      .classic-mode .settings-label,
+      .classic-mode .settings-group label,
+      .classic-mode .roster-form-card label {
+        color: #6e461f !important;
+        font-weight: 600;
+      }
+
+      .classic-mode #settings-close,
+      .classic-mode #mms-roster-new,
+      .classic-mode #mms-roster-add {
+        background: linear-gradient(180deg, #fdfbf7 0%, #f7efe1 100%) !important;
+        color: #7a4f21 !important;
+        border: 1.5px solid #d9b888 !important;
+        box-shadow: 0 1px 4px rgba(125, 84, 40, 0.12), inset 0 1px 0 #ffffff !important;
+        font-weight: 700 !important;
+      }
+      .classic-mode #settings-close:hover,
+      .classic-mode #mms-roster-new:hover,
+      .classic-mode #mms-roster-add:hover {
+        background: linear-gradient(180deg, #ffffff 0%, #faeed7 100%) !important;
+        border-color: #b58343 !important;
+        color: #59330e !important;
+        box-shadow: 0 3px 8px rgba(125, 84, 40, 0.18), inset 0 1px 0 #ffffff !important;
+        transform: translateY(-1px);
+      }
+      .classic-mode #settings-close .fa,
+      .classic-mode #mms-roster-new .fa,
+      .classic-mode #mms-roster-add .fa {
+        color: #9c682c !important;
+      }
+      .classic-mode #settings-close:hover .fa,
+      .classic-mode #mms-roster-new:hover .fa,
+      .classic-mode #mms-roster-add:hover .fa {
+        color: #7a4f21 !important;
+      }
+
+      .classic-mode #mms-manual-update {
+        background: linear-gradient(180deg, #fdfbf7 0%, #f7efe1 100%) !important;
+        color: #7a4f21 !important;
+        border: 1.5px solid #d9b888 !important;
+        box-shadow: 0 1px 3px rgba(125, 84, 40, 0.1) !important;
+        font-weight: 600 !important;
+      }
+      .classic-mode #mms-manual-update:hover {
+        background: linear-gradient(180deg, #ffffff 0%, #faeed7 100%) !important;
+        border-color: #b58343 !important;
+        color: #59330e !important;
+      }
+      .classic-mode #mms-manual-update .fa {
+        color: #9c682c !important;
+      }
+
+      .classic-mode #mms-import-btn,
+      .classic-mode #mms-prompt-reset,
+      .classic-mode #mms-roster-cancel {
+        background: linear-gradient(180deg, #fefefc 0%, #f5efe6 100%) !important;
+        border: 1px solid #decbb4 !important;
+        color: #8c6f4f !important;
+        box-shadow: 0 1px 2px rgba(125, 84, 40, 0.06) !important;
+        font-weight: 500 !important;
+      }
+      .classic-mode #mms-import-btn:hover,
+      .classic-mode #mms-prompt-reset:hover,
+      .classic-mode #mms-roster-cancel:hover {
+        background: #ffffff !important;
+        border-color: #c8a876 !important;
+        color: #5c3e21 !important;
+      }
+      .classic-mode #mms-import-btn .fa,
+      .classic-mode #mms-prompt-reset .fa {
+        color: #8c6f4f !important;
+      }
+
+      .classic-mode .roster-card {
+        background: linear-gradient(145deg, #fdfbf7 0%, #f7efe1 100%) !important;
+        border: 1px solid #e2cfb4 !important;
+        box-shadow: 0 2px 6px rgba(100, 68, 35, 0.04);
+      }
+      .classic-mode .roster-card:hover {
+        border-color: #c28c40 !important;
+        box-shadow: 0 4px 12px rgba(160, 108, 48, 0.1) !important;
+      }
+      .classic-mode .roster-card .font-bold.text-gray-200,
+      .classic-mode .roster-card .text-gray-200 {
+        color: #4a3018 !important;
+      }
+      .classic-mode .roster-card .text-gray-300 {
+        color: #5c3e21 !important;
+      }
+      .classic-mode .roster-card .text-gray-400 {
+        color: #8c6f4f !important;
+      }
+      .classic-mode .metric-chip {
+        background: linear-gradient(145deg, #fbf2e2 0%, #f6e6cd 100%) !important;
+        border: 1px solid #e5caa2 !important;
+        color: #8c531d !important;
+        font-weight: 600;
+      }
+      .classic-mode .mms-count-badge {
+        background: #faeed7 !important;
+        border: 1px solid #e5caa2 !important;
+        color: #8c531d !important;
+        font-weight: 600;
+      }
+
+      .classic-mode .theme-dot-bar {
+        background: #f5ecd8 !important;
+        border: 1px solid #dfcbb0 !important;
+        box-shadow: inset 0 1px 3px rgba(125, 84, 40, 0.08) !important;
+      }
+      .classic-mode .theme-dot-btn {
+        color: #9c8065 !important;
+      }
+      .classic-mode .theme-dot-btn .fa {
+        color: inherit !important;
+      }
+      .classic-mode .theme-dot-btn:hover {
+        background: rgba(255, 255, 255, 0.7) !important;
+        color: #6e4822 !important;
+      }
+      .classic-mode .theme-dot-btn:hover .fa {
+        color: #6e4822 !important;
+      }
+      .classic-mode .theme-dot-btn.active {
+        background: linear-gradient(145deg, #e4b265 0%, #c48c3a 100%) !important;
+        color: #ffffff !important;
+        box-shadow: 0 2px 5px rgba(160, 108, 48, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+      }
+      .classic-mode .theme-dot-btn.active .fa {
+        color: #ffffff !important;
+      }
+      .classic-mode .mms-toggle-row {
+        color: #5c3b19 !important;
+        font-weight: 600;
+      }
+      .classic-mode .mms-toggle-row input[type='checkbox'] {
+        accent-color: #a06c30 !important;
+      }
+      .classic-mode .settings-hint {
+        color: #8c6f4f !important;
+      }
+
+      /* --- 修仙模式 (Romantic Mode) 适配 --- */
+      .romantic-mode .setting-tab-btn {
+        color: #8c8476;
+      }
+      .romantic-mode .setting-tab-btn.active {
+        color: #5c4d3c;
+        font-weight: 700;
+      }
+      .romantic-mode .setting-tab-btn.active::after {
+        background-color: #c8b69a;
+      }
+      .romantic-mode .roster-surface {
+        background: rgba(200, 182, 154, 0.08);
+        border-color: rgba(200, 182, 154, 0.3);
+      }
+      .romantic-mode .roster-form-card {
+        background: #faf8f5;
+        border: 1.5px solid #c8b69a;
+      }
+      .romantic-mode .form-input,
+      .romantic-mode .mms-field > input,
+      .romantic-mode .mms-field > select,
+      .romantic-mode .mms-field > textarea,
+      .romantic-mode #mms-absent-text,
+      .romantic-mode #mms-present-text {
+        background: #fdfbf7 !important;
+        border: 1px solid #d9ccba !important;
+        color: #2c3539 !important;
+      }
+      .romantic-mode .form-input::placeholder,
+      .romantic-mode .mms-field > input::placeholder,
+      .romantic-mode .mms-field > textarea::placeholder,
+      .romantic-mode #mms-absent-text::placeholder,
+      .romantic-mode #mms-present-text::placeholder {
+        color: #9c9284 !important;
+      }
+      .romantic-mode .form-input:focus,
+      .romantic-mode .mms-field > input:focus,
+      .romantic-mode .mms-field > select:focus,
+      .romantic-mode .mms-field > textarea:focus,
+      .romantic-mode #mms-absent-text:focus,
+      .romantic-mode #mms-present-text:focus {
+        background: #ffffff !important;
+        border-color: #c8b69a !important;
+        box-shadow: 0 0 0 2px rgba(200, 182, 154, 0.25) !important;
+      }
+      .romantic-mode #settings-close,
+      .romantic-mode #mms-roster-new,
+      .romantic-mode #mms-roster-add,
+      .romantic-mode #mms-manual-update {
+        background: linear-gradient(135deg, #c8b69a 0%, #ad997b 100%) !important;
+        color: #ffffff !important;
+        border: 1px solid #998466 !important;
+      }
+      .romantic-mode #mms-import-btn,
+      .romantic-mode #mms-prompt-reset {
+        background: #faf8f5 !important;
+        border: 1px solid #d9ccba !important;
+        color: #5c4d3c !important;
+      }
+      .romantic-mode .metric-chip {
+        background: rgba(200, 182, 154, 0.16);
+        border-color: #c8b69a;
+        color: #5c4d3c;
+      }
+      .romantic-mode .mms-count-badge {
+        background: rgba(200, 182, 154, 0.25);
+        color: #5c4d3c;
+      }
+      .romantic-mode .theme-dot-bar {
+        background: rgba(200, 182, 154, 0.15);
+      }
+      .romantic-mode .theme-dot-btn.active {
+        background: #c8b69a;
+        color: #4a3f30;
+        box-shadow: 0 0 0 2px rgba(200, 182, 154, 0.5);
+      }
+      .romantic-mode .mms-toggle-row {
+        color: #5c4d3c !important;
+      }
+      .romantic-mode .mms-toggle-row input[type='checkbox'] {
+        accent-color: #c8b69a !important;
+      }
+
+      /* 通用暗色/默认样式 */
       .roster-surface {
         background: rgba(255, 255, 255, 0.04);
-      }
-      .romantic-mode .roster-surface,
-      .classic-mode .roster-surface {
-        background: rgba(217, 168, 86, 0.07);
       }
       .roster-form-card {
         background: rgba(0, 0, 0, 0.25);
       }
-      .romantic-mode .roster-form-card {
-        background: rgba(200, 182, 154, 0.12);
-      }
-      .classic-mode .roster-form-card {
-        background: rgba(217, 168, 86, 0.08);
-      }
-
       .form-input {
         background: rgba(0, 0, 0, 0.32);
         border: 1px solid rgba(120, 120, 140, 0.4);
@@ -2513,16 +2838,6 @@ function buildPortraitHTML(roleName, portraitUrl) {
       .form-input:focus {
         border-color: #9d7cf5;
       }
-      .romantic-mode .form-input,
-      .classic-mode .form-input {
-        background: rgba(255, 255, 255, 0.55);
-        border-color: rgba(200, 182, 154, 0.6);
-      }
-      .romantic-mode .form-input:focus,
-      .classic-mode .form-input:focus {
-        border-color: #a06c30;
-      }
-
       .roster-card {
         transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
       }
@@ -2541,16 +2856,6 @@ function buildPortraitHTML(roleName, portraitUrl) {
         font-weight: 500;
         white-space: nowrap;
       }
-      .romantic-mode .metric-chip {
-        background: rgba(200, 182, 154, 0.16);
-        border-color: #c8b69a;
-        color: #5c4d3c;
-      }
-      .classic-mode .metric-chip {
-        background: rgba(217, 168, 86, 0.12);
-        border-color: rgba(217, 168, 86, 0.4);
-        color: #a06c30;
-      }
       .mms-count-badge {
         font-size: 10px;
         padding: 1px 7px;
@@ -2559,21 +2864,8 @@ function buildPortraitHTML(roleName, portraitUrl) {
         color: #b9a2f7;
         font-family: ui-monospace, monospace;
       }
-      .romantic-mode .mms-count-badge {
-        background: rgba(200, 182, 154, 0.25);
-        color: #5c4d3c;
-      }
-      .classic-mode .mms-count-badge {
-        background: rgba(217, 168, 86, 0.18);
-        color: #a06c30;
-      }
-
       .theme-dot-bar {
         background: rgba(0, 0, 0, 0.18);
-      }
-      .romantic-mode .theme-dot-bar,
-      .classic-mode .theme-dot-bar {
-        background: rgba(217, 168, 86, 0.1);
       }
       .theme-dot-btn {
         width: 24px;
@@ -2598,17 +2890,6 @@ function buildPortraitHTML(roleName, portraitUrl) {
         color: #fff;
         box-shadow: 0 0 0 2px rgba(157, 124, 245, 0.4);
       }
-      .romantic-mode .theme-dot-btn.active {
-        background: #c8b69a;
-        color: #4a3f30;
-        box-shadow: 0 0 0 2px rgba(200, 182, 154, 0.5);
-      }
-      .classic-mode .theme-dot-btn.active {
-        background: #d9a856;
-        color: #fff;
-        box-shadow: 0 0 0 2px rgba(217, 168, 86, 0.45);
-      }
-
       .attr-row-del {
         color: #9ca3af;
         transition: color 0.15s ease;
