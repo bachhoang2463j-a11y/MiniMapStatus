@@ -1,4 +1,3 @@
-```
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -2333,7 +2332,101 @@ function buildPortraitHTML(roleName, portraitUrl) {
   <body class="romantic-mode">
     <script id="yaml-data-source" type="text/yaml"></script>
 
-    <div class="w-full px-1.5 py-4">
+    <style>
+      /* MMS 管理引擎界面 */
+      .mms-indicator {
+        width: 9px;
+        height: 9px;
+        border-radius: 9999px;
+        display: inline-block;
+      }
+      .mms-indicator.updating {
+        background: #f59e0b;
+        animation: mms-pulse 1.2s ease-in-out infinite;
+      }
+      .mms-indicator.error {
+        background: #ef4444;
+        cursor: pointer;
+      }
+      .mms-indicator.ok {
+        background: #10b981;
+      }
+      @keyframes mms-pulse {
+        0%,
+        100% {
+          opacity: 0.35;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      .mms-btn {
+        padding: 5px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(120, 120, 140, 0.4);
+        color: inherit;
+        font-size: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .mms-btn:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .mms-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .mms-btn-primary {
+        background: #6366f1;
+        color: #fff;
+        border-color: transparent;
+      }
+      .mms-btn-primary:hover {
+        background: #4f46e5;
+      }
+      .mms-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 8px;
+      }
+      .mms-field > label {
+        font-size: 12px;
+        color: #9ca3af;
+      }
+      .mms-field > input,
+      .mms-field > select {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(120, 120, 140, 0.4);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 13px;
+        color: inherit;
+        outline: none;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .mms-field > input:focus,
+      .mms-field > select:focus {
+        border-color: #6366f1;
+      }
+      .mms-toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        cursor: pointer;
+        color: #d1d5db;
+      }
+      .mms-toggle-row input[type='checkbox'] {
+        accent-color: #6366f1;
+        width: 15px;
+        height: 15px;
+      }
+    </style>
+
+    <div id="mms-main-view" class="w-full px-1.5 py-4">
       <div
         class="status-block mb-4 rounded-3xl shadow-lg overflow-hidden border border-gray-700/30 theme-transition w-full"
       >
@@ -2348,14 +2441,25 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <span id="time-display" class="whitespace-nowrap">加载中...</span>
             </div>
 
-            <!-- 设置按钮 -->
-            <button
-              id="settings-btn"
-              class="theme-btn rounded-full border border-gray-700/50 hover:bg-primary/20 transition-colors flex-shrink-0"
-              title="设置"
-            >
-              <i class="fa fa-cog"></i>
-            </button>
+            <!-- 操作区：状态更新指示器 / 编辑数据 / 设置 -->
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <span id="mms-update-indicator" class="mms-indicator" style="display: none" title=""></span>
+              <button
+                id="mms-edit-btn"
+                class="theme-btn rounded-full border border-gray-700/50 hover:bg-primary/20 transition-colors"
+                title="编辑状态数据（YAML）"
+                style="display: none"
+              >
+                <i class="fa fa-pencil"></i>
+              </button>
+              <button
+                id="settings-btn"
+                class="theme-btn rounded-full border border-gray-700/50 hover:bg-primary/20 transition-colors"
+                title="设置"
+              >
+                <i class="fa fa-cog"></i>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -2406,6 +2510,45 @@ function buildPortraitHTML(roleName, portraitUrl) {
                 </div>
               </li>
             </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MMS：YAML 数据编辑模式（状态栏切换为纯文本编辑态） -->
+    <div id="mms-edit-mode" class="w-full px-1.5 py-4" style="display: none">
+      <div
+        class="status-block mb-4 rounded-3xl shadow-lg overflow-hidden border border-gray-700/30 theme-transition w-full"
+      >
+        <div
+          class="bg-gradient-to-r from-primary/20 to-primary/5 px-4 py-2.5 rounded-t-3xl border-b border-gray-700/20 theme-transition"
+        >
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-semibold text-gray-300 flex items-center">
+              <i class="fa fa-pencil text-primary mr-2"></i>编辑状态数据 (YAML)
+            </span>
+            <span class="text-xs text-gray-400">保存时校验格式，错误会提示行号</span>
+          </div>
+        </div>
+        <div class="p-3">
+          <textarea
+            id="mms-yaml-editor"
+            spellcheck="false"
+            rows="18"
+            class="w-full text-xs font-mono bg-black/30 border border-gray-700/40 rounded-lg p-3 text-gray-200 focus:outline-none resize-y"
+            style="min-height: 240px"
+          ></textarea>
+          <div id="mms-edit-error" class="text-xs text-red-400 mt-2 font-mono" style="display: none"></div>
+          <div class="flex justify-end gap-2 mt-3">
+            <button
+              id="mms-edit-cancel"
+              class="px-3 py-1.5 rounded-lg border border-gray-600/50 text-gray-300 text-sm hover:bg-gray-700/30 transition-colors"
+            >
+              取消
+            </button>
+            <button id="mms-edit-save" class="px-3 py-1.5 rounded-lg bg-primary text-white text-sm hover:opacity-90 transition-colors">
+              保存
+            </button>
           </div>
         </div>
       </div>
@@ -2542,6 +2685,62 @@ function buildPortraitHTML(roleName, portraitUrl) {
           </div>
         </div>
 
+        <!-- MMS：数据管理 -->
+        <div class="settings-group" id="mms-settings-group" style="display: none">
+          <label class="settings-label">数据管理</label>
+          <label class="mms-toggle-row" style="margin-bottom: 10px">
+            <input type="checkbox" id="mms-auto-update" checked />
+            <span>自动更新状态（楼层完成或内容变化时由独立AI更新）</span>
+          </label>
+          <div class="flex gap-2 flex-wrap">
+            <button id="mms-manual-update" class="mms-btn mms-btn-primary" type="button">
+              <i class="fa fa-refresh mr-1"></i>立即更新
+            </button>
+            <button id="mms-import-btn" class="mms-btn" type="button">
+              <i class="fa fa-download mr-1"></i>从本楼导入
+            </button>
+          </div>
+          <p class="settings-hint" style="margin-top: 8px">
+            「从本楼导入」会解析本楼 &lt;Status_block&gt; 文本并保存为数据快照，旧聊天无需重新生成即可使用
+          </p>
+        </div>
+
+        <!-- MMS：独立更新 AI 接口 -->
+        <div class="settings-group" id="mms-api-group" style="display: none">
+          <label class="settings-label">独立更新 AI</label>
+          <div class="mms-field">
+            <label for="mms-api-source">API 源</label>
+            <select id="mms-api-source">
+              <option value="custom">自定义 (OpenAI 兼容)</option>
+              <option value="openai">OpenAI</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="claude">Claude</option>
+              <option value="makersuite">Google MakerSuite</option>
+              <option value="xai">xAI (Grok)</option>
+            </select>
+          </div>
+          <div class="mms-field">
+            <label for="mms-api-url">API 地址（端点）</label>
+            <input id="mms-api-url" type="text" placeholder="https://api.example.com/v1" spellcheck="false" />
+          </div>
+          <div class="mms-field">
+            <label for="mms-api-key">API 密钥</label>
+            <input id="mms-api-key" type="password" placeholder="sk-..." spellcheck="false" />
+          </div>
+          <div class="mms-field">
+            <label for="mms-api-model">模型名称</label>
+            <input id="mms-api-model" type="text" placeholder="例：deepseek-chat" spellcheck="false" />
+          </div>
+          <div class="mms-field">
+            <label for="mms-api-preset">使用酒馆代理预设（可选，优先于上面的地址/密钥）</label>
+            <input id="mms-api-preset" type="text" placeholder="代理预设名称，留空则用上面的配置" spellcheck="false" />
+          </div>
+          <p class="settings-hint">
+            配置保存在酒馆助手的全局变量中（跟随用户存档，PC / 手机共用）；留空地址与预设时将使用当前酒馆连接的 API
+          </p>
+        </div>
+
         <!-- 徽章收纳阈值 -->
         <div class="settings-group">
           <label class="settings-label">徽章收纳</label>
@@ -2564,7 +2763,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
       // [扩展] 人物头像映射表：可在此处自由增删人物名和对应的图片链接
       // === [新增] 高清立绘映射名单 (请在此维护立绘链接) ===
 window.PORTRAIT_MAP = {
-    "弗兰克(脱)": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克脱衣2_compressed.jpg",
+    "弗兰克脱衣": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克脱衣2_compressed.jpg",
     "弗兰克": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克穿衣2_compressed.jpg",
     "埃利奥特": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/埃利奥特_compressed.jpg",
     "爱德华": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/爱德华_compressed.jpg",
@@ -6794,164 +6993,962 @@ createCharacterEntry(text, categoryKey) {
         }
       }
 
-      document.addEventListener('DOMContentLoaded', function () {
-        function getCurrentMessage() {
-          try {
-            if (typeof getCurrentMessageId !== 'function' || typeof getChatMessages !== 'function') {
-              return null;
-            }
+      // ==========================================
+      // MMS 管理引擎 (MiniMapStatus Manager)
+      // 数据优先读本楼消息变量 stat_data，回退解析本楼 <Status_block> 文本（旧楼层兼容）。
+      // 最新 AI 楼层的小部件承担：独立 LLM 状态更新、深度 0 系统注入、标记点漂移兜底。
+      // ==========================================
 
-            const currentMessageId = getCurrentMessageId();
-            if (!currentMessageId && currentMessageId !== 0) return null;
+      const MMS_MARKER = '【状态栏标记点】';
+      const MMS_EVENT_UPDATED = 'mms:status-updated';
+      const MMS_EVENT_FAILED = 'mms:status-update-failed';
+      const MMS_INJECT_ID = 'mms-status-inject';
 
-            const messageData = getChatMessages(currentMessageId);
-            if (!messageData) return null;
-
-            return Array.isArray(messageData) && messageData.length > 0 ? messageData[0] : messageData;
-          } catch (error) {
-            console.error('获取消息失败:', error);
-            return null;
-          }
-        }
-
-        // 底层提取引擎 (保持不变)
-function extractLastBlock(message, tagName) {
-  if (!message || typeof message !== 'string') return '';
-
-  const startTag = `<${tagName}>`;
-  const endTag = `</${tagName}>`;
-  
-  const lowerContent = message.toLowerCase();
-  const lastStartIdx = lowerContent.lastIndexOf(startTag.toLowerCase());
-  const lastEndIdx = lowerContent.lastIndexOf(endTag.toLowerCase());
-
-  if (lastStartIdx !== -1 && lastEndIdx !== -1 && lastEndIdx > lastStartIdx) {
-    return message.substring(lastStartIdx + startTag.length, lastEndIdx).trim();
-  }
-  return '';
-}
-
-// 1. 替换后的 extractMaintext
-function extractMaintext(message) {
-  return extractLastBlock(message, "maintext");
-}
-
-// 2. 替换后的 extractStatusBlock (保留了你的 cleanYamlContent)
-function extractStatusBlock(message) {
-  const rawBlock = extractLastBlock(message, "Status_block");
-  return rawBlock ? cleanYamlContent(rawBlock) : '';
-}
-
-        function cleanYamlContent(yamlContent) {
-          if (!yamlContent) return '';
-
-          return yamlContent
-            .split('\n')
-            .map(line => {
-              if (line.trim() === '' || !line.trim().match(/^-\s*"/)) return line;
-
-              const match = line.match(/^(\s*-\s*)"(.*)"\s*$/);
-              if (!match) return line;
-
-              const [, indent, content] = match;
-              return content.includes('"') || content.includes("'")
-                ? indent + "'" + content.replace(/'/g, "''") + "'"
-                : indent + '"' + content + '"';
-            })
-            .join('\n');
-        }
-
-        function updateYamlDataSource(yamlContent) {
-          const yamlScript = document.getElementById('yaml-data-source');
-          if (!yamlScript) return;
-
-          if (!yamlContent || typeof yamlContent !== 'string' || !yamlContent.trim()) {
-            yamlScript.textContent = '';
-            return;
-          }
-
-          yamlScript.textContent = yamlContent;
-
-          try {
-            jsyaml.load(yamlContent);
-          } catch (error) {
-            const fixedYaml = attemptYamlFix(yamlContent, error);
-            if (fixedYaml) {
-              try {
-                jsyaml.load(fixedYaml);
-                yamlScript.textContent = fixedYaml;
-              } catch (e) {
-                console.error('YAML修复失败:', e.message);
-              }
-            }
-          }
-        }
-
-        function attemptYamlFix(yamlContent, error) {
-          if (!(error.message.includes('bad indentation') || error.message.includes('quote'))) {
+      function getCurrentMessage() {
+        try {
+          if (typeof getCurrentMessageId !== 'function' || typeof getChatMessages !== 'function') {
             return null;
           }
 
-          return yamlContent
-            .split('\n')
-            .map(line => {
-              const match = line.match(/^(\s*-\s*)"(.*)"\s*$/);
-              if (!match) return line;
+          const currentMessageId = getCurrentMessageId();
+          if (!currentMessageId && currentMessageId !== 0) return null;
 
-              const [, indent, content] = match;
-              return content.includes('"')
-                ? indent + "'" + content.replace(/'/g, "''") + "'"
-                : indent + '"' + content + '"';
-            })
-            .join('\n');
+          const messageData = getChatMessages(currentMessageId);
+          if (!messageData) return null;
+
+          return Array.isArray(messageData) && messageData.length > 0 ? messageData[0] : messageData;
+        } catch (error) {
+          console.error('获取消息失败:', error);
+          return null;
+        }
+      }
+
+      // 底层提取引擎
+      function extractLastBlock(message, tagName) {
+        if (!message || typeof message !== 'string') return '';
+
+        const startTag = `<${tagName}>`;
+        const endTag = `</${tagName}>`;
+
+        const lowerContent = message.toLowerCase();
+        const lastStartIdx = lowerContent.lastIndexOf(startTag.toLowerCase());
+        const lastEndIdx = lowerContent.lastIndexOf(endTag.toLowerCase());
+
+        if (lastStartIdx !== -1 && lastEndIdx !== -1 && lastEndIdx > lastStartIdx) {
+          return message.substring(lastStartIdx + startTag.length, lastEndIdx).trim();
+        }
+        return '';
+      }
+
+      function extractMaintext(message) {
+        return extractLastBlock(message, 'maintext');
+      }
+
+      function extractStatusBlock(message) {
+        const rawBlock = extractLastBlock(message, 'Status_block');
+        return rawBlock ? cleanYamlContent(rawBlock) : '';
+      }
+
+      function cleanYamlContent(yamlContent) {
+        if (!yamlContent) return '';
+
+        return yamlContent
+          .split('\n')
+          .map((line) => {
+            if (line.trim() === '' || !line.trim().match(/^-\s*"/)) return line;
+
+            const match = line.match(/^(\s*-\s*)"(.*)"\s*$/);
+            if (!match) return line;
+
+            const [, indent, content] = match;
+            return content.includes('"') || content.includes("'")
+              ? indent + "'" + content.replace(/'/g, "''") + "'"
+              : indent + '"' + content + '"';
+          })
+          .join('\n');
+      }
+
+      function updateYamlDataSource(yamlContent) {
+        const yamlScript = document.getElementById('yaml-data-source');
+        if (!yamlScript) return;
+
+        if (!yamlContent || typeof yamlContent !== 'string' || !yamlContent.trim()) {
+          yamlScript.textContent = '';
+          return;
         }
 
-        function updateMaintext(maintextContent) {
-          formatMainText(maintextContent);
-        }
-
-        function reRenderStatusBar() {
-          try {
-            const yamlScript = document.getElementById('yaml-data-source');
-            if (!yamlScript || !yamlScript.textContent) return;
-
-            const storyRenderer = new StoryRenderer('yaml-data-source');
-            storyRenderer.init();
-          } catch (error) {
-            console.error('重新渲染状态栏失败:', error);
-          }
-        }
-
-        function renderPageFromMessage(messageData) {
-          let actualMessageData = Array.isArray(messageData) && messageData.length > 0 ? messageData[0] : messageData;
-
-          if (!actualMessageData || !actualMessageData.message || typeof actualMessageData.message !== 'string') {
-            return;
-          }
-
-          const messageContent = actualMessageData.message;
-
-          const maintextContent = extractMaintext(messageContent);
-          if (maintextContent) {
-            updateMaintext(maintextContent);
-          }
-
-          const statusContent = extractStatusBlock(messageContent);
-          if (statusContent) {
-            updateYamlDataSource(statusContent);
-            setTimeout(() => reRenderStatusBar(), 100);
-          }
-        }
+        yamlScript.textContent = yamlContent;
 
         try {
-          const currentMessage = getCurrentMessage();
-          if (currentMessage && typeof currentMessage === 'object') {
-            renderPageFromMessage(currentMessage);
-          }
+          jsyaml.load(yamlContent);
         } catch (error) {
-          console.error('获取或渲染消息时出错:', error);
+          const fixedYaml = attemptYamlFix(yamlContent, error);
+          if (fixedYaml) {
+            try {
+              jsyaml.load(fixedYaml);
+              yamlScript.textContent = fixedYaml;
+            } catch (e) {
+              console.error('YAML修复失败:', e.message);
+            }
+          }
+        }
+      }
+
+      function attemptYamlFix(yamlContent, error) {
+        if (!(error.message.includes('bad indentation') || error.message.includes('quote'))) {
+          return null;
         }
 
+        return yamlContent
+          .split('\n')
+          .map((line) => {
+            const match = line.match(/^(\s*-\s*)"(.*)"\s*$/);
+            if (!match) return line;
+
+            const [, indent, content] = match;
+            return content.includes('"')
+              ? indent + "'" + content.replace(/'/g, "''") + "'"
+              : indent + '"' + content + '"';
+          })
+          .join('\n');
+      }
+
+      function updateMaintext(maintextContent) {
+        formatMainText(maintextContent);
+      }
+
+      function reRenderStatusBar() {
+        try {
+          const yamlScript = document.getElementById('yaml-data-source');
+          if (!yamlScript || !yamlScript.textContent) return;
+
+          const storyRenderer = new StoryRenderer('yaml-data-source');
+          storyRenderer.init();
+        } catch (error) {
+          console.error('重新渲染状态栏失败:', error);
+        }
+      }
+
+      // ---------- 更新器提示词 ----------
+
+      const MMS_UPDATE_SYSTEM_PROMPT = `你是跑团状态栏数据管理员。你的唯一任务：依据「最新剧情」，把「当前状态」更新为新的完整状态，并输出为一个 JSON 对象（顶层键为「状态栏」）。
+
+## 状态栏结构说明
+「状态栏」对象包含：
+- 日期和时间：字符串。示例："⏰ 1925年 · 6月13日 · 12:40 · 潜伏期"
+- 地点：字符串。示例："📍 悉尼 · 澳大利亚酒店 - 总督套房 · 主客厅与玄关"
+- 用户列表：板块数组，每个元素形如 { "用户": { "名字": "...", 其他字段... } }，按顺序包含：
+  1. 小地图板块（名字如 "🗺️小地图"）：以当前场景名为字段名（如 "明亮室内"），值为字符串数组，每项格式严格为："Emoji【名称】(X, Y) 位置或行为描述"，X 和 Y 为 0-1000 的整数坐标。
+  2. 角色板块（每个 PC 一个，名字如 "🔮埃利奥特"、"⚕️索恩"）：字段包括——
+     - 属性：格式如 "[❤️HP:10/10][🔮MP:110/110][🛡️Armor:4][🧠SAN:59/65]"（沿用原有键名与顺序）
+     - 穿着、内心：一句话自由文本
+     - 武器、物品：格式如 "[💼] [物品A] [物品Bx3]"
+  3. 人物板块（名字如 "👥人物"）：盟友 / NPC / 敌人等字段，值为字符串数组，每项格式："Emoji【姓名】[标签1] [标签2] 当前行为或状态描述"
+  4. 据点板块（名字如 "🏟️据点"）：总览 / 载具 / 武器 / 防御 / 杂物等字段，值为 "[Emoji] [名称][数量或状态] ..." 格式字符串
+- 行动选项：{ "名字": "🧑 团队行动", "选项": ["1. ...", "2. ...", "3. ...", "4. ..."] }，结合当前局势推荐 4 个可执行行动。
+
+## 更新规则
+1. 只输出 JSON 本体，不要输出解释、markdown 代码块或其他任何文本。
+2. 量化数据（HP/MP/SAN/护甲/物品数量/现金/坐标）必须严格依据最新剧情推算；剧情未提及的保持原值。
+3. 角色受伤、消耗、获得物品时同步更新数值；物品用尽从列表移除；现金变动写入据点总览。
+4. 人物移动时更新小地图坐标（按剧情方位在 0-1000 内估算）；离场移除，登场新增。
+5. 内心、穿着、行为描述等自由字段：贴合最新剧情自然改写，保持一句话以内。
+6. 保持原有板块顺序、命名风格和字段名；即使某板块无变化也要原样输出；输出必须包含全部板块。`;
+
+      // 结构化输出约束（宽松版：只约束主干形状，具体字段靠提示词与后置校验）
+      const MMS_JSON_SCHEMA = {
+        name: 'status_bar_state',
+        description: '跑团状态栏完整数据',
+        value: {
+          type: 'object',
+          properties: {
+            状态栏: {
+              type: 'object',
+              properties: {
+                日期和时间: { type: 'string' },
+                地点: { type: 'string' },
+                用户列表: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      用户: {
+                        type: 'object',
+                        properties: {
+                          名字: { type: 'string' },
+                        },
+                      },
+                    },
+                  },
+                },
+                行动选项: {
+                  type: 'object',
+                  properties: {
+                    名字: { type: 'string' },
+                    选项: { type: 'array', items: { type: 'string' } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+
+      // ---------- MMS 引擎本体 ----------
+
+      const MMS = {
+        floorId: null,
+        messageText: '',
+        isLastAssistantFloor: false,
+        updating: false,
+
+        env: {
+          hasMessageApi: false,
+          hasVarsApi: false,
+          hasGenApi: false,
+          hasInjectApi: false,
+          hasEventApi: false,
+          hasSetChatApi: false,
+        },
+
+        detectEnv() {
+          this.env.hasMessageApi =
+            typeof getCurrentMessageId === 'function' && typeof getChatMessages === 'function';
+          this.env.hasVarsApi =
+            typeof getVariables === 'function' && typeof insertOrAssignVariables === 'function';
+          this.env.hasGenApi = typeof generateRaw === 'function' || typeof generate === 'function';
+          this.env.hasInjectApi =
+            typeof injectPrompts === 'function' && typeof uninjectPrompts === 'function';
+          this.env.hasEventApi = typeof eventOn === 'function' && typeof eventEmit === 'function';
+          this.env.hasSetChatApi = typeof setChatMessages === 'function';
+        },
+
+        // ---------- 工具 ----------
+
+        hashStr(str) {
+          let h = 5381;
+          const s = String(str || '');
+          for (let i = 0; i < s.length; i++) {
+            h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+          }
+          return String(h);
+        },
+
+        stateToYaml(state) {
+          return jsyaml.dump(state, { lineWidth: -1, noRefs: true });
+        },
+
+        setIndicator(kind, title) {
+          const el = document.getElementById('mms-update-indicator');
+          if (!el) return;
+          if (!kind) {
+            el.style.display = 'none';
+            el.className = 'mms-indicator';
+            return;
+          }
+          el.style.display = 'inline-block';
+          el.className = 'mms-indicator ' + kind;
+          el.title = title || '';
+        },
+
+        // ---------- 配置（全局变量，跨聊天、跨设备跟随用户存档） ----------
+
+        loadConfig() {
+          const defaults = {
+            autoUpdate: true,
+            apiUrl: '',
+            apiKey: '',
+            model: '',
+            source: 'custom',
+            preset: '',
+            contextFloors: 2,
+            temperature: 0.3,
+            maxTokens: 4096,
+          };
+          try {
+            if (!this.env.hasVarsApi) return defaults;
+            const g = getVariables({ type: 'global' }) || {};
+            const cfg = g && typeof g.$mms_config === 'object' ? g.$mms_config : {};
+            return Object.assign({}, defaults, cfg);
+          } catch (e) {
+            return defaults;
+          }
+        },
+
+        saveConfig(cfg) {
+          try {
+            if (!this.env.hasVarsApi) return;
+            insertOrAssignVariables({ $mms_config: cfg }, { type: 'global' });
+          } catch (e) {
+            console.error('[MMS] 保存配置失败:', e);
+          }
+        },
+
+        buildCustomApi(cfg) {
+          const api = {};
+          if (cfg.preset && cfg.preset.trim()) api.proxy_preset = cfg.preset.trim();
+          if (cfg.apiUrl && cfg.apiUrl.trim()) {
+            api.apiurl = cfg.apiUrl.trim();
+            if (cfg.apiKey) api.key = cfg.apiKey;
+            api.source = cfg.source || 'custom';
+          }
+          if (cfg.model && cfg.model.trim()) api.model = cfg.model.trim();
+          api.temperature = typeof cfg.temperature === 'number' ? cfg.temperature : 0.3;
+          api.max_tokens = cfg.maxTokens || 4096;
+          return api;
+        },
+
+        // ---------- 状态读写 ----------
+
+        readFloorVars(floorId) {
+          try {
+            if (!this.env.hasVarsApi || floorId == null) return null;
+            return getVariables({ type: 'message', message_id: floorId }) || null;
+          } catch (e) {
+            console.warn('[MMS] 读取楼层变量失败:', e);
+            return null;
+          }
+        },
+
+        writeState(floorId, state) {
+          const vars = {
+            stat_data: state,
+            $mms_meta: { hash: this.hashStr(this.messageText), ts: Date.now() },
+          };
+          insertOrAssignVariables(vars, { type: 'message', message_id: floorId });
+        },
+
+        // 从目标楼层往前找最近一份状态：优先变量快照，其次旧式 Status_block 文本
+        async findPrevState(floorId) {
+          try {
+            if (typeof getLastMessageId !== 'function') return null;
+            const last = getLastMessageId();
+            // 最多回溯 50 楼：避免超长聊天在无数据时全量遍历
+            const stop = Math.max(0, floorId - 50);
+            for (let id = Math.min(floorId - 1, last); id >= stop; id--) {
+              if (this.env.hasVarsApi) {
+                const vars = this.readFloorVars(id);
+                if (vars && vars.stat_data) {
+                  return { floorId: id, state: vars.stat_data };
+                }
+              }
+              const legacy = this.readLegacyState(id);
+              if (legacy) return { floorId: id, state: legacy };
+            }
+          } catch (e) {
+            console.warn('[MMS] 查找历史状态失败:', e);
+          }
+          return null;
+        },
+
+        readLegacyState(floorId) {
+          try {
+            if (typeof getChatMessages !== 'function') return null;
+            const arr = getChatMessages(floorId);
+            const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+            if (!m || typeof m.message !== 'string') return null;
+            const raw = extractStatusBlock(m.message);
+            if (!raw) return null;
+            const parsed = jsyaml.load(raw);
+            return parsed && Object.keys(parsed).length > 0 ? parsed : null;
+          } catch (e) {
+            return null;
+          }
+        },
+
+        // ---------- 渲染 ----------
+
+        renderFromState(state) {
+          try {
+            updateYamlDataSource(this.stateToYaml(state));
+            setTimeout(() => reRenderStatusBar(), 60);
+          } catch (e) {
+            console.error('[MMS] 状态渲染失败:', e);
+          }
+        },
+
+        refreshFromVars() {
+          if (this.floorId == null) return;
+          const vars = this.readFloorVars(this.floorId);
+          if (vars && vars.stat_data) {
+            this.renderFromState(vars.stat_data);
+          }
+        },
+
+        // ---------- 深度 0 系统注入 ----------
+
+        ensureInjection(state, floorId) {
+          if (!this.env.hasInjectApi || !state) return;
+          try {
+            const rootKey = Object.keys(state)[0];
+            if (!rootKey) return;
+            const injectable = JSON.parse(JSON.stringify(state));
+            const root = injectable[rootKey];
+            if (root && typeof root === 'object' && !Array.isArray(root)) {
+              delete root['行动选项'];
+            }
+            const yaml = this.stateToYaml(injectable);
+            const content =
+              '<当前状态数据（系统自动维护，反映最新楼层结束时的状态）>\n' +
+              yaml +
+              '\n</当前状态数据>\n' +
+              '撰写正文时必须与以上数据保持一致（HP、物品数量、人物位置、现金等量化数据以本数据为准，不得矛盾）。' +
+              '你不需要输出任何状态栏数据；把回复正文包裹在 <maintext></maintext> 中，并在回复的最末尾单独一行输出标记：【状态栏标记点】';
+            uninjectPrompts([MMS_INJECT_ID]);
+            injectPrompts([
+              {
+                id: MMS_INJECT_ID,
+                position: 'in_chat',
+                depth: 0,
+                role: 'system',
+                content,
+                should_scan: true,
+              },
+            ]);
+          } catch (e) {
+            console.warn('[MMS] 状态注入失败:', e);
+          }
+        },
+
+        // ---------- 楼层判断与剧情收集 ----------
+
+        checkLastAssistantFloor(floorId) {
+          try {
+            if (typeof getLastMessageId !== 'function') return false;
+            const last = getLastMessageId();
+            if (last <= floorId) return true;
+            const arr = getChatMessages(`${floorId + 1}-${last}`);
+            const msgs = Array.isArray(arr) ? arr : [arr];
+            return !msgs.some((m) => m && (m.role === 'assistant' || (!m.role && !m.is_user)));
+          } catch (e) {
+            return false;
+          }
+        },
+
+        readFloorMaintext(floorId) {
+          try {
+            if (typeof getChatMessages !== 'function') return '';
+            const arr = getChatMessages(floorId);
+            const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+            if (!m || typeof m.message !== 'string') return '';
+            let text = extractLastBlock(m.message, 'maintext');
+            if (!text) {
+              text = m.message.replace(/<Status_block>[\s\S]*?<\/Status_block>/gi, '');
+            }
+            text = text.replace(/\[IMG_GEN\][\s\S]*?\[\/IMG_GEN\]/gi, '');
+            text = text.replace(/【状态栏标记点】/g, '');
+            return text.trim();
+          } catch (e) {
+            return '';
+          }
+        },
+
+        // 收集最近 N 层 AI 剧情正文：最新一层（据此更新）+ 前情（仅参考）
+        collectStorySegments(targetFloorId, n = 2) {
+          const latest = this.readFloorMaintext(targetFloorId);
+          let context = '';
+          try {
+            if (typeof getLastMessageId !== 'function' || n <= 1) return { latest, context };
+            const parts = [];
+            let id = targetFloorId - 1;
+            let need = n - 1;
+            while (id >= 0 && need > 0) {
+              const arr = getChatMessages(id);
+              const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+              if (m && (m.role === 'assistant' || (!m.role && !m.is_user))) {
+                const t = this.readFloorMaintext(id);
+                if (t) {
+                  parts.unshift(t);
+                  need--;
+                }
+              }
+              id--;
+            }
+            context = parts.join('\n\n');
+          } catch (e) {
+            context = '';
+          }
+          return { latest, context };
+        },
+
+        // ---------- 独立 LLM 更新 ----------
+
+        parseStateOutput(raw) {
+          let text = String(raw || '').trim();
+          // 剥掉可能的 markdown 代码围栏
+          text = text.replace(/^```[a-zA-Z]*\s*\n?/, '').replace(/\n?```\s*$/, '');
+          // 截取首个 { 到最后一个 }
+          const first = text.indexOf('{');
+          const last = text.lastIndexOf('}');
+          if (first === -1 || last === -1 || last <= first) {
+            throw new Error('AI 输出中未找到 JSON 对象');
+          }
+          let jsonText = text.slice(first, last + 1);
+          const state = JSON.parse(jsonText);
+          if (!state || typeof state !== 'object' || Array.isArray(state)) {
+            throw new Error('JSON 顶层不是对象');
+          }
+          return state;
+        },
+
+        sanitizeState(state) {
+          const clamp = (v) => Math.max(0, Math.min(1000, Math.round(Number(v) || 0)));
+          // 递归重写：把含【名称】的地图行中的 (x, y) 坐标夹取到 0-1000
+          const fixValue = (value) => {
+            if (Array.isArray(value)) {
+              return value.map(fixValue);
+            }
+            if (value && typeof value === 'object') {
+              const out = {};
+              for (const k of Object.keys(value)) {
+                out[k] = fixValue(value[k]);
+              }
+              return out;
+            }
+            if (typeof value === 'string') {
+              const m = value.match(/\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/);
+              if (m && /【.+?】/.test(value)) {
+                return value.replace(
+                  /\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/,
+                  `(${clamp(m[1])}, ${clamp(m[2])})`,
+                );
+              }
+              return value;
+            }
+            return value;
+          };
+          const rootKey = Object.keys(state)[0];
+          if (rootKey && state[rootKey] && typeof state[rootKey] === 'object') {
+            state[rootKey] = fixValue(state[rootKey]);
+          }
+          return state;
+        },
+
+        async runUpdate(targetFloorId, options = {}) {
+          const { manual = false } = options;
+          if (!this.env.hasGenApi || !this.env.hasVarsApi) {
+            if (manual) alert('当前酒馆助手版本缺少 generateRaw 或变量接口，无法独立更新状态');
+            return false;
+          }
+          if (this.updating) {
+            if (manual) alert('状态更新正在进行中，请稍候');
+            return false;
+          }
+
+          const cfg = this.loadConfig();
+          this.updating = true;
+          this.setIndicator('updating', '正在通过独立 AI 更新状态…');
+          try {
+            const prev = await this.findPrevState(targetFloorId);
+            const prevYaml = prev
+              ? this.stateToYaml(prev.state)
+              : '（暂无初始状态，请依据剧情建立完整状态栏）';
+            const { latest, context } = this.collectStorySegments(targetFloorId, cfg.contextFloors);
+
+            let userPrompt = '<当前状态>\n' + prevYaml + '\n</当前状态>\n\n';
+            if (context) {
+              userPrompt +=
+                '<前情提要（仅作背景参考，其变化已计入当前状态，不要重复应用）>\n' +
+                context +
+                '\n</前情提要>\n\n';
+            }
+            userPrompt +=
+              '<最新剧情（请依据这段剧情更新状态）>\n' +
+              (latest || '（无剧情正文，请保持当前状态并完善行动选项）') +
+              '\n</最新剧情>\n\n请输出更新后的完整状态栏 JSON。';
+
+            const customApi = this.buildCustomApi(cfg);
+            let lastError = null;
+
+            for (let attempt = 0; attempt < 3; attempt++) {
+              try {
+                const config = {
+                  ordered_prompts: [
+                    { role: 'system', content: MMS_UPDATE_SYSTEM_PROMPT },
+                    { role: 'user', content: userPrompt },
+                  ],
+                  custom_api: customApi,
+                  should_silence: true,
+                  generation_id: 'mms-update-' + targetFloorId + '-' + Date.now(),
+                };
+                // 首次尝试带结构化约束；部分端点不支持时自动降级为纯提示词
+                if (attempt === 0) config.json_schema = MMS_JSON_SCHEMA;
+
+                const result = await generateRaw(config);
+                const raw = typeof result === 'string' ? result : (result && result.content) || '';
+                const state = this.parseStateOutput(raw);
+                this.sanitizeState(state);
+
+                this.writeState(targetFloorId, state);
+
+                const isLatest = this.checkLastAssistantFloor(targetFloorId);
+                if (isLatest) this.ensureInjection(state, targetFloorId);
+
+                if (targetFloorId === this.floorId) this.refreshFromVars();
+                if (this.env.hasEventApi) {
+                  eventEmit(MMS_EVENT_UPDATED, { message_id: targetFloorId, state });
+                }
+
+                this.setIndicator('ok', '状态已更新');
+                setTimeout(() => {
+                  if (!this.updating) this.setIndicator(null);
+                }, 4000);
+                return true;
+              } catch (e) {
+                lastError = e;
+                console.warn('[MMS] 更新失败（第 ' + (attempt + 1) + ' 次）：', e);
+                if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+              }
+            }
+            throw lastError || new Error('未知错误');
+          } catch (e) {
+            const msg = e && e.message ? e.message : String(e);
+            console.error('[MMS] 状态更新最终失败:', e);
+            this.setIndicator('error', '更新失败：' + msg + '（点击重试）');
+            if (this.env.hasEventApi) {
+              eventEmit(MMS_EVENT_FAILED, { message_id: targetFloorId, error: msg });
+            }
+            return false;
+          } finally {
+            this.updating = false;
+          }
+        },
+
+        maybeAutoUpdate() {
+          const cfg = this.loadConfig();
+          if (!cfg.autoUpdate) return false;
+          if (!this.isLastAssistantFloor) return false;
+          // 独立 API 未配置且未配置代理预设时也可运行（使用当前酒馆连接）
+          setTimeout(() => this.runUpdate(this.floorId), 300);
+          return true;
+        },
+
+        // ---------- 标记点漂移兜底 ----------
+
+        setupDriftGuard() {
+          // 由“最新 AI 楼层”的小部件注册（新楼层到达时它仍在渲染中）：
+          // 若新楼层既无标记点也无 Status_block（正文 AI 漂移），补写标记点，保证小部件能渲染
+          if (!this.env.hasEventApi || !this.env.hasSetChatApi || !this.isLastAssistantFloor) return;
+          if (typeof getChatMessages !== 'function') return;
+          const ev =
+            (typeof tavern_events !== 'undefined' && tavern_events && tavern_events.MESSAGE_RECEIVED) ||
+            'message_received';
+          try {
+            eventOn(ev, async (messageId) => {
+              try {
+                if (messageId == null) return;
+                const arr = getChatMessages(messageId);
+                const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+                if (!m || typeof m.message !== 'string') return;
+                if (m.role === 'user' || m.is_user) return;
+                if (m.message.includes(MMS_MARKER) || /<Status_block>/i.test(m.message)) return;
+                // 跨组件去重锁（多个楼层小部件同时监听时只补写一次）
+                if (this.env.hasVarsApi) {
+                  const chatVars = getVariables({ type: 'chat' }) || {};
+                  const lock = chatVars && chatVars.$mms_drift_lock;
+                  if (lock && lock.mid === messageId && Date.now() - lock.ts < 60000) return;
+                  insertOrAssignVariables(
+                    { $mms_drift_lock: { mid: messageId, ts: Date.now() } },
+                    { type: 'chat' },
+                  );
+                }
+                await setChatMessages(
+                  [{ message_id: messageId, message: m.message + '\n\n' + MMS_MARKER }],
+                  { refresh: 'affected' },
+                );
+                console.info('[MMS] 已为新楼层补写状态栏标记点');
+              } catch (e) {
+                console.warn('[MMS] 标记点兜底失败:', e);
+              }
+            });
+          } catch (e) {
+            /* 事件系统不可用则跳过 */
+          }
+        },
+
+        // ---------- YAML 编辑模式 ----------
+
+        async openEditMode() {
+          if (!this.env.hasVarsApi) {
+            alert('当前环境不支持变量写入，无法编辑');
+            return;
+          }
+          let yamlText = '';
+          const vars = this.floorId != null ? this.readFloorVars(this.floorId) : null;
+          if (vars && vars.stat_data) {
+            yamlText = this.stateToYaml(vars.stat_data);
+          } else {
+            const legacy = extractStatusBlock(this.messageText);
+            yamlText = legacy || '# 未找到状态数据。首次使用请先「从本楼导入」或「立即更新」。\n';
+          }
+          const editor = document.getElementById('mms-yaml-editor');
+          if (editor) editor.value = yamlText.trim() + '\n';
+          const main = document.getElementById('mms-main-view');
+          const edit = document.getElementById('mms-edit-mode');
+          if (main) main.style.display = 'none';
+          if (edit) edit.style.display = 'block';
+          const err = document.getElementById('mms-edit-error');
+          if (err) err.style.display = 'none';
+        },
+
+        closeEditMode() {
+          const main = document.getElementById('mms-main-view');
+          const edit = document.getElementById('mms-edit-mode');
+          if (main) main.style.display = 'block';
+          if (edit) edit.style.display = 'none';
+        },
+
+        saveEditMode() {
+          const editor = document.getElementById('mms-yaml-editor');
+          const err = document.getElementById('mms-edit-error');
+          if (!editor) return;
+          const text = editor.value;
+          let parsed = null;
+          try {
+            parsed = jsyaml.load(text);
+          } catch (e) {
+            if (err) {
+              err.textContent = 'YAML 错误：' + e.message;
+              err.style.display = 'block';
+            }
+            return;
+          }
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || Object.keys(parsed).length === 0) {
+            if (err) {
+              err.textContent = 'YAML 解析成功但顶层为空或不是对象（应以「状态栏:」作为根键）';
+              err.style.display = 'block';
+            }
+            return;
+          }
+          try {
+            this.writeState(this.floorId, parsed);
+            const isLatest = this.checkLastAssistantFloor(this.floorId);
+            if (isLatest) this.ensureInjection(parsed, this.floorId);
+            this.closeEditMode();
+            this.refreshFromVars();
+            this.setIndicator('ok', '已保存手动修改');
+            setTimeout(() => {
+              if (!this.updating) this.setIndicator(null);
+            }, 3000);
+            if (this.env.hasEventApi) {
+              eventEmit(MMS_EVENT_UPDATED, { message_id: this.floorId, state: parsed });
+            }
+          } catch (e) {
+            if (err) {
+              err.textContent = '保存失败：' + (e && e.message ? e.message : e);
+              err.style.display = 'block';
+            }
+          }
+        },
+
+        // ---------- 从本楼导入（旧聊天迁移） ----------
+
+        importFromThisFloor() {
+          const legacy = extractStatusBlock(this.messageText);
+          if (!legacy) {
+            alert('本楼消息中没有 <Status_block> 文本，无法导入');
+            return;
+          }
+          let parsed = null;
+          try {
+            parsed = jsyaml.load(legacy);
+          } catch (e) {
+            alert('本楼 Status_block YAML 解析失败：' + e.message);
+            return;
+          }
+          if (!parsed || Object.keys(parsed).length === 0) {
+            alert('本楼 Status_block 解析成功但数据为空');
+            return;
+          }
+          try {
+            this.writeState(this.floorId, parsed);
+            this.renderFromState(parsed);
+            const isLatest = this.checkLastAssistantFloor(this.floorId);
+            if (isLatest) this.ensureInjection(parsed, this.floorId);
+            this.setIndicator('ok', '已从本楼导入');
+            setTimeout(() => {
+              if (!this.updating) this.setIndicator(null);
+            }, 3000);
+            if (this.env.hasEventApi) {
+              eventEmit(MMS_EVENT_UPDATED, { message_id: this.floorId, state: parsed });
+            }
+          } catch (e) {
+            alert('写入失败：' + (e && e.message ? e.message : e));
+          }
+        },
+
+        // ---------- UI ----------
+
+        initUI() {
+          const cfg = this.loadConfig();
+          const showSettings = this.env.hasMessageApi;
+          const group = document.getElementById('mms-settings-group');
+          const apiGroup = document.getElementById('mms-api-group');
+          if (group && showSettings) group.style.display = '';
+          if (apiGroup && showSettings) apiGroup.style.display = '';
+
+          const editBtn = document.getElementById('mms-edit-btn');
+          if (editBtn) {
+            editBtn.style.display = this.env.hasMessageApi ? '' : 'none';
+            editBtn.addEventListener('click', () => this.openEditMode());
+          }
+          const editCancel = document.getElementById('mms-edit-cancel');
+          if (editCancel) editCancel.addEventListener('click', () => this.closeEditMode());
+          const editSave = document.getElementById('mms-edit-save');
+          if (editSave) editSave.addEventListener('click', () => this.saveEditMode());
+
+          const indicator = document.getElementById('mms-update-indicator');
+          if (indicator) {
+            indicator.addEventListener('click', () => {
+              if (indicator.classList.contains('error')) {
+                this.runUpdate(this.floorId, { manual: true });
+              }
+            });
+          }
+
+          const autoChk = document.getElementById('mms-auto-update');
+          if (autoChk) {
+            autoChk.checked = !!cfg.autoUpdate;
+            autoChk.addEventListener('change', () => {
+              const c = this.loadConfig();
+              c.autoUpdate = autoChk.checked;
+              this.saveConfig(c);
+            });
+          }
+          const manualBtn = document.getElementById('mms-manual-update');
+          if (manualBtn) manualBtn.addEventListener('click', () => this.runUpdate(this.floorId, { manual: true }));
+          const importBtn = document.getElementById('mms-import-btn');
+          if (importBtn) importBtn.addEventListener('click', () => this.importFromThisFloor());
+
+          const bindField = (id, key, transform) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (cfg[key] != null && cfg[key] !== '') el.value = cfg[key];
+            const handler = () => {
+              const c = this.loadConfig();
+              c[key] = transform ? transform(el.value) : el.value;
+              this.saveConfig(c);
+            };
+            el.addEventListener('change', handler);
+          };
+          bindField('mms-api-url', 'apiUrl');
+          bindField('mms-api-key', 'apiKey');
+          bindField('mms-api-model', 'model');
+          bindField('mms-api-preset', 'preset');
+          const sourceSel = document.getElementById('mms-api-source');
+          if (sourceSel) {
+            sourceSel.value = cfg.source || 'custom';
+            sourceSel.addEventListener('change', () => {
+              const c = this.loadConfig();
+              c.source = sourceSel.value;
+              this.saveConfig(c);
+            });
+          }
+        },
+
+        // ---------- 启动 ----------
+
+        async boot() {
+          this.detectEnv();
+          this.initUI();
+
+          if (!this.env.hasMessageApi) {
+            const t = document.getElementById('time-display');
+            const l = document.getElementById('location-display');
+            if (t) t.textContent = '⏳ 独立预览模式';
+            if (l) l.textContent = '📍 请通过酒馆助手正则注入使用';
+            return;
+          }
+
+          let floorId = null;
+          try {
+            floorId = getCurrentMessageId();
+          } catch (e) {
+            floorId = null;
+          }
+          if (floorId == null) return;
+          this.floorId = floorId;
+
+          let msg = null;
+          try {
+            msg = getCurrentMessage();
+          } catch (e) {
+            msg = null;
+          }
+          if (!msg || typeof msg.message !== 'string') return;
+          this.messageText = msg.message;
+
+          // 正文渲染（与旧版一致）
+          const maintextContent = extractMaintext(this.messageText);
+          if (maintextContent) updateMaintext(maintextContent);
+
+          // 是否最新 AI 楼层（更新、注入、兜底职责的承担者）
+          this.isLastAssistantFloor = this.checkLastAssistantFloor(floorId);
+
+          // 状态读取与渲染：变量优先，旧格式回退
+          const vars = this.env.hasVarsApi ? this.readFloorVars(floorId) : null;
+          const state = vars && vars.stat_data;
+          const meta = vars && vars.$mms_meta;
+          const msgHash = this.hashStr(this.messageText);
+
+          if (state) {
+            this.renderFromState(state);
+            if (meta && meta.hash === msgHash) {
+              this.setIndicator('ok', '状态数据为最新');
+              setTimeout(() => {
+                if (!this.updating) this.setIndicator(null);
+              }, 2000);
+            } else {
+              this.setIndicator('updating', '检测到楼层内容变化，正在重新更新…');
+              this.maybeAutoUpdate();
+            }
+            if (this.isLastAssistantFloor) this.ensureInjection(state, floorId);
+          } else {
+            const legacyYaml = extractStatusBlock(this.messageText);
+            if (legacyYaml) {
+              updateYamlDataSource(legacyYaml);
+              setTimeout(() => reRenderStatusBar(), 100);
+              this.maybeAutoUpdate(); // 旧格式楼层：异步生成变量快照
+            } else {
+              const prev = await this.findPrevState(floorId);
+              if (prev) {
+                this.renderFromState(prev.state);
+                this.setIndicator('updating', '状态更新中…');
+              } else {
+                const t = document.getElementById('time-display');
+                const l = document.getElementById('location-display');
+                if (t) t.textContent = '⏳ 等待状态数据';
+                if (l) l.textContent = '📍 首次使用：设置 → 立即更新 或 从本楼导入';
+              }
+              this.maybeAutoUpdate();
+            }
+          }
+
+          // 事件刷新监听（本楼原地刷新，不重载 iframe）
+          if (this.env.hasEventApi) {
+            try {
+              eventOn(MMS_EVENT_UPDATED, (payload) => {
+                if (payload && payload.message_id === this.floorId) this.refreshFromVars();
+              });
+              eventOn(MMS_EVENT_FAILED, (payload) => {
+                if (payload && payload.message_id === this.floorId) {
+                  this.setIndicator('error', '更新失败：' + payload.error + '（点击重试）');
+                }
+              });
+            } catch (e) {
+              /* 事件系统异常不影响渲染 */
+            }
+          }
+
+          this.setupDriftGuard();
+        },
+      };
+
+      // 暴露到 window 便于控制台调试与测试
+      window.MMS = MMS;
+
+      document.addEventListener('DOMContentLoaded', function () {
+        MMS.boot();
         window.statusBlockInitialized = true;
       });
     </script>

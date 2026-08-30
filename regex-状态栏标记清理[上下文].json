@@ -1,0 +1,17 @@
+{
+  "id": "3288eda7-da4d-4021-9b85-02f6f1026b42",
+  "scriptName": "状态栏标记清理[上下文]",
+  "findRegex": "/【状态栏标记点】/g",
+  "replaceString": "",
+  "trimStrings": [],
+  "placement": [
+    2
+  ],
+  "disabled": false,
+  "markdownOnly": false,
+  "promptOnly": true,
+  "runOnEdit": true,
+  "substituteRegex": 0,
+  "minDepth": null,
+  "maxDepth": null
+}
