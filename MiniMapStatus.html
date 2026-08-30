@@ -8181,6 +8181,47 @@ createCharacterEntry(text, categoryKey) {
         return c;
       }
 
+      // 名册纯增量应用：只插入缺失的固定角色；同名保留现有数据（最新输出优先）；
+      // 绝不删除或改写任何已有角色——用于"添加角色立即生效"与"AI省略角色列表模块"的兜底
+      function mmsApplyRosterToState(state, roster, storyText) {
+        const displayCfg = {
+          absentText: (roster && roster.absentText) || '本轮未提及',
+          presentText: (roster && roster.presentText) || '在场·本轮未详',
+        };
+        const out =
+          state && typeof state === 'object' ? JSON.parse(JSON.stringify(state)) : { 状态栏: {} };
+        const R = out['状态栏'] && typeof out['状态栏'] === 'object' ? out['状态栏'] : (out['状态栏'] = {});
+        if (!Array.isArray(R['角色列表'])) R['角色列表'] = [];
+        const existing = mmsIndexChars(R['角色列表']);
+        const newList = [];
+        const used = new Set();
+        for (const r of (roster && roster.characters) || []) {
+          const nk = mmsNormalizeName(r.name);
+          if (nk) used.add(nk);
+          const cur = nk ? existing.get(nk) : null;
+          if (cur) {
+            // 同名以最新输出优先：原样保留现有数据，仅提升到名册位置
+            newList.push({ 角色: cur });
+          } else {
+            const plain = mmsPlainName(r.name);
+            const hit = plain && storyText && storyText.includes(plain);
+            const t = mmsTemplateChar(r, displayCfg);
+            t['内心'] = hit ? displayCfg.presentText : displayCfg.absentText;
+            newList.push({ 角色: t });
+          }
+        }
+        // 其余已有角色原样保留（顺序跟随原列表）
+        for (const entry of R['角色列表']) {
+          const c = entry && (entry['角色'] || entry['用户'] || entry);
+          const nameField = c && typeof c === 'object' ? mmsFindNameField(c) : null;
+          const nk = nameField ? mmsNormalizeName(c[nameField]) : '';
+          if (nk && used.has(nk)) continue;
+          newList.push(entry);
+        }
+        R['角色列表'] = newList;
+        return out;
+      }
+
       // 总合并：prev=上次状态(已规范化)，aiOut=AI输出(已规范化)，roster=名册，storyText=本轮正文
       function mmsMergeState(prev, aiOut, roster, storyText) {
         const displayCfg = {
@@ -8201,25 +8242,33 @@ createCharacterEntry(text, categoryKey) {
         if (aiRoot['小地图'] && typeof aiRoot['小地图'] === 'object') R['小地图'] = aiRoot['小地图'];
         else if (prevRoot['小地图']) R['小地图'] = prevRoot['小地图'];
 
-        // 角色列表：固定名册在前
-        const aiChars = mmsIndexChars(aiRoot['角色列表']);
-        const prevChars = mmsIndexChars(prevRoot['角色列表']);
-        const list = [];
-        const used = new Set();
-        for (const r of rosterChars) {
-          const nk = mmsNormalizeName(r.name);
-          if (nk) used.add(nk);
-          const ai = nk ? aiChars.get(nk) : null;
-          const prevC = nk ? prevChars.get(nk) : null;
-          const base = prevC || mmsTemplateChar(r, displayCfg);
-          list.push({ 角色: mmsMergeChar(base, ai, r, storyText, displayCfg) });
+        // 角色列表
+        if (Array.isArray(aiRoot['角色列表'])) {
+          // AI 明确输出了角色列表：固定名册在前（名册+AI命令合并），其余以AI输出为准
+          const aiChars = mmsIndexChars(aiRoot['角色列表']);
+          const prevChars = mmsIndexChars(prevRoot['角色列表']);
+          const list = [];
+          const used = new Set();
+          for (const r of rosterChars) {
+            const nk = mmsNormalizeName(r.name);
+            if (nk) used.add(nk);
+            const ai = nk ? aiChars.get(nk) : null;
+            const prevC = nk ? prevChars.get(nk) : null;
+            const base = prevC || mmsTemplateChar(r, displayCfg);
+            list.push({ 角色: mmsMergeChar(base, ai, r, storyText, displayCfg) });
+          }
+          for (const [nk, ai] of aiChars) {
+            if (used.has(nk)) continue;
+            const prevC = prevChars.get(nk);
+            list.push({ 角色: mmsMergeChar(prevC || {}, ai, null, storyText, displayCfg) });
+          }
+          if (list.length) R['角色列表'] = list;
+        } else if (prevRoot['角色列表'] || rosterChars.length) {
+          // AI 整体省略角色列表模块：上次角色全量保留 + 名册增量覆盖（不丢任何角色）
+          const aug = mmsApplyRosterToState({ 状态栏: prevRoot }, roster, storyText);
+          const augList = aug && aug['状态栏'] && aug['状态栏']['角色列表'];
+          if (augList && augList.length) R['角色列表'] = augList;
         }
-        for (const [nk, ai] of aiChars) {
-          if (used.has(nk)) continue;
-          const prevC = prevChars.get(nk);
-          list.push({ 角色: mmsMergeChar(prevC || {}, ai, null, storyText, displayCfg) });
-        }
-        if (list.length) R['角色列表'] = list;
 
         // 人物（自由全量；AI省略保留上次）
         if (aiRoot['人物'] && typeof aiRoot['人物'] === 'object') R['人物'] = aiRoot['人物'];
@@ -8629,6 +8678,13 @@ createCharacterEntry(text, categoryKey) {
           const state = JSON.parse(jsonText);
           if (!state || typeof state !== 'object' || Array.isArray(state)) {
             throw new Error('JSON 顶层不是对象');
+          }
+          // 空对象/无有效模块的输出视为失败（防止垃圾输出清空整楼状态）
+          const root = state['状态栏'] && typeof state['状态栏'] === 'object' ? state['状态栏'] : state;
+          const knownModules = ['日期和时间', '地点', '小地图', '角色列表', '人物', '据点', '行动选项'];
+          const hasKnown = Object.keys(root).some((k) => knownModules.includes(k));
+          if (!hasKnown) {
+            throw new Error('AI 输出不含任何状态栏模块（疑似空/垃圾输出）');
           }
           return state;
         },
@@ -9300,7 +9356,7 @@ createCharacterEntry(text, categoryKey) {
           this.applyRosterNow();
         },
 
-        // 把名册新角色合并进当前楼层状态（模板值 + 占位内心）
+        // 把名册增量合并进当前楼层状态：只插入缺失的固定角色，绝不改动/删除其他角色
         applyRosterNow() {
           if (this.floorId == null || !this.env.hasVarsApi) return;
           try {
@@ -9311,7 +9367,7 @@ createCharacterEntry(text, categoryKey) {
             }
             const roster = this.loadRoster();
             const storyText = this.readFloorMaintext(this.floorId) || '';
-            const merged = mmsMergeState(state, { 状态栏: {} }, roster, storyText);
+            const merged = mmsApplyRosterToState(state, roster, storyText);
             this.writeState(this.floorId, merged);
             this.renderFromState(merged);
             if (this.checkLastAssistantFloor(this.floorId)) this.ensureInjection(merged, this.floorId);
