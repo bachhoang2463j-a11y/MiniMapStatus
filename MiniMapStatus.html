@@ -3255,6 +3255,50 @@ function buildPortraitHTML(roleName, portraitUrl) {
           <!-- 名册卡片列表（头像 + 数值胶囊 + 摘要 + 编辑/删除） -->
           <div id="mms-roster-list" class="space-y-2"></div>
 
+          <!-- 据点固定模块 -->
+          <div class="roster-surface rounded-xl border border-gray-700/10 p-2.5 space-y-2.5">
+            <label class="mms-toggle-row">
+              <input type="checkbox" id="mms-base-enabled" />
+              <span class="text-xs font-bold text-gray-300">🏟️ 固定据点模块（常驻显示，现金与清单字段受命令协议保护）</span>
+            </label>
+            <div id="mms-base-form" class="space-y-2" style="display: none">
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-[11px] font-semibold text-gray-300 block mb-1">据点名称（初始值）</label>
+                  <input id="mms-base-name" type="text" class="form-input w-full" placeholder="如：总督套房" spellcheck="false" />
+                </div>
+                <div>
+                  <label class="text-[11px] font-semibold text-gray-300 block mb-1">初始现金（如 4767.20美元）</label>
+                  <input id="mms-base-cash" type="text" class="form-input w-full" placeholder="4767.20美元" spellcheck="false" />
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between items-center mb-1">
+                  <span class="text-[11px] font-semibold text-gray-300">清单字段（武器/防御/杂物等，自由命名）</span>
+                  <button id="mms-base-add-row" class="text-[11px] text-primary hover:underline font-medium" type="button">
+                    <i class="fa fa-plus-circle"></i> 增加字段
+                  </button>
+                </div>
+                <div id="mms-base-rows" class="space-y-1.5"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 地图模块开关 -->
+          <div class="roster-surface rounded-xl border border-gray-700/10 p-2.5 space-y-2">
+            <span class="text-xs font-bold text-gray-300 block">🗺️ 地图模块（按需开启，未开启的不渲染、不注入提示词）</span>
+            <div class="flex gap-4">
+              <label class="mms-toggle-row">
+                <input type="checkbox" id="mms-map-minimap" checked />
+                <span class="text-xs">小地图（当前场景平面图）</span>
+              </label>
+              <label class="mms-toggle-row">
+                <input type="checkbox" id="mms-map-bigmap" />
+                <span class="text-xs">大地图（区域/全局场景图）</span>
+              </label>
+            </div>
+          </div>
+
           <!-- 占位文案与缺席阈值 -->
           <div class="flex gap-2 pt-1">
             <div class="mms-field" style="flex: 1">
@@ -7314,6 +7358,13 @@ const AVATAR_MAP = {
             entries.push(e);
           }
 
+          // 大地图模块（区域/全局场景图，数据格式与小地图一致）
+          if (rootData['大地图'] && typeof rootData['大地图'] === 'object' && !Array.isArray(rootData['大地图'])) {
+            const e = Object.assign({}, rootData['大地图']);
+            e['名字'] = e['名字'] || ' 🌍大地图';
+            entries.push(e);
+          }
+
           if (Array.isArray(rootData['角色列表'])) {
             for (const entry of rootData['角色列表']) {
               if (entry && typeof entry === 'object') entries.push(entry);
@@ -8098,7 +8149,7 @@ createCharacterEntry(text, categoryKey) {
 
       const MMS_COORD_MIN = 10;
       const MMS_COORD_MAX = 90;
-      const MMS_KNOWN_MODULES = ['日期和时间', '地点', '小地图', '角色列表', '人物', '据点', '行动选项'];
+      const MMS_KNOWN_MODULES = ['日期和时间', '地点', '小地图', '大地图', '角色列表', '人物', '据点', '行动选项'];
       const MMS_SCENES = '昏暗室内、明亮室内、警局、街道、商场、健身房、废墟、荒野、地下、海边、雪地、沙漠、火山、餐厅、酒吧、茶馆、神殿、夜市';
       const MMS_EMOJI_SRC =
         '[\\u{1F000}-\\u{1FAFF}\\u{2190}-\\u{21FF}\\u{2300}-\\u{23FF}\\u{2460}-\\u{25FF}\\u{2600}-\\u{27BF}\\u{2900}-\\u{297F}\\u{2B00}-\\u{2BFF}\\u{FE0F}\\u{200D}\\u{20E3}]';
@@ -8553,6 +8604,17 @@ createCharacterEntry(text, categoryKey) {
         return c;
       }
 
+      // 据点固定模块模板：名称/现金基线 + 自定义清单字段
+      function mmsTemplateBase(baseCfg) {
+        const b = {};
+        if (baseCfg.name) b['名称'] = baseCfg.name;
+        if (baseCfg.cash) b['现金'] = baseCfg.cash;
+        for (const f of baseCfg.fields || []) {
+          if (f && f.key && b[f.key] === undefined) b[f.key] = f.value || '';
+        }
+        return b;
+      }
+
       // 合并单个角色：base=基底（上次状态或名册模板），aiChar=AI输出（可null）
       // absenceCount: 该角色连续缺席轮数（null=非更新场景，不适用阈值）
       // threshold: 连续缺席超过该轮数才显示占位文案，之前保留上轮自由字段
@@ -8638,6 +8700,23 @@ createCharacterEntry(text, categoryKey) {
           newList.push(entry);
         }
         R['角色列表'] = newList;
+
+        // 地图模块按需开启：未开启的从状态移除
+        const mapsCfg = (roster && roster.maps) || {};
+        if (mapsCfg.minimap === false) delete R['小地图'];
+        if (!mapsCfg.bigmap) delete R['大地图'];
+
+        // 据点固定模块：缺失字段用基线补齐（不覆盖已有值）
+        const baseCfg = roster && roster.base;
+        if (baseCfg && baseCfg.enabled) {
+          const B = R['据点'] && typeof R['据点'] === 'object' ? R['据点'] : {};
+          if (baseCfg.name && !B['名称']) B['名称'] = baseCfg.name;
+          if (baseCfg.cash && !B['现金']) B['现金'] = baseCfg.cash;
+          for (const f of baseCfg.fields || []) {
+            if (f && f.key && (B[f.key] == null || B[f.key] === '')) B[f.key] = f.value || '';
+          }
+          R['据点'] = B;
+        }
         return out;
       }
 
@@ -8651,6 +8730,10 @@ createCharacterEntry(text, categoryKey) {
         const threshold =
           roster && roster.absentThreshold != null ? Number(roster.absentThreshold) : 3;
         const rosterChars = (roster && roster.characters) || [];
+        const mapsCfg = roster && roster.maps ? roster.maps : {};
+        const minimapOn = mapsCfg.minimap !== false;
+        const bigmapOn = !!mapsCfg.bigmap;
+        const baseCfg = roster && roster.base ? roster.base : null;
         const prevRoot = prev && (prev['状态栏'] || prev) ? prev['状态栏'] || prev : {};
         const aiRoot = aiOut && (aiOut['状态栏'] || aiOut) ? aiOut['状态栏'] || aiOut : {};
         const R = {};
@@ -8660,9 +8743,16 @@ createCharacterEntry(text, categoryKey) {
         R['日期和时间'] = aiRoot['日期和时间'] != null ? aiRoot['日期和时间'] : prevRoot['日期和时间'];
         R['地点'] = aiRoot['地点'] != null ? aiRoot['地点'] : prevRoot['地点'];
 
-        // 小地图（自由全量；AI省略保留上次）
-        if (aiRoot['小地图'] && typeof aiRoot['小地图'] === 'object') R['小地图'] = aiRoot['小地图'];
-        else if (prevRoot['小地图']) R['小地图'] = prevRoot['小地图'];
+        // 小地图（按需开启：关闭则不渲染不注入）
+        if (minimapOn) {
+          if (aiRoot['小地图'] && typeof aiRoot['小地图'] === 'object') R['小地图'] = aiRoot['小地图'];
+          else if (prevRoot['小地图']) R['小地图'] = prevRoot['小地图'];
+        }
+        // 大地图（按需开启）
+        if (bigmapOn) {
+          if (aiRoot['大地图'] && typeof aiRoot['大地图'] === 'object') R['大地图'] = aiRoot['大地图'];
+          else if (prevRoot['大地图']) R['大地图'] = prevRoot['大地图'];
+        }
 
         // 角色列表
         if (Array.isArray(aiRoot['角色列表'])) {
@@ -8704,27 +8794,31 @@ createCharacterEntry(text, categoryKey) {
         if (aiRoot['人物'] && typeof aiRoot['人物'] === 'object') R['人物'] = aiRoot['人物'];
         else if (prevRoot['人物']) R['人物'] = prevRoot['人物'];
 
-        // 据点：现金/清单命令 + 自由字段
+        // 据点：现金/清单命令 + 自由字段（固定模块开启时基线补齐）
         const aiB = aiRoot['据点'] && typeof aiRoot['据点'] === 'object' ? aiRoot['据点'] : null;
         const prevB = prevRoot['据点'] && typeof prevRoot['据点'] === 'object' ? prevRoot['据点'] : null;
-        if (aiB || prevB) {
+        if (aiB || prevB || (baseCfg && baseCfg.enabled)) {
           const a = aiB || {};
-          const p = prevB || {};
+          const p = prevB || (baseCfg && baseCfg.enabled ? mmsTemplateBase(baseCfg) : {});
           const B = {};
           const cashCmd = a['现金'] != null ? mmsApplyCashCommand(p['现金'] || '', a['现金']) : null;
           B['名称'] = a['名称'] != null ? a['名称'] : p['名称'];
           B['现金'] = cashCmd != null ? cashCmd : p['现金'];
-          B['载具'] = a['载具'] != null ? a['载具'] : p['载具'];
-          for (const f of ['武器', '防御', '杂物']) {
+          // 清单字段 = 固定模块字段 + 状态中已有的清单字段（载具/武器/防御/杂物兼容）
+          const listFields = new Set(['载具', '武器', '防御', '杂物']);
+          for (const f of baseCfg && baseCfg.enabled ? baseCfg.fields || [] : []) {
+            if (f && f.key) listFields.add(f.key);
+          }
+          for (const f of listFields) {
             B[f] = a[f] != null ? mmsApplyItemCommands(p[f] || '', a[f]) : p[f];
           }
-          // 据点自定义额外键透传
+          // 额外键透传
           for (const k of Object.keys(a)) {
-            if (['名称', '现金', '载具', '武器', '防御', '杂物'].includes(k)) continue;
+            if (k === '名称' || k === '现金' || listFields.has(k)) continue;
             B[k] = a[k];
           }
           for (const k of Object.keys(p)) {
-            if (['名称', '现金', '载具', '武器', '防御', '杂物'].includes(k)) continue;
+            if (k === '名称' || k === '现金' || listFields.has(k)) continue;
             if (!(k in B)) B[k] = p[k];
           }
           R['据点'] = B;
@@ -8746,45 +8840,105 @@ createCharacterEntry(text, categoryKey) {
         return out;
       }
 
-      // ---------- 更新器提示词（v2：模块化结构 + 校验命令协议） ----------
+      // ---------- 更新器系统提示词（v3：按玩家设置动态拼装，不硬编码模块结构） ----------
 
-      const MMS_UPDATE_SYSTEM_PROMPT = `你是跑团状态栏数据管理员。依据「最新剧情」把「当前状态」更新为新状态，输出一个 JSON 对象（顶层键为「状态栏」）。固定成员名单见用户消息。
+      // 依据名册（角色自由字段并集）、据点固定模块、地图开关，动态生成发送给更新 LLM 的系统提示词
+      function mmsBuildSystemPrompt(roster) {
+        roster = roster || {};
+        const maps = roster.maps || {};
+        const minimapOn = maps.minimap !== false;
+        const bigmapOn = !!maps.bigmap;
+        const base = roster.base || {};
+        const baseOn = !!base.enabled;
 
-## 状态栏模块结构
-{
-  "状态栏": {
-    "日期和时间": "⏰ …", "地点": "📍 …",
-    "小地图": { "场景键": ["Emoji【名称】(x, y) 一句话描述"] },
-    "角色列表": [ { "角色": { "名字": "…", "属性": "…", "穿着": "…", "内心": "…", "武器": "…", "物品": "…" } } ],
-    "人物": { "盟友": ["…"], "NPC": ["…"], "敌人": ["…"] },
-    "据点": { "名称": "…", "现金": "…", "载具": "…", "武器": "…", "防御": "…", "杂物": "…" },
-    "行动选项": { "名字": "🧑 团队行动", "选项": ["1. …", "2. …", "3. …", "4. …"] }
-  }
-}
-- 小地图场景键沿用当前状态；确需更换只能从以下选择：${MMS_SCENES}。坐标为 ${MMS_COORD_MIN}~${MMS_COORD_MAX} 的整数。
-- 若当前状态中存在其他自定义模块（如线索、情报等），按其原有结构全量输出，不要丢弃。
-- 各模块描述格式沿用当前状态的风格（emoji、【】名称、[ ]物品括号等）。
+        // 角色自由字段：名册并集，默认穿着/内心
+        const freeSet = [];
+        for (const r of roster.characters || []) {
+          for (const f of (r && r.freeFields) || []) {
+            if (f && freeSet.indexOf(f) === -1) freeSet.push(f);
+          }
+        }
+        const freeFields = freeSet.length ? freeSet : ['穿着', '内心'];
+        const charFreeList = freeFields.join('、');
+        const charFieldJson = freeFields.map((f) => '"' + f + '": "…"').join(', ');
 
-## 校验字段：只输出命令，禁止全量重写
-适用于：角色列表的「属性」「武器」「物品」，据点的「现金」「武器」「防御」「杂物」。
-- 属性命令："[键-N]"减少 / "[键+N]"增加 / "[键:值]"设值。键用裸名（不带emoji）。值为"当前/上限"格式时命令只作用于当前值。
-  例：`+"`\"属性\": \"[HP-2][SAN:55]\"`"+`
-- 物品命令："[+名称]"获得 / "[+名称xN]"获得N个 / "[名称-N]"消耗 / "[名称:N]"设为数量。
-  例：`+"`\"物品\": \"[+.45子弹x100][绷带-1]\"`"+`。数量归零的物品会被自动移除。
-- 现金命令同属性语法："[团队现金-12.80]" / "[团队现金:5000]"。
-- 剧情没有变化的校验字段：整个字段省略不输出（程序会保持原值）。
-- 新登场角色（当前状态与固定成员中都不存在）：属性输出完整值（如 "[❤️HP:12/12][🛡️Armor:2]"），武器/物品输出完整清单。
+        const baseFieldKeys = (base.fields || []).map((f) => f && f.key).filter(Boolean);
+        const baseFieldList = baseFieldKeys.join('、');
+        const baseFieldJson = baseFieldKeys.map((k) => '"' + k + '": "…"').join(', ');
 
-## 自由字段：每轮全量输出
-日期和时间、地点、小地图、人物（盟友/NPC/敌人）、行动选项、据点的名称与载具、角色的穿着与内心，以及所有自定义模块。未提及的人物条目从对应数组移除，新登场的加入。
-
-## 固定成员规则（名单见用户消息）
-- 剧情提及固定成员 → 输出其条目（校验字段用命令，自由字段全量）。
-- 剧情明确显示其不在场 → 输出条目且内心字段写"不在场"，其余字段省略。
-- 剧情完全未提及 → 整个条目省略（程序自动保留其上次数值并标注）。
-
-## 输出要求
-只输出 JSON 本体，禁止解释文字与 markdown 代码块。保持当前状态的模块顺序、字段命名与 emoji 风格。`;
+        const lines = [];
+        lines.push('你是跑团状态栏数据管理员。依据「最新剧情」把「当前状态」更新为新状态，输出一个 JSON 对象（顶层键为「状态栏」）。固定成员名单见用户消息。');
+        lines.push('');
+        lines.push('## 状态栏模块结构');
+        lines.push('{');
+        lines.push('  "状态栏": {');
+        lines.push('    "日期和时间": "⏰ …",');
+        lines.push('    "地点": "📍 …",');
+        if (minimapOn) lines.push('    "小地图": { "场景键": ["Emoji【名称】(x, y) 一句话描述"] },');
+        if (bigmapOn) lines.push('    "大地图": { "场景键": ["Emoji【名称】(x, y) 一句话描述"] },');
+        lines.push(
+          '    "角色列表": [ { "角色": { "名字": "…", "属性": "…"' +
+            (charFieldJson ? ', ' + charFieldJson : '') +
+            ', "武器": "…", "物品": "…" } } ],',
+        );
+        lines.push('    "人物": { "盟友": ["…"], "NPC": ["…"], "敌人": ["…"] },');
+        if (baseOn) {
+          lines.push(
+            '    "据点": { "名称": "…", "现金": "…"' +
+              (baseFieldJson ? ', ' + baseFieldJson : '') +
+              ' },',
+          );
+        }
+        lines.push('    "行动选项": { "名字": "🧑 团队行动", "选项": ["1. …", "2. …", "3. …", "4. …"] }');
+        lines.push('  }');
+        lines.push('}');
+        if (minimapOn) {
+          lines.push('- 小地图场景键沿用当前状态；确需更换只能从以下选择：' + MMS_SCENES + '。坐标为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数。');
+        }
+        if (bigmapOn) {
+          lines.push('- 大地图用于更大范围的区域/全局场景（城市、荒野全图等），场景键同样只能从以下选择：' + MMS_SCENES + '。坐标为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数。');
+        }
+        lines.push('- 角色自由字段：' + charFreeList + '（贴合剧情每轮全量输出）。');
+        if (baseOn) {
+          lines.push('- 据点字段：名称为自由文本；现金与' + (baseFieldList || '清单字段') + '为数值/清单字段。');
+        }
+        lines.push('- 若当前状态中存在其他自定义模块（如线索、情报等' + (baseOn ? '' : '、据点') + '），按其原有结构全量输出，不要丢弃。');
+        lines.push('- 各模块描述格式沿用当前状态的风格（emoji、【】名称、[ ]物品括号等）。');
+        lines.push('');
+        lines.push('## 校验字段：只输出命令，禁止全量重写');
+        const checkTargets = ['角色列表的「属性」「武器」「物品」'];
+        if (baseOn) {
+          checkTargets.push('据点的「现金」' + (baseFieldList ? '与「' + baseFieldKeys.join('」「') + '」' : ''));
+        }
+        lines.push('适用于：' + checkTargets.join('，') + '。');
+        lines.push('- 属性命令："[键-N]"减少 / "[键+N]"增加 / "[键:值]"设值。键用裸名（不带emoji）。值为"当前/上限"格式时命令只作用于当前值。');
+        lines.push('  例：`"属性": "[HP-2][SAN:55]"`');
+        lines.push('- 物品命令："[+名称]"获得 / "[+名称xN]"获得N个 / "[名称-N]"消耗 / "[名称:N]"设为数量。');
+        lines.push('  例：`"物品": "[+.45子弹x100][绷带-1]"`。数量归零的物品会被自动移除。');
+        lines.push('- 现金命令同属性语法："[团队现金-12.80]" / "[团队现金:5000]"。');
+        lines.push('- 剧情没有变化的校验字段：整个字段省略不输出（程序会保持原值）。');
+        lines.push('- 新登场角色（当前状态与固定成员中都不存在）：属性输出完整值（如 "[❤️HP:12/12][🛡️Armor:2]"），武器/物品输出完整清单。');
+        if (!baseOn) {
+          lines.push('- 若当前状态中存在「据点」模块，其「现金」与清单字段同样适用命令协议。');
+        }
+        lines.push('');
+        lines.push('## 自由字段：每轮全量输出');
+        const freeListParts = ['日期和时间', '地点'];
+        if (minimapOn) freeListParts.push('小地图');
+        if (bigmapOn) freeListParts.push('大地图');
+        freeListParts.push('人物（盟友/NPC/敌人）', '行动选项');
+        if (baseOn) freeListParts.push('据点的名称');
+        lines.push(freeListParts.join('、') + '，角色的' + charFreeList + '，以及所有自定义模块。未提及的人物条目从对应数组移除，新登场的加入。');
+        lines.push('');
+        lines.push('## 固定成员规则（名单见用户消息）');
+        lines.push('- 剧情提及固定成员 → 输出其条目（校验字段用命令，自由字段全量）。');
+        lines.push('- 剧情明确显示其不在场 → 输出条目且内心字段写"不在场"，其余字段省略。');
+        lines.push('- 剧情完全未提及 → 整个条目省略（程序自动保留其上次数值并标注）。');
+        lines.push('');
+        lines.push('## 输出要求');
+        lines.push('只输出 JSON 本体，禁止解释文字与 markdown 代码块。保持当前状态的模块顺序、字段命名与 emoji 风格。');
+        return lines.join('\n');
+      }
 
       const MMS = {
         floorId: null,
@@ -8884,6 +9038,8 @@ createCharacterEntry(text, categoryKey) {
             absentText: '本轮未提及',
             presentText: '在场·本轮未详',
             absentThreshold: 3,
+            base: { enabled: false, name: '', cash: '', fields: [] },
+            maps: { minimap: true, bigmap: false },
           };
           try {
             if (!this.env.hasVarsApi) return fallback;
@@ -8891,11 +9047,26 @@ createCharacterEntry(text, categoryKey) {
             const r = chatVars && chatVars.$mms_roster;
             if (!r || typeof r !== 'object') return fallback;
             const t = parseInt(r.absentThreshold, 10);
+            const base =
+              r.base && typeof r.base === 'object'
+                ? {
+                    enabled: !!r.base.enabled,
+                    name: r.base.name || '',
+                    cash: r.base.cash || '',
+                    fields: Array.isArray(r.base.fields) ? r.base.fields.filter(Boolean) : [],
+                  }
+                : fallback.base;
+            const maps =
+              r.maps && typeof r.maps === 'object'
+                ? { minimap: r.maps.minimap !== false, bigmap: !!r.maps.bigmap }
+                : fallback.maps;
             return {
               characters: Array.isArray(r.characters) ? r.characters.filter(Boolean) : [],
               absentText: r.absentText || fallback.absentText,
               presentText: r.presentText || fallback.presentText,
               absentThreshold: isNaN(t) ? fallback.absentThreshold : t,
+              base: base,
+              maps: maps,
             };
           } catch (e) {
             console.warn('[MMS] 读取名册失败:', e);
@@ -9141,7 +9312,7 @@ createCharacterEntry(text, categoryKey) {
           }
           // 空对象/无有效模块的输出视为失败（防止垃圾输出清空整楼状态）
           const root = state['状态栏'] && typeof state['状态栏'] === 'object' ? state['状态栏'] : state;
-          const knownModules = ['日期和时间', '地点', '小地图', '角色列表', '人物', '据点', '行动选项'];
+          const knownModules = MMS_KNOWN_MODULES;
           const hasKnown = Object.keys(root).some((k) => knownModules.includes(k));
           if (!hasKnown) {
             throw new Error('AI 输出不含任何状态栏模块（疑似空/垃圾输出）');
@@ -9230,11 +9401,11 @@ createCharacterEntry(text, categoryKey) {
               '\n</最新剧情>\n\n请输出更新后的完整状态栏 JSON。';
 
             const customApi = this.buildCustomApi(cfg);
-            // 系统提示词 = 协议核心（可覆盖）+ 自定义提示词（追加）
+            // 系统提示词 = 协议核心（按名册/据点/地图设置动态拼装，可覆盖）+ 自定义提示词（追加）
             const corePrompt =
               cfg.corePrompt && String(cfg.corePrompt).trim()
                 ? String(cfg.corePrompt)
-                : MMS_UPDATE_SYSTEM_PROMPT;
+                : mmsBuildSystemPrompt(roster);
             const extraPrompt = cfg.systemPrompt && String(cfg.systemPrompt).trim()
               ? '\n\n' + String(cfg.systemPrompt).trim()
               : '';
@@ -9541,26 +9712,30 @@ createCharacterEntry(text, categoryKey) {
             });
           }
 
-          // ---------- 系统提示词：只读展示 + 双击解锁编辑 ----------
+          // ---------- 系统提示词：只读展示 + 双击解锁编辑（动态拼装，名册/据点/地图变化时刷新） ----------
           const coreTa = document.getElementById('mms-core-prompt');
           if (coreTa) {
             const syncCorePrompt = () => {
               const c = this.loadConfig();
-              coreTa.value = c.corePrompt && String(c.corePrompt).trim() ? String(c.corePrompt) : MMS_UPDATE_SYSTEM_PROMPT;
+              coreTa.value =
+                c.corePrompt && String(c.corePrompt).trim()
+                  ? String(c.corePrompt)
+                  : mmsBuildSystemPrompt(this.loadRoster());
             };
             syncCorePrompt();
+            this.refreshCorePromptDisplay = syncCorePrompt;
             coreTa.addEventListener('dblclick', () => {
               coreTa.removeAttribute('readonly');
               coreTa.classList.remove('mms-core-prompt-readonly');
               coreTa.classList.add('unlocked');
-              coreTa.title = '编辑中：清空并失焦即恢复内置默认';
+              coreTa.title = '编辑中：清空并失焦即恢复动态默认';
               coreTa.focus();
             });
             coreTa.addEventListener('blur', () => {
               const c = this.loadConfig();
               const text = coreTa.value.trim();
-              if (!text || text === MMS_UPDATE_SYSTEM_PROMPT) {
-                delete c.corePrompt; // 清空或与内置一致 → 恢复默认
+              if (!text || text === mmsBuildSystemPrompt(this.loadRoster())) {
+                delete c.corePrompt; // 清空或与动态默认一致 → 恢复默认
               } else {
                 c.corePrompt = coreTa.value;
               }
@@ -9749,6 +9924,116 @@ createCharacterEntry(text, categoryKey) {
           if (impPrompt) impPrompt.addEventListener('click', () => this.importPromptConfig());
           const impApi = document.getElementById('mms-import-api');
           if (impApi) impApi.addEventListener('click', () => this.importApiConfig());
+
+          this.initBaseAndMapsUI();
+        },
+
+        // ---------- 据点固定模块 + 地图开关 UI ----------
+
+        initBaseAndMapsUI() {
+          // 据点固定模块
+          const baseChk = document.getElementById('mms-base-enabled');
+          const baseForm = document.getElementById('mms-base-form');
+          const syncBaseForm = () => {
+            if (baseForm) baseForm.style.display = baseChk && baseChk.checked ? 'block' : 'none';
+          };
+          if (baseChk) {
+            baseChk.addEventListener('change', () => {
+              const rr = this.loadRoster();
+              rr.base.enabled = baseChk.checked;
+              this.saveRoster(rr);
+              syncBaseForm();
+              if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
+              this.applyRosterNow();
+            });
+          }
+          const bindBaseInput = (id, key) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('change', () => {
+              const rr = this.loadRoster();
+              rr.base[key] = el.value.trim();
+              this.saveRoster(rr);
+              if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
+            });
+          };
+          bindBaseInput('mms-base-name', 'name');
+          bindBaseInput('mms-base-cash', 'cash');
+          const baseAddBtn = document.getElementById('mms-base-add-row');
+          if (baseAddBtn) baseAddBtn.addEventListener('click', () => this.appendBaseRow('', ''));
+          this.renderBaseForm();
+          syncBaseForm();
+
+          // 地图开关
+          const bindMapToggle = (id, key) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('change', () => {
+              const rr = this.loadRoster();
+              rr.maps[key] = el.checked;
+              this.saveRoster(rr);
+              if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
+              this.applyRosterNow();
+            });
+          };
+          const miniEl = document.getElementById('mms-map-minimap');
+          if (miniEl) miniEl.checked = this.loadRoster().maps.minimap !== false;
+          const bigEl = document.getElementById('mms-map-bigmap');
+          if (bigEl) bigEl.checked = !!this.loadRoster().maps.bigmap;
+          bindMapToggle('mms-map-minimap', 'minimap');
+          bindMapToggle('mms-map-bigmap', 'bigmap');
+        },
+
+        appendBaseRow(key = '', value = '') {
+          const container = document.getElementById('mms-base-rows');
+          if (!container) return;
+          const row = document.createElement('div');
+          row.className = 'flex items-center gap-1.5 base-row';
+          row.innerHTML =
+            '<input type="text" class="form-input w-28 base-key" placeholder="字段名 (如 载具)" value="' +
+            String(key).replace(/"/g, '&quot;') +
+            '" />' +
+            '<input type="text" class="form-input flex-1 base-val" placeholder="初始值 (如 [🚙][轿车])" value="' +
+            String(value).replace(/"/g, '&quot;') +
+            '" />' +
+            '<button type="button" class="attr-row-del" title="移除此行"><i class="fa fa-trash-o"></i></button>';
+          row.querySelector('.attr-row-del').addEventListener('click', () => {
+            row.remove();
+            this.saveBaseFromForm();
+          });
+          row.querySelector('.base-key').addEventListener('change', () => this.saveBaseFromForm());
+          row.querySelector('.base-val').addEventListener('change', () => this.saveBaseFromForm());
+          container.appendChild(row);
+        },
+
+        renderBaseForm() {
+          const container = document.getElementById('mms-base-rows');
+          const base = this.loadRoster().base;
+          const nameEl = document.getElementById('mms-base-name');
+          const cashEl = document.getElementById('mms-base-cash');
+          const baseChk = document.getElementById('mms-base-enabled');
+          if (baseChk) baseChk.checked = !!base.enabled;
+          if (nameEl) nameEl.value = base.name || '';
+          if (cashEl) cashEl.value = base.cash || '';
+          if (container) {
+            container.innerHTML = '';
+            for (const f of base.fields || []) {
+              this.appendBaseRow(f.key || '', f.value || '');
+            }
+          }
+        },
+
+        saveBaseFromForm() {
+          const rr = this.loadRoster();
+          const fields = [];
+          document.querySelectorAll('#mms-base-rows .base-row').forEach((row) => {
+            const key = row.querySelector('.base-key').value.trim();
+            const val = row.querySelector('.base-val').value.trim();
+            if (key) fields.push({ key, value: val });
+          });
+          rr.base.fields = fields;
+          this.saveRoster(rr);
+          if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
         },
 
         // 表单动态行：数值属性（名称 + 当前/上限）
@@ -10187,7 +10472,7 @@ createCharacterEntry(text, categoryKey) {
           this.saveConfig(c);
           // 刷新UI
           const coreTa = document.getElementById('mms-core-prompt');
-          if (coreTa) coreTa.value = c.corePrompt || MMS_UPDATE_SYSTEM_PROMPT;
+          if (coreTa) coreTa.value = c.corePrompt || mmsBuildSystemPrompt(this.loadRoster());
           const customTa = document.getElementById('mms-custom-prompt');
           if (customTa) customTa.value = c.systemPrompt || '';
           this.setIndicator('ok', '提示词已导入');
