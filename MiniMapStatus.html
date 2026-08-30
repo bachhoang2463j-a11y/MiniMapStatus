@@ -2433,6 +2433,198 @@ function buildPortraitHTML(roleName, portraitUrl) {
         width: 15px;
         height: 15px;
       }
+
+      /* ===== 方案二：分栏仪表盘设置视图（demo融合，重点适配古典/修仙） ===== */
+      .view-panel {
+        animation: mms-view-in 0.25s ease;
+      }
+      @keyframes mms-view-in {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .setting-tab-btn {
+        transition: all 0.15s ease;
+        position: relative;
+        white-space: nowrap;
+        color: #9ca3af;
+        cursor: pointer;
+        background: none;
+        border: none;
+        padding: 0 0 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+      }
+      .setting-tab-btn.active {
+        color: currentColor;
+        font-weight: 700;
+      }
+      .setting-tab-btn.active::after {
+        content: '';
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background-color: currentColor;
+        border-radius: 2px;
+      }
+      .romantic-mode .setting-tab-btn,
+      .classic-mode .setting-tab-btn {
+        color: #8c8476;
+      }
+      .romantic-mode .setting-tab-btn.active,
+      .classic-mode .setting-tab-btn.active {
+        color: currentColor;
+      }
+
+      .roster-surface {
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .romantic-mode .roster-surface,
+      .classic-mode .roster-surface {
+        background: rgba(217, 168, 86, 0.07);
+      }
+      .roster-form-card {
+        background: rgba(0, 0, 0, 0.25);
+      }
+      .romantic-mode .roster-form-card {
+        background: rgba(200, 182, 154, 0.12);
+      }
+      .classic-mode .roster-form-card {
+        background: rgba(217, 168, 86, 0.08);
+      }
+
+      .form-input {
+        background: rgba(0, 0, 0, 0.32);
+        border: 1px solid rgba(120, 120, 140, 0.4);
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 12px;
+        color: inherit;
+        outline: none;
+        transition: border-color 0.15s ease;
+      }
+      .form-input:focus {
+        border-color: #9d7cf5;
+      }
+      .romantic-mode .form-input,
+      .classic-mode .form-input {
+        background: rgba(255, 255, 255, 0.55);
+        border-color: rgba(200, 182, 154, 0.6);
+      }
+      .romantic-mode .form-input:focus,
+      .classic-mode .form-input:focus {
+        border-color: #a06c30;
+      }
+
+      .roster-card {
+        transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+      }
+      .roster-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+      }
+      .metric-chip {
+        display: inline-block;
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: rgba(157, 124, 245, 0.1);
+        border: 1px solid rgba(157, 124, 245, 0.25);
+        color: #b9a2f7;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .romantic-mode .metric-chip {
+        background: rgba(200, 182, 154, 0.16);
+        border-color: #c8b69a;
+        color: #5c4d3c;
+      }
+      .classic-mode .metric-chip {
+        background: rgba(217, 168, 86, 0.12);
+        border-color: rgba(217, 168, 86, 0.4);
+        color: #a06c30;
+      }
+      .mms-count-badge {
+        font-size: 10px;
+        padding: 1px 7px;
+        border-radius: 9999px;
+        background: rgba(157, 124, 245, 0.2);
+        color: #b9a2f7;
+        font-family: ui-monospace, monospace;
+      }
+      .romantic-mode .mms-count-badge {
+        background: rgba(200, 182, 154, 0.25);
+        color: #5c4d3c;
+      }
+      .classic-mode .mms-count-badge {
+        background: rgba(217, 168, 86, 0.18);
+        color: #a06c30;
+      }
+
+      .theme-dot-bar {
+        background: rgba(0, 0, 0, 0.18);
+      }
+      .romantic-mode .theme-dot-bar,
+      .classic-mode .theme-dot-bar {
+        background: rgba(217, 168, 86, 0.1);
+      }
+      .theme-dot-btn {
+        width: 24px;
+        height: 24px;
+        border-radius: 9999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        color: #9ca3af;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .theme-dot-btn:hover {
+        color: #e5e7eb;
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .theme-dot-btn.active {
+        background: #9d7cf5;
+        color: #fff;
+        box-shadow: 0 0 0 2px rgba(157, 124, 245, 0.4);
+      }
+      .romantic-mode .theme-dot-btn.active {
+        background: #c8b69a;
+        color: #4a3f30;
+        box-shadow: 0 0 0 2px rgba(200, 182, 154, 0.5);
+      }
+      .classic-mode .theme-dot-btn.active {
+        background: #d9a856;
+        color: #fff;
+        box-shadow: 0 0 0 2px rgba(217, 168, 86, 0.45);
+      }
+
+      .attr-row-del {
+        color: #9ca3af;
+        transition: color 0.15s ease;
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 2px;
+        font-size: 11px;
+      }
+      .attr-row-del:hover {
+        color: #f87171;
+      }
+      .view-panel button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
     </style>
 
     <div id="mms-main-view" class="w-full px-1.5 py-4">
@@ -2444,10 +2636,10 @@ function buildPortraitHTML(roleName, portraitUrl) {
           class="bg-gradient-to-r from-primary/20 to-primary/5 px-4 py-2.5 rounded-t-3xl border-b border-gray-700/20 theme-transition"
         >
           <div class="flex justify-between items-center">
-            <!-- 日期和地点信息 -->
-            <div class="flex flex-wrap items-center gap-x-4 text-sm text-gray-300">
-              <span id="location-display" class="whitespace-nowrap">加载中...</span>
-              <span id="time-display" class="whitespace-nowrap">加载中...</span>
+            <!-- 日期和地点信息（方案二双行布局：地点在上，时间在下） -->
+            <div class="flex flex-col gap-y-1 text-sm text-gray-300">
+              <span id="location-display" class="whitespace-nowrap flex items-center">加载中...</span>
+              <span id="time-display" class="whitespace-nowrap flex items-center">加载中...</span>
             </div>
 
             <!-- 操作区：状态更新指示器 / 编辑数据 / 设置 -->
@@ -2476,12 +2668,13 @@ function buildPortraitHTML(roleName, portraitUrl) {
         <div id="maintext-container" class="px-4 py-3 text-base leading-relaxed w-full"></div>
         <!-- 角色状态详情 - 保留折叠设计 -->
         <div class="border-t border-gray-700/20 theme-transition">
-          <details class="w-full group">
+          <details class="w-full group" open>
             <summary
               class="w-full px-4 py-2.5 font-semibold cursor-pointer flex justify-between items-center list-none hover:bg-primary/10 transition-colors theme-transition text-sm"
             >
               <span class="text-gray-300 flex items-center">
                 <i class="fa fa-users text-primary mr-2"></i>角色状态详情
+                <span id="mms-roster-count-main" class="mms-count-badge ml-2" style="display: none"></span>
               </span>
               <i class="fa fa-chevron-down text-primary transition-transform duration-300 group-open:rotate-180 text-xs"></i>
             </summary>
@@ -2607,168 +2800,151 @@ function buildPortraitHTML(roleName, portraitUrl) {
       </div>
     </div>
 
-    <!-- 设置面板 -->
-    <div id="settings-panel" class="settings-panel">
-      <div class="settings-content theme-transition">
-        <div class="flex justify-between items-center mb-4">
-          <h2 class="text-lg font-bold text-gray-300">设置</h2>
-          <button id="settings-close" class="theme-btn rounded-full hover:bg-gray-700/30" title="关闭">
-            <i class="fa fa-times"></i>
-          </button>
-        </div>
-
-        <!-- 主题设置 -->
-        <div class="settings-group">
-          <label class="settings-label">主题选择</label>
-          <div class="theme-grid">
-            <div class="theme-option" data-theme="romantic" title="修仙风格">
-              <i class="fa fa-heart mr-2"></i>
-              <span>修仙</span>
+    <!-- 设置视图（方案二：分栏仪表盘风格，就地整栏切换，无遮罩） -->
+    <div id="settings-panel" class="view-panel w-full px-1.5 py-4" style="display: none">
+      <div class="status-block mb-4 rounded-3xl shadow-lg overflow-hidden border border-gray-700/30 theme-transition w-full">
+        <!-- 仪表盘 Header：面包屑 + 完成按钮 + 分类 Tab -->
+        <div
+          class="bg-gradient-to-r from-primary/20 to-primary/5 px-4 pt-3 pb-0 rounded-t-3xl border-b border-gray-700/20 theme-transition"
+        >
+          <div class="flex justify-between items-center mb-2.5">
+            <div class="flex items-center gap-2 text-xs font-semibold text-gray-300">
+              <span class="text-gray-400">状态栏设置</span>
+              <span class="text-gray-400">/</span>
+              <span class="text-primary font-bold flex items-center gap-1">
+                <i class="fa fa-sliders"></i>
+                <span id="settings-current-tab-name">固定角色名册</span>
+              </span>
             </div>
-            <div class="theme-option" data-theme="day" title="白天模式">
-              <i class="fa fa-sun-o mr-2"></i>
-              <span>白天</span>
-            </div>
-            <div class="theme-option" data-theme="jade" title="血色模式">
-              <i class="fa fa-leaf mr-2"></i>
-              <span>血色</span>
-            </div>
-            <div class="theme-option" data-theme="classic" title="古典模式">
-              <i class="fa fa-book mr-2"></i>
-              <span>古典</span>
-            </div>
-            <div class="theme-option" data-theme="night" title="黑夜模式">
-              <i class="fa fa-moon-o mr-2"></i>
-              <span>黑夜</span>
-            </div>
-            <div class="theme-option" data-theme="fresh" title="小清新风格">
-              <i class="fa fa-envira mr-2"></i>
-              <span>小清新</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 显示模式设置 -->
-        <div class="settings-group">
-          <label class="settings-label">显示模式</label>
-          <div class="display-mode-options">
-            <label class="display-mode-option">
-              <input type="radio" name="display-mode" value="integrated" id="integrated-mode" />
-              <span class="radio-custom"></span>
-              <div class="option-content">
-                <span class="option-title">一体式美化</span>
-                <span class="option-desc">显示完整的故事内容和状态信息</span>
-              </div>
-            </label>
-            <label class="display-mode-option">
-              <input type="radio" name="display-mode" value="status-only" id="status-only-mode" checked />
-              <span class="radio-custom"></span>
-              <div class="option-content">
-                <span class="option-title">美化状态栏</span>
-                <span class="option-desc">仅显示状态信息，隐藏正文内容</span>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- 行动选项操作设置 -->
-        <div class="settings-group">
-          <label class="settings-label">行动选项点击处理</label>
-          <div class="action-mode-options">
-            <label class="action-mode-option">
-              <input type="radio" name="action-mode" value="send-to-chat" id="send-to-chat-mode" checked />
-              <span class="radio-custom"></span>
-              <div class="option-content">
-                <span class="option-title">发送到酒馆聊天框</span>
-                <span class="option-desc">点击后将选项文本添加到聊天输入框中</span>
-              </div>
-            </label>
-            <label class="action-mode-option">
-              <input type="radio" name="action-mode" value="direct-execute" id="direct-execute-mode" />
-              <span class="radio-custom"></span>
-              <div class="option-content">
-                <span class="option-title">点击直接执行</span>
-                <span class="option-desc">点击后立即发送消息并触发回复</span>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- MMS：数据管理 -->
-        <div class="settings-group" id="mms-settings-group" style="display: none">
-          <label class="settings-label">数据管理</label>
-          <label class="mms-toggle-row" style="margin-bottom: 10px">
-            <input type="checkbox" id="mms-auto-update" checked />
-            <span>自动更新状态（楼层完成或内容变化时由独立AI更新）</span>
-          </label>
-          <div class="flex gap-2 flex-wrap">
-            <button id="mms-manual-update" class="mms-btn mms-btn-primary" type="button">
-              <i class="fa fa-refresh mr-1"></i>立即更新
-            </button>
-            <button id="mms-import-btn" class="mms-btn" type="button">
-              <i class="fa fa-download mr-1"></i>从本楼导入
+            <button
+              id="settings-close"
+              class="px-2.5 py-1 rounded-lg bg-primary text-white text-xs font-medium hover:opacity-90 transition-all flex items-center gap-1 shadow-sm"
+              type="button"
+            >
+              <i class="fa fa-check"></i> 完成
             </button>
           </div>
-          <p class="settings-hint" style="margin-top: 8px">
-            「从本楼导入」会解析本楼 &lt;Status_block&gt; 文本并保存为数据快照，旧聊天无需重新生成即可使用
-          </p>
+          <div class="flex gap-4 text-xs font-medium border-b border-gray-700/20 overflow-x-auto">
+            <button id="tab-btn-roster" class="pb-2 setting-tab-btn active text-primary" type="button">
+              <i class="fa fa-users mr-1"></i>固定角色名册
+            </button>
+            <button id="tab-btn-theme" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
+              <i class="fa fa-paint-brush mr-1"></i>界面与主题
+            </button>
+            <button id="tab-btn-behavior" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
+              <i class="fa fa-mouse-pointer mr-1"></i>行为交互
+            </button>
+            <button id="tab-btn-ai" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
+              <i class="fa fa-magic mr-1"></i>独立 AI 更新
+            </button>
+          </div>
         </div>
 
-        <!-- MMS：固定角色名册 -->
-        <div class="settings-group" id="mms-roster-group" style="display: none">
-          <label class="settings-label">固定角色</label>
-          <p class="settings-hint" style="margin-bottom: 8px">
-            名册中的角色永远显示角色卡（即使本轮剧情未提及）；其量化属性只能通过更新AI的命令变更，不会被整段改写
-          </p>
-          <div id="mms-roster-list" class="flex flex-col gap-1.5 mb-2"></div>
+        <!-- ============================================================ -->
+        <!-- Tab 1：固定角色名册（demo 方案二核心定制模块） -->
+        <!-- ============================================================ -->
+        <div id="tab-content-roster" class="p-3.5 space-y-3">
+          <!-- 名册头部：计数 + 添加按钮 -->
+          <div class="flex justify-between items-center roster-surface px-3 py-2 rounded-xl border border-gray-700/10">
+            <div>
+              <span class="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                <i class="fa fa-id-card-o text-primary"></i>
+                常驻名册清单
+                <span id="mms-roster-count" class="mms-count-badge">0 名</span>
+              </span>
+              <p class="text-[10px] text-gray-400 mt-0.5">保持完整角色卡常驻，解决剧情输出过长被裁切为盟友的问题</p>
+            </div>
+            <button
+              id="mms-roster-new"
+              class="px-2.5 py-1.5 rounded-xl bg-primary text-white text-xs font-semibold hover:opacity-90 shadow-sm transition-all flex items-center gap-1.5 flex-shrink-0"
+              type="button"
+            >
+              <i class="fa fa-plus"></i> 添加角色
+            </button>
+          </div>
 
-          <div
-            id="mms-roster-form"
-            class="border border-gray-600/30 rounded-lg p-2.5 mb-2"
-            style="background: rgba(0, 0, 0, 0.2)"
-          >
-            <div class="text-xs font-semibold text-gray-400 mb-2">添加角色</div>
-            <div class="mms-field">
-              <label for="mms-roster-name">姓名（可带emoji，如 " 🛡️弗兰克"）</label>
-              <input id="mms-roster-name" type="text" placeholder="角色名" spellcheck="false" />
-            </div>
-            <div class="mms-field">
-              <label for="mms-roster-portrait">立绘标签（可选，如 "【立绘弗兰克】"，或留空自动按名字匹配）</label>
-              <input id="mms-roster-portrait" type="text" placeholder="留空则按姓名匹配 PORTRAIT_MAP" spellcheck="false" />
-            </div>
-            <div class="mms-field">
-              <label for="mms-roster-attrs">校验属性（每行一个 "键:初始值"，键可带emoji，如 "❤️HP:18/18" / "气血:120"）</label>
-              <textarea
-                id="mms-roster-attrs"
-                rows="3"
-                spellcheck="false"
-                placeholder="❤️HP:18/18&#10;🛡️Armor:6&#10;🧠SAN:83/85"
-              ></textarea>
-            </div>
-            <div class="mms-field">
-              <label for="mms-roster-free">自由字段（逗号分隔，默认 "穿着,内心"）</label>
-              <input id="mms-roster-free" type="text" placeholder="穿着,内心" spellcheck="false" />
-            </div>
-            <div class="flex gap-2">
-              <div class="mms-field" style="flex: 1">
-                <label for="mms-roster-weapons">初始武器（可选，[ ] 包裹格式）</label>
-                <input id="mms-roster-weapons" type="text" placeholder="[🔪] [柯尔特M1911]" spellcheck="false" />
+          <!-- 添加角色表单抽屉（默认收起） -->
+          <div id="mms-roster-form" class="roster-form-card p-3 rounded-2xl border border-primary/30 space-y-3" style="display: none">
+            <div class="flex justify-between items-center border-b border-gray-700/15 pb-2">
+              <div class="flex items-center gap-1.5 text-xs font-bold text-primary">
+                <i class="fa fa-user-plus"></i>
+                <span>添加新角色至常驻名册</span>
               </div>
-              <div class="mms-field" style="flex: 1">
-                <label for="mms-roster-items">初始物品（可选）</label>
-                <input id="mms-roster-items" type="text" placeholder="[💼] [黄铜手电]" spellcheck="false" />
+              <button id="mms-roster-cancel" class="text-gray-400 hover:text-gray-200 text-xs" type="button">
+                <i class="fa fa-times"></i>
+              </button>
+            </div>
+
+            <!-- 基础信息：姓名 + 立绘 -->
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-[11px] font-semibold text-gray-300 block mb-1">角色姓名 *</label>
+                <input id="mms-roster-name" type="text" class="form-input w-full" placeholder="如：林有声 / 埃利奥特" spellcheck="false" />
+              </div>
+              <div>
+                <label class="text-[11px] font-semibold text-gray-300 block mb-1">立绘标签 / 链接 (可选)</label>
+                <input id="mms-roster-portrait" type="text" class="form-input w-full" placeholder="如：【立绘林有声】，留空按名字匹配" spellcheck="false" />
               </div>
             </div>
-            <div class="flex justify-end gap-2 mt-1">
-              <button id="mms-roster-cancel" class="mms-btn" type="button">收起</button>
-              <button id="mms-roster-add" class="mms-btn mms-btn-primary" type="button">添加</button>
+
+            <!-- 身份头衔 -->
+            <div>
+              <label class="text-[11px] font-semibold text-gray-300 block mb-1">身份头衔 / 描述</label>
+              <input id="mms-roster-role" type="text" class="form-input w-full" placeholder="如：调查员 / 语言学者，或 青云宗剑修弟子" spellcheck="false" />
+            </div>
+
+            <!-- 核心校验属性（数值三列动态行） -->
+            <div class="roster-surface p-2.5 rounded-xl border border-gray-700/10 space-y-2">
+              <div class="flex justify-between items-center">
+                <div>
+                  <span class="text-xs font-bold text-gray-300 block">核心数值校验属性</span>
+                  <span class="text-[10px] text-gray-400">自由定义属性名（气血、真元、理智值、HP 均可；上限留空则为固定值）</span>
+                </div>
+                <button id="mms-attr-add-row" class="text-[11px] text-primary hover:underline font-medium flex items-center gap-1" type="button">
+                  <i class="fa fa-plus-circle"></i> 增加数值项
+                </button>
+              </div>
+              <div id="mms-attr-rows" class="space-y-1.5"></div>
+            </div>
+
+            <!-- 自由属性键值对（动态行） -->
+            <div class="roster-surface p-2.5 rounded-xl border border-gray-700/10 space-y-2">
+              <div class="flex justify-between items-center">
+                <div>
+                  <span class="text-xs font-bold text-gray-300 block">自由属性（AI 每轮全量输出）</span>
+                  <span class="text-[10px] text-gray-400">键值对自由扩展（内心、穿着、携带物品等）</span>
+                </div>
+                <button id="mms-free-add-row" class="text-[11px] text-primary hover:underline font-medium flex items-center gap-1" type="button">
+                  <i class="fa fa-plus-circle"></i> 增加自由项
+                </button>
+              </div>
+              <div id="mms-free-rows" class="space-y-1.5"></div>
+            </div>
+
+            <!-- 初始武器 / 物品 -->
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-[11px] font-semibold text-gray-300 block mb-1">初始武器（可选）</label>
+                <input id="mms-roster-weapons" type="text" class="form-input w-full" placeholder="[🔪] [柯尔特M1911]" spellcheck="false" />
+              </div>
+              <div>
+                <label class="text-[11px] font-semibold text-gray-300 block mb-1">初始物品（可选）</label>
+                <input id="mms-roster-items" type="text" class="form-input w-full" placeholder="[💼] [黄铜手电]" spellcheck="false" />
+              </div>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-1 border-t border-gray-700/10">
+              <button id="mms-roster-add" class="px-4 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 shadow-sm" type="button">
+                保存并加入名册
+              </button>
             </div>
           </div>
-          <button id="mms-roster-new" class="mms-btn" type="button" style="width: 100%">
-            <i class="fa fa-plus mr-1"></i>添加角色
-          </button>
 
-          <div class="flex gap-2 mt-2">
+          <!-- 名册卡片列表（头像 + 数值胶囊 + 摘要 + 删除） -->
+          <div id="mms-roster-list" class="space-y-2"></div>
+
+          <!-- 占位文案 -->
+          <div class="flex gap-2 pt-1">
             <div class="mms-field" style="flex: 1">
               <label for="mms-absent-text">未提及占位文案</label>
               <input id="mms-absent-text" type="text" placeholder="本轮未提及" spellcheck="false" />
@@ -2778,74 +2954,180 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <input id="mms-present-text" type="text" placeholder="在场·本轮未详" spellcheck="false" />
             </div>
           </div>
-          <p class="settings-hint">名册保存在聊天变量中（随聊天导出）；删除角色只影响后续显示，不影响已存楼层</p>
+          <p class="settings-hint">名册保存在本聊天的变量中（随聊天导出）；删除角色只影响后续显示，不影响已存楼层</p>
         </div>
 
-        <!-- MMS：独立更新 AI 接口 -->
-        <div class="settings-group" id="mms-api-group" style="display: none">
-          <label class="settings-label">独立更新 AI</label>
-          <div class="mms-field">
-            <label for="mms-api-source">API 源</label>
-            <select id="mms-api-source">
-              <option value="custom">自定义 (OpenAI 兼容)</option>
-              <option value="openai">OpenAI</option>
-              <option value="deepseek">DeepSeek</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="claude">Claude</option>
-              <option value="makersuite">Google MakerSuite</option>
-              <option value="xai">xAI (Grok)</option>
-            </select>
-          </div>
-          <div class="mms-field">
-            <label for="mms-api-url">API 地址（端点）</label>
-            <input id="mms-api-url" type="text" placeholder="https://api.example.com/v1" spellcheck="false" />
-          </div>
-          <div class="mms-field">
-            <label for="mms-api-key">API 密钥</label>
-            <input id="mms-api-key" type="password" placeholder="sk-..." spellcheck="false" />
-          </div>
-          <div class="mms-field">
-            <label for="mms-api-model">模型名称</label>
-            <input id="mms-api-model" type="text" placeholder="例：deepseek-chat" spellcheck="false" />
-          </div>
-          <div class="mms-field">
-            <label for="mms-api-preset">使用酒馆代理预设（可选，优先于上面的地址/密钥）</label>
-            <input id="mms-api-preset" type="text" placeholder="代理预设名称，留空则用上面的配置" spellcheck="false" />
-          </div>
-          <div class="mms-field">
-            <label for="mms-context-floors">剧情回溯楼层数（最新1楼 + 往前N-1楼AI正文）</label>
-            <input id="mms-context-floors" type="number" min="1" max="10" step="1" />
-          </div>
-          <div class="mms-field">
-            <label for="mms-custom-prompt">自定义更新提示词（系统提示词，留空使用内置默认）</label>
-            <textarea
-              id="mms-custom-prompt"
-              rows="10"
-              spellcheck="false"
-              placeholder="留空使用内置默认提示词（跑团状态栏数据管理员，含状态栏结构与更新规则）。&#10;&#10;发送给更新AI的内容固定为：&#10;[系统] 本提示词&#10;[用户] &lt;当前状态&gt;上一次的状态YAML + &lt;前情提要&gt;往前N-1楼AI正文 + &lt;最新剧情&gt;本楼正文&#10;&#10;不包含：世界书、角色卡、用户人设、酒馆预设、用户楼层。"
-            ></textarea>
-            <div class="flex justify-end mt-1">
-              <button id="mms-prompt-reset" class="mms-btn" type="button" style="padding: 3px 10px">恢复默认提示词</button>
+        <!-- ============================================================ -->
+        <!-- Tab 2：界面与主题 -->
+        <!-- ============================================================ -->
+        <div id="tab-content-theme" class="p-3.5 space-y-3" style="display: none">
+          <!-- 主题圆点选择器 -->
+          <div class="flex items-center justify-between py-1 border-b border-gray-700/10">
+            <div>
+              <span class="text-xs font-bold text-gray-300 block">主题风格</span>
+              <span id="mms-theme-name" class="text-[10px] text-primary font-medium">当前：修仙风格</span>
+            </div>
+            <div class="flex items-center gap-1.5 theme-dot-bar p-1 rounded-full border border-gray-700/20">
+              <button class="theme-dot-btn" data-theme="romantic" title="修仙 (❤)" type="button"><i class="fa fa-heart"></i></button>
+              <button class="theme-dot-btn" data-theme="day" title="白天 (☼)" type="button"><i class="fa fa-sun-o"></i></button>
+              <button class="theme-dot-btn" data-theme="jade" title="血色 (🗡)" type="button"><i class="fa fa-leaf"></i></button>
+              <button class="theme-dot-btn" data-theme="classic" title="古典 (📖)" type="button"><i class="fa fa-book"></i></button>
+              <button class="theme-dot-btn" data-theme="night" title="黑夜 (🌙)" type="button"><i class="fa fa-moon-o"></i></button>
+              <button class="theme-dot-btn" data-theme="fresh" title="清新 (🍃)" type="button"><i class="fa fa-envira"></i></button>
             </div>
           </div>
-          <p class="settings-hint">
-            配置保存在酒馆助手的全局变量中（跟随用户存档，PC / 手机共用）；留空地址与预设时将使用当前酒馆连接的 API
-          </p>
+
+          <!-- 显示模式（沿用现有 radio 机制） -->
+          <div class="settings-group">
+            <label class="settings-label">显示模式</label>
+            <div class="display-mode-options">
+              <label class="display-mode-option">
+                <input type="radio" name="display-mode" value="integrated" id="integrated-mode" />
+                <span class="radio-custom"></span>
+                <div class="option-content">
+                  <span class="option-title">一体式美化</span>
+                  <span class="option-desc">显示完整的故事内容和状态信息</span>
+                </div>
+              </label>
+              <label class="display-mode-option">
+                <input type="radio" name="display-mode" value="status-only" id="status-only-mode" checked />
+                <span class="radio-custom"></span>
+                <div class="option-content">
+                  <span class="option-title">美化状态栏</span>
+                  <span class="option-desc">仅显示状态信息，隐藏正文内容</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- 徽章收纳阈值 -->
+          <div class="flex items-center justify-between py-1">
+            <div>
+              <span class="text-xs font-bold text-gray-300 block">徽章折叠阈值</span>
+              <span class="text-[10px] text-gray-400">单行超出数量向右折叠</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button id="threshold-minus" class="w-6 h-6 rounded bg-black/10 text-gray-300 font-bold text-xs flex items-center justify-center hover:bg-primary/20" type="button" aria-label="减少阈值">−</button>
+              <span id="threshold-value" class="text-xs font-bold px-1.5 text-primary">5</span>
+              <button id="threshold-plus" class="w-6 h-6 rounded bg-black/10 text-gray-300 font-bold text-xs flex items-center justify-center hover:bg-primary/20" type="button" aria-label="增加阈值">+</button>
+            </div>
+          </div>
+          <p class="settings-hint">超过此数量才显示"+N"展开按钮；未展开时徽章保持单行，超出向右侧隐藏，可横向拖动查看</p>
         </div>
 
-        <!-- 徽章收纳阈值 -->
-        <div class="settings-group">
-          <label class="settings-label">徽章收纳</label>
-          <div class="threshold-control">
-            <div class="threshold-control-row">
-              <span class="threshold-label">展开阈值</span>
-              <div class="threshold-stepper">
-                <button id="threshold-minus" class="threshold-btn" type="button" aria-label="减少阈值">−</button>
-                <span id="threshold-value" class="threshold-value">5</span>
-                <button id="threshold-plus" class="threshold-btn" type="button" aria-label="增加阈值">+</button>
+        <!-- ============================================================ -->
+        <!-- Tab 3：行为交互 -->
+        <!-- ============================================================ -->
+        <div id="tab-content-behavior" class="p-3.5 space-y-3" style="display: none">
+          <div class="settings-group">
+            <label class="settings-label">行动选项点击处理</label>
+            <div class="action-mode-options">
+              <label class="action-mode-option">
+                <input type="radio" name="action-mode" value="send-to-chat" id="send-to-chat-mode" checked />
+                <span class="radio-custom"></span>
+                <div class="option-content">
+                  <span class="option-title">发送到酒馆聊天框</span>
+                  <span class="option-desc">点击后将选项文本添加到聊天输入框中</span>
+                </div>
+              </label>
+              <label class="action-mode-option">
+                <input type="radio" name="action-mode" value="direct-execute" id="direct-execute-mode" />
+                <span class="radio-custom"></span>
+                <div class="option-content">
+                  <span class="option-title">点击直接执行</span>
+                  <span class="option-desc">点击后立即发送消息并触发回复</span>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- Tab 4：独立 AI 更新 -->
+        <!-- ============================================================ -->
+        <div id="tab-content-ai" class="p-3.5 space-y-3" style="display: none">
+          <!-- 数据管理 -->
+          <div class="roster-surface px-3 py-2.5 rounded-xl border border-gray-700/10 space-y-2.5">
+            <div class="flex justify-between items-center">
+              <span class="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                <i class="fa fa-microchip text-primary"></i> 独立更新引擎
+              </span>
+              <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono font-medium">● 状态同步</span>
+            </div>
+            <p class="text-[11px] text-gray-400 leading-relaxed">
+              分流模型独立更新状态数据，不占用主模型上下文与酒馆预设；剧情未输出状态卡时自动从名册提取并接续更新。
+            </p>
+            <label class="mms-toggle-row">
+              <input type="checkbox" id="mms-auto-update" checked />
+              <span>自动更新状态（楼层完成或内容变化时触发）</span>
+            </label>
+            <div class="flex gap-2 pt-1">
+              <button id="mms-manual-update" class="px-3 py-1.5 rounded-lg bg-primary/20 text-primary text-xs font-semibold hover:bg-primary/30 flex items-center gap-1" type="button">
+                <i class="fa fa-refresh"></i> 立即更新状态
+              </button>
+              <button id="mms-import-btn" class="px-3 py-1.5 rounded-lg bg-black/10 text-gray-300 text-xs font-medium hover:bg-black/20 flex items-center gap-1" type="button">
+                <i class="fa fa-download"></i> 从本楼导入快照
+              </button>
+            </div>
+          </div>
+
+          <!-- API 配置 -->
+          <div class="settings-group">
+            <label class="settings-label">独立更新 AI 接口</label>
+            <div class="mms-field">
+              <label for="mms-api-source">API 源</label>
+              <select id="mms-api-source">
+                <option value="custom">自定义 (OpenAI 兼容)</option>
+                <option value="openai">OpenAI</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="claude">Claude</option>
+                <option value="makersuite">Google MakerSuite</option>
+                <option value="xai">xAI (Grok)</option>
+              </select>
+            </div>
+            <div class="mms-field">
+              <label for="mms-api-url">API 地址（端点）</label>
+              <input id="mms-api-url" type="text" placeholder="https://api.example.com/v1（留空使用当前酒馆连接）" spellcheck="false" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div class="mms-field">
+                <label for="mms-api-key">API 密钥</label>
+                <input id="mms-api-key" type="password" placeholder="sk-..." spellcheck="false" />
+              </div>
+              <div class="mms-field">
+                <label for="mms-api-model">模型名称</label>
+                <input id="mms-api-model" type="text" placeholder="例：deepseek-chat" spellcheck="false" />
               </div>
             </div>
-            <p class="settings-hint">超过此数量才显示“+N”展开按钮；未展开时徽章保持单行，超出向右侧隐藏，可横向拖动查看</p>
+            <div class="grid grid-cols-2 gap-2">
+              <div class="mms-field">
+                <label for="mms-api-preset">酒馆代理预设（可选）</label>
+                <input id="mms-api-preset" type="text" placeholder="预设名称，优先于地址/密钥" spellcheck="false" />
+              </div>
+              <div class="mms-field">
+                <label for="mms-context-floors">剧情回溯楼层数</label>
+                <input id="mms-context-floors" type="number" min="1" max="10" step="1" />
+              </div>
+            </div>
+          </div>
+
+          <!-- 自定义提示词 -->
+          <div class="settings-group">
+            <label class="settings-label">自定义更新提示词</label>
+            <div class="mms-field">
+              <label for="mms-custom-prompt">系统提示词（完全替换内置默认，可自定义卡片类型协议）</label>
+              <textarea
+                id="mms-custom-prompt"
+                rows="10"
+                spellcheck="false"
+                placeholder="留空使用内置默认提示词（跑团状态栏数据管理员 v2：模块结构 + 命令协议 + 固定成员规则）。&#10;&#10;发送给更新AI的内容固定为：&#10;[系统] 本提示词&#10;[用户] &lt;当前状态&gt;上一次的状态YAML + &lt;固定成员&gt;名册 + &lt;前情提要&gt;往前N-1楼AI正文 + &lt;最新剧情&gt;本楼正文&#10;&#10;不包含：世界书、角色卡、用户人设、酒馆预设、用户楼层。"
+              ></textarea>
+              <div class="flex justify-end mt-1">
+                <button id="mms-prompt-reset" class="mms-btn" type="button" style="padding: 3px 10px">恢复默认提示词</button>
+              </div>
+            </div>
+            <p class="settings-hint">配置保存在酒馆助手的全局变量中（跟随用户存档，PC / 手机共用）</p>
           </div>
         </div>
       </div>
@@ -3208,34 +3490,79 @@ const AVATAR_MAP = {
         document.body.style.overflow = 'hidden';
       }
 
+      // 方案二：设置视图就地整栏切换（无遮罩模态）
+      const MMS_SETTING_TAB_NAMES = {
+        roster: '固定角色名册',
+        theme: '界面与主题',
+        behavior: '行为交互',
+        ai: '独立 AI 更新',
+      };
+
+      function mmsToggleSettingsView(show) {
+        const mainView = document.getElementById('mms-main-view');
+        const settingsView = document.getElementById('settings-panel');
+        if (!mainView || !settingsView) return;
+        if (show) {
+          mainView.style.display = 'none';
+          settingsView.style.display = 'block';
+        } else {
+          settingsView.style.display = 'none';
+          mainView.style.display = 'block';
+        }
+      }
+
+      function mmsSwitchSettingTab(tabKey) {
+        const tabBtns = {
+          roster: document.getElementById('tab-btn-roster'),
+          theme: document.getElementById('tab-btn-theme'),
+          behavior: document.getElementById('tab-btn-behavior'),
+          ai: document.getElementById('tab-btn-ai'),
+        };
+        const tabContents = {
+          roster: document.getElementById('tab-content-roster'),
+          theme: document.getElementById('tab-content-theme'),
+          behavior: document.getElementById('tab-content-behavior'),
+          ai: document.getElementById('tab-content-ai'),
+        };
+        Object.keys(tabBtns).forEach(k => {
+          if (tabBtns[k]) {
+            tabBtns[k].classList.remove('active', 'text-primary');
+            tabBtns[k].classList.add('hover:text-gray-200');
+          }
+          if (tabContents[k]) tabContents[k].style.display = 'none';
+        });
+        if (tabBtns[tabKey]) {
+          tabBtns[tabKey].classList.add('active', 'text-primary');
+          tabBtns[tabKey].classList.remove('hover:text-gray-200');
+        }
+        if (tabContents[tabKey]) tabContents[tabKey].style.display = 'block';
+        const titleSpan = document.getElementById('settings-current-tab-name');
+        if (titleSpan) titleSpan.textContent = MMS_SETTING_TAB_NAMES[tabKey] || '设置';
+      }
+
       function initSettingsPanel() {
         const settingsBtn = document.getElementById('settings-btn');
-        const settingsPanel = document.getElementById('settings-panel');
         const settingsClose = document.getElementById('settings-close');
         const displayModeRadios = document.querySelectorAll('input[name="display-mode"]');
         const actionModeRadios = document.querySelectorAll('input[name="action-mode"]');
 
-        settingsBtn.addEventListener('click', () => {
-          settingsPanel.style.display = 'flex';
-          document.body.style.overflow = 'hidden';
-        });
-
-        const closeSettings = () => {
-          settingsPanel.style.display = 'none';
-          document.body.style.overflow = '';
-        };
-
-        settingsClose.addEventListener('click', closeSettings);
-
-        settingsPanel.addEventListener('click', e => {
-          if (e.target === settingsPanel) {
-            closeSettings();
-          }
+        if (settingsBtn) {
+          settingsBtn.addEventListener('click', () => mmsToggleSettingsView(true));
+        }
+        if (settingsClose) {
+          settingsClose.addEventListener('click', () => mmsToggleSettingsView(false));
+        }
+        Object.keys(MMS_SETTING_TAB_NAMES).forEach(k => {
+          const btn = document.getElementById('tab-btn-' + k);
+          if (btn) btn.addEventListener('click', () => mmsSwitchSettingTab(k));
         });
 
         document.addEventListener('keydown', e => {
-          if (e.key === 'Escape' && settingsPanel.style.display === 'flex') {
-            closeSettings();
+          if (e.key === 'Escape') {
+            const settingsView = document.getElementById('settings-panel');
+            if (settingsView && settingsView.style.display === 'block') {
+              mmsToggleSettingsView(false);
+            }
           }
         });
 
@@ -3307,16 +3634,26 @@ const AVATAR_MAP = {
         }
       }
 
+      // 方案二：主题圆点选择器（替换原主题网格）
+      const MMS_THEME_LABELS = {
+        romantic: '修仙风格',
+        day: '白天模式',
+        jade: '血色模式',
+        classic: '古典模式',
+        night: '黑夜模式',
+        fresh: '小清新风格',
+      };
+
       function initThemeToggle() {
-        const themeOptions = document.querySelectorAll('.theme-option');
+        const themeDots = document.querySelectorAll('.theme-dot-btn');
         const bodyElement = document.body;
 
         const savedTheme = localStorage.getItem('storyTheme') || 'romantic';
         switchToTheme(savedTheme);
 
-        themeOptions.forEach(option => {
-          option.addEventListener('click', () => {
-            const theme = option.getAttribute('data-theme');
+        themeDots.forEach(dot => {
+          dot.addEventListener('click', () => {
+            const theme = dot.getAttribute('data-theme');
             switchToTheme(theme);
             localStorage.setItem('storyTheme', theme);
           });
@@ -3334,13 +3671,15 @@ const AVATAR_MAP = {
 
           bodyElement.classList.add(`${theme}-mode`);
 
-          themeOptions.forEach(option => {
-            if (option.getAttribute('data-theme') === theme) {
-              option.classList.add('active');
+          themeDots.forEach(dot => {
+            if (dot.getAttribute('data-theme') === theme) {
+              dot.classList.add('active');
             } else {
-              option.classList.remove('active');
+              dot.classList.remove('active');
             }
           });
+          const nameEl = document.getElementById('mms-theme-name');
+          if (nameEl) nameEl.textContent = '当前：' + (MMS_THEME_LABELS[theme] || theme);
         }
       }
 
@@ -7793,8 +8132,12 @@ createCharacterEntry(text, categoryKey) {
           武器: r.weapons || '',
           物品: r.items || '',
         };
-        for (const f of r.freeFields || ['穿着', '内心']) {
-          if (f && !c[f]) c[f] = /内心/.test(f) ? displayCfg.absentText : '';
+        if (r.role) c['身份'] = r.role;
+        const freeFields = r.freeFields && r.freeFields.length ? r.freeFields : ['穿着', '内心'];
+        for (const f of freeFields) {
+          if (!f || c[f] !== undefined) continue;
+          const initial = r.freeInitials && r.freeInitials[f] ? r.freeInitials[f] : '';
+          c[f] = /内心/.test(f) ? displayCfg.absentText : initial;
         }
         if (r.portraitTag) c['立绘'] = r.portraitTag;
         return c;
@@ -8608,11 +8951,6 @@ createCharacterEntry(text, categoryKey) {
 
         initUI() {
           const cfg = this.loadConfig();
-          const showSettings = this.env.hasMessageApi;
-          const group = document.getElementById('mms-settings-group');
-          const apiGroup = document.getElementById('mms-api-group');
-          if (group && showSettings) group.style.display = '';
-          if (apiGroup && showSettings) apiGroup.style.display = '';
 
           const editBtn = document.getElementById('mms-edit-btn');
           if (editBtn) {
@@ -8691,9 +9029,9 @@ createCharacterEntry(text, categoryKey) {
 
         // ---------- 固定角色名册 UI ----------
 
+        // ---------- 固定角色名册 UI（方案二：抽屉表单 + 头像卡片列表） ----------
+
         initRosterUI() {
-          const rosterGroup = document.getElementById('mms-roster-group');
-          if (rosterGroup && this.env.hasMessageApi) rosterGroup.style.display = '';
           if (!this.env.hasVarsApi) return;
 
           this.renderRosterList();
@@ -8702,8 +9040,10 @@ createCharacterEntry(text, categoryKey) {
           const form = document.getElementById('mms-roster-form');
           if (newBtn && form) {
             newBtn.addEventListener('click', () => {
-              form.style.display = form.style.display === 'none' ? '' : 'none';
-              if (form.style.display !== 'none') {
+              const opening = form.style.display === 'none' || form.style.display === '';
+              form.style.display = opening ? 'block' : 'none';
+              if (opening) {
+                this.seedRosterForm();
                 const nameEl = document.getElementById('mms-roster-name');
                 if (nameEl) nameEl.focus();
               }
@@ -8715,6 +9055,11 @@ createCharacterEntry(text, categoryKey) {
 
           const addBtn = document.getElementById('mms-roster-add');
           if (addBtn) addBtn.addEventListener('click', () => this.addRosterCharacter());
+
+          const attrAdd = document.getElementById('mms-attr-add-row');
+          if (attrAdd) attrAdd.addEventListener('click', () => this.appendAttrRow());
+          const freeAdd = document.getElementById('mms-free-add-row');
+          if (freeAdd) freeAdd.addEventListener('click', () => this.appendFreeRow());
 
           const bindRosterText = (id, key, fallback) => {
             const el = document.getElementById(id);
@@ -8731,42 +9076,154 @@ createCharacterEntry(text, categoryKey) {
           bindRosterText('mms-present-text', 'presentText', '在场·本轮未详');
         },
 
+        // 表单动态行：数值属性（名称 + 当前/上限）
+        appendAttrRow(key = '', cur = '', max = '') {
+          const container = document.getElementById('mms-attr-rows');
+          if (!container) return;
+          const row = document.createElement('div');
+          row.className = 'flex items-center gap-1.5 attr-row';
+          row.innerHTML =
+            '<input type="text" class="form-input flex-1 attr-key" placeholder="属性名 (如 气血/理智)" value="' +
+            String(key).replace(/"/g, '&quot;') +
+            '" />' +
+            '<input type="text" class="form-input w-14 text-center attr-cur" placeholder="当前" value="' +
+            String(cur).replace(/"/g, '&quot;') +
+            '" />' +
+            '<span class="text-gray-400 text-xs">/</span>' +
+            '<input type="text" class="form-input w-14 text-center attr-max" placeholder="上限" value="' +
+            String(max).replace(/"/g, '&quot;') +
+            '" />' +
+            '<button type="button" class="attr-row-del" title="移除此行"><i class="fa fa-trash-o"></i></button>';
+          row.querySelector('.attr-row-del').addEventListener('click', () => row.remove());
+          container.appendChild(row);
+        },
+
+        // 表单动态行：自由属性键值对
+        appendFreeRow(key = '', val = '') {
+          const container = document.getElementById('mms-free-rows');
+          if (!container) return;
+          const row = document.createElement('div');
+          row.className = 'flex items-center gap-1.5 free-row';
+          row.innerHTML =
+            '<input type="text" class="form-input w-24 free-key" placeholder="键名 (如 内心)" value="' +
+            String(key).replace(/"/g, '&quot;') +
+            '" />' +
+            '<input type="text" class="form-input flex-1 free-val" placeholder="属性内容 / 初始值" value="' +
+            String(val).replace(/"/g, '&quot;') +
+            '" />' +
+            '<button type="button" class="attr-row-del" title="移除此行"><i class="fa fa-trash-o"></i></button>';
+          row.querySelector('.attr-row-del').addEventListener('click', () => row.remove());
+          container.appendChild(row);
+        },
+
+        // 打开表单时填充默认行（首次或清空后）
+        seedRosterForm() {
+          const attrRows = document.getElementById('mms-attr-rows');
+          const freeRows = document.getElementById('mms-free-rows');
+          if (!attrRows || !freeRows) return;
+          if (attrRows.children.length === 0) {
+            this.appendAttrRow('气血', '100', '100');
+          }
+          if (freeRows.children.length === 0) {
+            this.appendFreeRow('内心', '');
+            this.appendFreeRow('穿着', '');
+          }
+        },
+
+        // 名册卡片列表（头像缩略 + 数值胶囊 + 自由属性摘要 + 删除）
         renderRosterList() {
           const listEl = document.getElementById('mms-roster-list');
           if (!listEl) return;
           const roster = this.loadRoster();
+
+          // 计数徽章（设置内 + 主视图 summary）
+          const countBadge = document.getElementById('mms-roster-count');
+          if (countBadge) countBadge.textContent = roster.characters.length + ' 名';
+          const mainBadge = document.getElementById('mms-roster-count-main');
+          if (mainBadge) {
+            if (roster.characters.length) {
+              mainBadge.textContent = roster.characters.length + ' 名常驻';
+              mainBadge.style.display = '';
+            } else {
+              mainBadge.style.display = 'none';
+            }
+          }
+
           listEl.innerHTML = '';
           if (!roster.characters.length) {
             listEl.innerHTML =
-              '<div class="text-xs text-gray-500">名册为空。添加后角色将常驻角色列表，且其量化属性受命令协议保护。</div>';
+              '<div class="text-xs text-gray-500 py-1">名册为空。添加后角色将常驻角色列表，且其量化属性受命令协议保护。</div>';
             return;
           }
           roster.characters.forEach((r, idx) => {
-            const row = document.createElement('div');
-            row.className = 'flex items-center justify-between gap-2 px-2 py-1.5 rounded border border-gray-600/30';
-            row.style.background = 'rgba(0,0,0,0.15)';
-            const keys = (r.attrs || []).map((a) => a.key).join('·');
-            const info = document.createElement('div');
-            info.className = 'text-xs';
-            info.innerHTML =
-              '<span class="font-semibold">' +
-              String(r.name || '').replace(/</g, '&lt;') +
-              '</span>' +
-              (keys ? '<span class="text-gray-500 ml-2">' + keys.replace(/</g, '&lt;') + '</span>' : '');
-            const del = document.createElement('button');
-            del.className = 'mms-btn';
-            del.style.padding = '2px 8px';
-            del.style.color = '#f87171';
-            del.textContent = '删除';
-            del.addEventListener('click', () => {
+            const plain = mmsPlainName(r.name) || r.name || '?';
+            const avatarInitial = String(plain).slice(0, 1);
+
+            // 头像：立绘标签 → PORTRAIT_MAP 匹配；否则按名字匹配
+            let avatarUrl = '';
+            if (window.PORTRAIT_MAP && typeof window.PORTRAIT_MAP === 'object') {
+              const tagM = String(r.portraitTag || '').match(/【\s*立绘\s*([^】]+)\s*】/);
+              const roleKey = tagM ? tagM[1].trim() : plain;
+              if (roleKey) {
+                const matchedKey = Object.keys(window.PORTRAIT_MAP).find(
+                  (k) => k === roleKey || roleKey.includes(k) || k.includes(roleKey),
+                );
+                if (matchedKey) avatarUrl = window.PORTRAIT_MAP[matchedKey];
+              }
+            }
+
+            const metricChips = (r.attrs || [])
+              .map((a) => {
+                const v = a.value == null ? '' : String(a.value);
+                return '<span class="metric-chip">' + (a.key + ': ' + v).replace(/</g, '&lt;') + '</span>';
+              })
+              .join(' ');
+
+            const freeSnippet = (r.freeInitials ? Object.keys(r.freeInitials) : (r.freeFields || []))
+              .slice(0, 2)
+              .map((k) => {
+                const v = (r.freeInitials && r.freeInitials[k]) || '';
+                return (
+                  '<span class="text-gray-400 mr-2">' +
+                  String(k).replace(/</g, '&lt;') +
+                  ': <span class="text-gray-300">' +
+                  String(v || '—').replace(/</g, '&lt;').slice(0, 20) +
+                  '</span></span>'
+                );
+              })
+              .join('');
+
+            const card = document.createElement('div');
+            card.className =
+              'roster-card roster-surface p-2.5 rounded-xl border border-gray-700/15 flex items-start justify-between gap-2';
+            card.innerHTML =
+              '<div class="flex items-start gap-2.5 min-w-0 flex-1">' +
+              '<div class="w-9 h-9 rounded-lg overflow-hidden border border-gray-700/30 flex-shrink-0 bg-stone-800 flex items-center justify-center text-primary font-bold text-xs">' +
+              (avatarUrl
+                ? '<img src="' + avatarUrl + '" alt="' + plain.replace(/"/g, '&quot;') + '" class="w-full h-full object-cover" loading="lazy" onerror="this.outerHTML=\'<span>' + avatarInitial + '</span>\'" />'
+                : '<span>' + avatarInitial + '</span>') +
+              '</div>' +
+              '<div class="min-w-0 flex-1">' +
+              '<div class="flex items-center gap-1.5 flex-wrap">' +
+              '<span class="text-xs font-bold text-gray-200">' + String(r.name || '').replace(/</g, '&lt;') + '</span>' +
+              '<span class="text-[10px] text-gray-400">(' + String(r.role || '常驻角色').replace(/</g, '&lt;') + ')</span>' +
+              '</div>' +
+              '<div class="flex items-center gap-1 my-1 flex-wrap">' + metricChips + '</div>' +
+              '<div class="text-[10px] truncate">' + freeSnippet + '</div>' +
+              '</div>' +
+              '</div>' +
+              '<div class="flex items-center gap-1 flex-shrink-0 pt-0.5">' +
+              '<button class="attr-row-del roster-del-btn" title="从名册移除"><i class="fa fa-trash-o"></i></button>' +
+              '</div>';
+
+            card.querySelector('.roster-del-btn').addEventListener('click', () => {
+              if (!confirm('确定要从常驻名册中移除「' + plain + '」吗？')) return;
               const rr = this.loadRoster();
               rr.characters.splice(idx, 1);
               this.saveRoster(rr);
               this.renderRosterList();
             });
-            row.appendChild(info);
-            row.appendChild(del);
-            listEl.appendChild(row);
+            listEl.appendChild(card);
           });
         },
 
@@ -8780,24 +9237,39 @@ createCharacterEntry(text, categoryKey) {
             alert('请填写角色姓名');
             return;
           }
-          const attrsText = get('mms-roster-attrs');
+
+          // 数值属性行：名称 + 当前/上限 → attrs [{key, value}]（value = "cur/max" 或 "cur"）
           const attrs = [];
-          for (const line of attrsText.split('\n')) {
-            const t = line.trim();
-            if (!t) continue;
-            const m = t.match(/^(.+?)\s*[:：]\s*(.+)$/);
-            if (m) attrs.push({ key: m[1].trim(), value: m[2].trim() });
-            else attrs.push({ key: t, value: '' });
+          document.querySelectorAll('#mms-attr-rows .attr-row').forEach((row) => {
+            const key = row.querySelector('.attr-key').value.trim();
+            const cur = row.querySelector('.attr-cur').value.trim();
+            const max = row.querySelector('.attr-max').value.trim();
+            if (!key) return;
+            const value = max ? cur + '/' + max : cur;
+            attrs.push({ key, value });
+          });
+
+          // 自由属性行：键值对 → freeFields + freeInitials
+          const freeFields = [];
+          const freeInitials = {};
+          document.querySelectorAll('#mms-free-rows .free-row').forEach((row) => {
+            const key = row.querySelector('.free-key').value.trim();
+            const val = row.querySelector('.free-val').value.trim();
+            if (!key) return;
+            freeFields.push(key);
+            freeInitials[key] = val;
+          });
+          if (!freeFields.length) {
+            freeFields.push('内心', '穿着');
           }
-          const freeText = get('mms-roster-free');
-          const freeFields = freeText
-            ? freeText.split(/[,，]/).map((s) => s.trim()).filter(Boolean)
-            : ['穿着', '内心'];
+
           const entry = {
             name: name,
             portraitTag: get('mms-roster-portrait'),
+            role: get('mms-roster-role'),
             attrs: attrs,
             freeFields: freeFields,
+            freeInitials: freeInitials,
             weapons: get('mms-roster-weapons'),
             items: get('mms-roster-items'),
           };
@@ -8813,10 +9285,14 @@ createCharacterEntry(text, categoryKey) {
           this.renderRosterList();
 
           // 清空表单并收起
-          for (const id of ['mms-roster-name', 'mms-roster-portrait', 'mms-roster-attrs', 'mms-roster-weapons', 'mms-roster-items']) {
+          for (const id of ['mms-roster-name', 'mms-roster-portrait', 'mms-roster-role', 'mms-roster-weapons', 'mms-roster-items']) {
             const el = document.getElementById(id);
             if (el) el.value = '';
           }
+          const attrRows = document.getElementById('mms-attr-rows');
+          if (attrRows) attrRows.innerHTML = '';
+          const freeRows = document.getElementById('mms-free-rows');
+          if (freeRows) freeRows.innerHTML = '';
           const form = document.getElementById('mms-roster-form');
           if (form) form.style.display = 'none';
 
