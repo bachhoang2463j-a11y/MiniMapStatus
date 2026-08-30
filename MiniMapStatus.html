@@ -3629,7 +3629,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </div>
             <div class="mms-field">
               <label for="mms-core-prompt" id="mms-core-prompt-label">
-                提示词全文（发送给更新 LLM 的系统提示词 · 默认预设只读跟随设置动态生成，<b>双击解锁编辑</b>）
+                提示词全文（发送给更新 LLM 的系统提示词 · 默认预设只读动态生成，自定义预设<b>直接编辑</b>）
               </label>
               <textarea id="mms-core-prompt" rows="12" spellcheck="false" readonly class="mms-core-prompt-readonly"></textarea>
               <p class="settings-hint" id="mms-core-prompt-hint">默认协议按名册/据点/地图设置动态拼装；新建预设的初始值为当前默认协议快照，可自由修改（自定义卡片格式直接写在里面）</p>
@@ -10703,29 +10703,12 @@ createCharacterEntry(text, categoryKey) {
           const exportBtn = document.getElementById('mms-prompt-export');
           if (exportBtn) exportBtn.addEventListener('click', () => this.exportPromptPresetFile());
 
-          // 提示词编辑器：默认预设只读，用户预设双击解锁
+          // 提示词编辑器：默认预设只读（动态生成），自定义预设直接可编辑（切换即解锁）
           const coreTa = document.getElementById('mms-core-prompt');
           if (coreTa) {
-            coreTa.addEventListener('dblclick', () => {
-              const data = this.loadPromptPresets();
-              const preset = data.presets.find((p) => p.id === data.active);
-              if (!preset || preset.locked) {
-                alert('默认预设只读（随名册/地图设置动态生成）。请新建提示词预设后编辑');
-                return;
-              }
-              coreTa.removeAttribute('readonly');
-              coreTa.classList.remove('mms-core-prompt-readonly');
-              coreTa.classList.add('unlocked');
-              coreTa.title = '编辑中：失焦保存';
-              coreTa.focus();
-            });
             coreTa.addEventListener('blur', () => {
               const data = this.loadPromptPresets();
               const preset = data.presets.find((p) => p.id === data.active);
-              coreTa.setAttribute('readonly', 'readonly');
-              coreTa.classList.add('mms-core-prompt-readonly');
-              coreTa.classList.remove('unlocked');
-              coreTa.title = '双击解锁编辑';
               if (preset && !preset.locked) {
                 preset.content = coreTa.value;
                 this.savePromptPresets(data);
@@ -10750,16 +10733,26 @@ createCharacterEntry(text, categoryKey) {
           const preset = data.presets.find((p) => p.id === data.active) || data.presets[0];
           if (coreTa) {
             if (preset && preset.locked) {
+              // 默认预设：只读（动态生成）
               coreTa.value = mmsBuildSystemPrompt(this.loadRoster());
+              coreTa.setAttribute('readonly', 'readonly');
+              coreTa.classList.add('mms-core-prompt-readonly');
+              coreTa.classList.remove('unlocked');
+              coreTa.title = '默认协议只读（随设置动态生成）';
             } else if (preset) {
+              // 自定义预设：直接可编辑
               coreTa.value = preset.content || '';
+              coreTa.removeAttribute('readonly');
+              coreTa.classList.remove('mms-core-prompt-readonly');
+              coreTa.classList.add('unlocked');
+              coreTa.title = '可直接编辑，失焦保存';
             }
           }
           const label = document.getElementById('mms-core-prompt-label');
           if (label) {
             label.innerHTML = preset && preset.locked
               ? '提示词全文（默认协议 · 只读，随名册/据点/地图设置<b>动态生成</b>）'
-              : '提示词全文（自定义预设 · <b>双击解锁编辑</b>，失焦保存）';
+              : '提示词全文（自定义预设 · <b>直接编辑</b>，失焦保存）';
           }
           const hint = document.getElementById('mms-core-prompt-hint');
           if (hint) {
