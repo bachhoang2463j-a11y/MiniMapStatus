@@ -2927,6 +2927,81 @@ function buildPortraitHTML(roleName, portraitUrl) {
           grid-template-columns: 1fr !important;
         }
       }
+
+      /* ===== 地图管理三栏（窄空间纵向三行，无固定高度，随标签数自然增高） ===== */
+      .map-tags-layout {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+      }
+      .map-tags-col {
+        background: rgba(0, 0, 0, 0.14);
+        border: 1px solid rgba(120, 120, 140, 0.2);
+        border-radius: 10px;
+        padding: 0.6rem;
+        min-width: 0;
+      }
+      .romantic-mode .map-tags-col,
+      .classic-mode .map-tags-col {
+        background: rgba(217, 168, 86, 0.06);
+        border-color: rgba(200, 182, 154, 0.3);
+      }
+      .map-tags-list {
+        display: flex;
+        flex-wrap: wrap;
+        align-content: flex-start;
+        gap: 0.3rem;
+        min-height: 26px;
+      }
+      .map-tag-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 6px;
+        border: 1px solid rgba(157, 124, 245, 0.25);
+        background: rgba(157, 124, 245, 0.08);
+        color: #c9baff;
+        cursor: pointer;
+        user-select: none;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+      }
+      .map-tag-chip:hover {
+        border-color: rgba(157, 124, 245, 0.5);
+      }
+      .map-tag-chip.selected {
+        background: rgba(157, 124, 245, 0.3);
+        border-color: #9d7cf5;
+        color: #fff;
+      }
+      .map-tag-chip img {
+        width: 14px;
+        height: 14px;
+        object-fit: cover;
+        border-radius: 3px;
+      }
+      .romantic-mode .map-tag-chip {
+        background: rgba(200, 182, 154, 0.12);
+        border-color: rgba(200, 182, 154, 0.4);
+        color: #5c4d3c;
+      }
+      .romantic-mode .map-tag-chip.selected {
+        background: rgba(200, 182, 154, 0.35);
+        border-color: #a08b6a;
+        color: #3e3224;
+      }
+      .classic-mode .map-tag-chip {
+        background: rgba(217, 168, 86, 0.1);
+        border-color: rgba(217, 168, 86, 0.35);
+        color: #a06c30;
+      }
+      .classic-mode .map-tag-chip.selected {
+        background: rgba(217, 168, 86, 0.3);
+        border-color: #d9a856;
+        color: #644423;
+      }
     </style>
 
     <div id="mms-main-view" class="w-full px-1.5 py-4">
@@ -3138,6 +3213,9 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </button>
             <button id="tab-btn-ai" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
               <i class="fa fa-magic mr-1"></i>独立 AI 更新
+            </button>
+            <button id="tab-btn-maps" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
+              <i class="fa fa-map-o mr-1"></i>地图管理
             </button>
           </div>
         </div>
@@ -3546,6 +3624,59 @@ function buildPortraitHTML(roleName, portraitUrl) {
             <p class="settings-hint">两者独立导出/导入，可跨聊天、跨设备迁移；API 预设含密钥，请注意保管</p>
           </div>
         </div>
+
+        <!-- ============================================================ -->
+        <!-- Tab 5：地图管理（标签池多选迁移，三栏互斥） -->
+        <!-- ============================================================ -->
+        <div id="tab-content-maps" class="p-3.5 space-y-3" style="display: none">
+          <!-- 地图开关 -->
+          <div class="flex gap-4 roster-surface rounded-xl border border-gray-700/10 p-2.5">
+            <label class="mms-toggle-row">
+              <input type="checkbox" id="mms-map-minimap" checked />
+              <span class="text-xs font-bold">🗺️ 小地图（当前场景平面图）</span>
+            </label>
+            <label class="mms-toggle-row">
+              <input type="checkbox" id="mms-map-bigmap" />
+              <span class="text-xs font-bold">🌍 大地图（区域/全局场景图）</span>
+            </label>
+          </div>
+
+          <!-- 纵向三行：标签池 → 小地图 → 大地图 -->
+          <div class="map-tags-layout">
+            <!-- 标签池 -->
+            <div class="map-tags-col">
+              <div class="flex justify-between items-center mb-1.5">
+                <span class="text-xs font-bold text-gray-300"><i class="fa fa-tags text-primary mr-1"></i>标签池</span>
+                <span class="text-[10px] text-gray-500" id="mms-tags-pool-count"></span>
+              </div>
+              <div id="mms-tags-pool" class="map-tags-list"></div>
+              <div class="flex gap-1.5 mt-2">
+                <button id="mms-tags-move-mini" class="mms-btn" type="button" style="flex: 1">迁入小地图 ↓</button>
+                <button id="mms-tags-move-big" class="mms-btn" type="button" style="flex: 1">迁入大地图 ↓</button>
+              </div>
+            </div>
+            <!-- 小地图 -->
+            <div class="map-tags-col">
+              <div class="flex justify-between items-center mb-1.5">
+                <span class="text-xs font-bold text-gray-300"><i class="fa fa-map-marker text-primary mr-1"></i>小地图标签</span>
+                <button id="mms-tags-reset-mini" class="mms-btn" type="button" style="padding: 2px 8px">重置</button>
+              </div>
+              <div id="mms-tags-mini" class="map-tags-list"></div>
+            </div>
+            <!-- 大地图 -->
+            <div class="map-tags-col">
+              <div class="flex justify-between items-center mb-1.5">
+                <span class="text-xs font-bold text-gray-300"><i class="fa fa-globe text-primary mr-1"></i>大地图标签</span>
+                <button id="mms-tags-reset-big" class="mms-btn" type="button" style="padding: 2px 8px">重置</button>
+              </div>
+              <div id="mms-tags-big" class="map-tags-list"></div>
+            </div>
+          </div>
+          <p class="settings-hint">
+            点击选择标签后一键迁入对应地图（标签在两栏间互斥，重置则回池）；只有分配到对应地图的标签会出现在发给更新
+            AI 的提示词白名单中（关闭的地图整体不注入）；标签来源：SVG 矢量场景与 BACKGROUND_MAP 外链图片（带缩略图标记）
+          </p>
+        </div>
       </div>
     </div>
 
@@ -3950,6 +4081,7 @@ const AVATAR_MAP = {
         theme: '界面与主题',
         behavior: '行为交互',
         ai: '独立 AI 更新',
+        maps: '地图管理',
       };
 
       function mmsToggleSettingsView(show) {
@@ -3971,12 +4103,14 @@ const AVATAR_MAP = {
           theme: document.getElementById('tab-btn-theme'),
           behavior: document.getElementById('tab-btn-behavior'),
           ai: document.getElementById('tab-btn-ai'),
+          maps: document.getElementById('tab-btn-maps'),
         };
         const tabContents = {
           roster: document.getElementById('tab-content-roster'),
           theme: document.getElementById('tab-content-theme'),
           behavior: document.getElementById('tab-content-behavior'),
           ai: document.getElementById('tab-content-ai'),
+          maps: document.getElementById('tab-content-maps'),
         };
         Object.keys(tabBtns).forEach(k => {
           if (tabBtns[k]) {
@@ -8150,7 +8284,75 @@ createCharacterEntry(text, categoryKey) {
       const MMS_COORD_MIN = 10;
       const MMS_COORD_MAX = 90;
       const MMS_KNOWN_MODULES = ['日期和时间', '地点', '小地图', '大地图', '角色列表', '人物', '据点', '行动选项'];
-      const MMS_SCENES = '昏暗室内、明亮室内、警局、街道、商场、健身房、废墟、荒野、地下、海边、雪地、沙漠、火山、餐厅、酒吧、茶馆、神殿、夜市';
+
+      // ---------- 地图标签池（SVG 场景 + BACKGROUND_MAP 外链图片，互斥三栏：pool/mini/big） ----------
+
+      // 全部可用地图标签：type=svg（TacticalMapEngine 环境识别）/ image（BACKGROUND_MAP 外链图片）
+      const MMS_ALL_MAP_TAGS = [
+        { name: '昏暗室内', type: 'svg' },
+        { name: '明亮室内', type: 'svg' },
+        { name: '警局', type: 'svg' },
+        { name: '街道', type: 'svg' },
+        { name: '商场', type: 'svg' },
+        { name: '健身房', type: 'svg' },
+        { name: '废墟', type: 'svg' },
+        { name: '荒野', type: 'svg' },
+        { name: '地下', type: 'svg' },
+        { name: '海边', type: 'svg' },
+        { name: '雪地', type: 'svg' },
+        { name: '沙漠', type: 'svg' },
+        { name: '火山', type: 'svg' },
+        { name: '餐厅', type: 'svg' },
+        { name: '酒吧', type: 'svg' },
+        { name: '茶馆', type: 'svg' },
+        { name: '神殿', type: 'svg' },
+        { name: '夜市', type: 'svg' },
+        { name: '广场', type: 'svg' },
+        { name: '操场', type: 'svg' },
+        { name: '教室', type: 'svg' },
+        { name: '医院', type: 'svg' },
+        { name: '洞窟', type: 'svg' },
+        { name: '坊市', type: 'svg' },
+        { name: '小店', type: 'svg' },
+        { name: '客栈', type: 'svg' },
+        { name: '藏经阁', type: 'svg' },
+        { name: '丹房', type: 'svg' },
+        { name: '药园', type: 'svg' },
+        { name: '洞府', type: 'svg' },
+        { name: '论剑台', type: 'svg' },
+        { name: '城市', type: 'image' },
+        { name: '营地', type: 'image' },
+        { name: '维兰城', type: 'image' },
+        { name: '欧洲', type: 'image' },
+        { name: '北美洲', type: 'image' },
+        { name: '大洋洲', type: 'image' },
+        { name: '南美洲', type: 'image' },
+        { name: '非洲', type: 'image' },
+        { name: '亚洲', type: 'image' },
+        { name: '南极洲', type: 'image' },
+        { name: '棋盘', type: 'image' },
+      ];
+      // 小地图默认标签（与原提示词白名单一致）
+      const MMS_MINI_DEFAULT_TAGS = MMS_ALL_MAP_TAGS.slice(0, 18).map((t) => t.name);
+      const MMS_ALL_TAG_NAMES = MMS_ALL_MAP_TAGS.map((t) => t.name);
+      // 兼容旧引用（其他模块仍读此常量的场景以动态白名单取代）
+      const MMS_SCENES = MMS_MINI_DEFAULT_TAGS.join('、');
+
+      function mmsGetMapTags(roster) {
+        const mt = roster && roster.mapTags;
+        const raw = mt && typeof mt === 'object' ? mt : { mini: MMS_MINI_DEFAULT_TAGS.slice(), big: [], pool: [] };
+        const norm = (arr) => (Array.isArray(arr) ? arr.filter((n) => MMS_ALL_TAG_NAMES.includes(n)) : []);
+        const mini = norm(raw.mini);
+        const big = norm(raw.big).filter((n) => !mini.includes(n));
+        const used = new Set([...mini, ...big]);
+        const pool = norm(raw.pool).filter((n) => !used.has(n));
+        // 全量兜底：任何未归档标签进池
+        for (const n of MMS_ALL_TAG_NAMES) {
+          if (!used.has(n) && !pool.includes(n)) pool.push(n);
+        }
+        return { pool, mini, big };
+      }
+
       const MMS_EMOJI_SRC =
         '[\\u{1F000}-\\u{1FAFF}\\u{2190}-\\u{21FF}\\u{2300}-\\u{23FF}\\u{2460}-\\u{25FF}\\u{2600}-\\u{27BF}\\u{2900}-\\u{297F}\\u{2B00}-\\u{2BFF}\\u{FE0F}\\u{200D}\\u{20E3}]';
       // 无状态辅助（带g标志的正则跨test调用会残留lastIndex，不能复用实例）
@@ -8842,7 +9044,7 @@ createCharacterEntry(text, categoryKey) {
 
       // ---------- 更新器系统提示词（v3：按玩家设置动态拼装，不硬编码模块结构） ----------
 
-      // 依据名册（角色自由字段并集）、据点固定模块、地图开关，动态生成发送给更新 LLM 的系统提示词
+      // 依据名册（角色自由字段并集）、据点固定模块、地图开关与标签分配，动态生成发送给更新 LLM 的系统提示词
       function mmsBuildSystemPrompt(roster) {
         roster = roster || {};
         const maps = roster.maps || {};
@@ -8850,6 +9052,9 @@ createCharacterEntry(text, categoryKey) {
         const bigmapOn = !!maps.bigmap;
         const base = roster.base || {};
         const baseOn = !!base.enabled;
+        const tagCfg = mmsGetMapTags(roster);
+        const miniTags = tagCfg.mini.join('、');
+        const bigTags = tagCfg.big.join('、');
 
         // 角色自由字段：名册并集，默认穿着/内心
         const freeSet = [];
@@ -8893,10 +9098,10 @@ createCharacterEntry(text, categoryKey) {
         lines.push('  }');
         lines.push('}');
         if (minimapOn) {
-          lines.push('- 小地图场景键沿用当前状态；确需更换只能从以下选择：' + MMS_SCENES + '。坐标为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数。');
+          lines.push('- 小地图场景键沿用当前状态；确需更换只能从以下选择：' + (miniTags || '（无可用标签）') + '。坐标为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数。');
         }
         if (bigmapOn) {
-          lines.push('- 大地图用于更大范围的区域/全局场景（城市、荒野全图等），场景键同样只能从以下选择：' + MMS_SCENES + '。坐标为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数。');
+          lines.push('- 大地图用于更大范围的区域/全局场景（城市、荒野全图等），场景键只能从以下选择：' + (bigTags || '（无可用标签）') + '。坐标为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数。');
         }
         lines.push('- 角色自由字段：' + charFreeList + '（贴合剧情每轮全量输出）。');
         if (baseOn) {
@@ -9040,6 +9245,7 @@ createCharacterEntry(text, categoryKey) {
             absentThreshold: 3,
             base: { enabled: false, name: '', cash: '', fields: [] },
             maps: { minimap: true, bigmap: false },
+            mapTags: { pool: [], mini: MMS_MINI_DEFAULT_TAGS.slice(), big: [] },
           };
           try {
             if (!this.env.hasVarsApi) return fallback;
@@ -9060,6 +9266,7 @@ createCharacterEntry(text, categoryKey) {
               r.maps && typeof r.maps === 'object'
                 ? { minimap: r.maps.minimap !== false, bigmap: !!r.maps.bigmap }
                 : fallback.maps;
+            const tagCfg = mmsGetMapTags(r);
             return {
               characters: Array.isArray(r.characters) ? r.characters.filter(Boolean) : [],
               absentText: r.absentText || fallback.absentText,
@@ -9067,6 +9274,7 @@ createCharacterEntry(text, categoryKey) {
               absentThreshold: isNaN(t) ? fallback.absentThreshold : t,
               base: base,
               maps: maps,
+              mapTags: tagCfg,
             };
           } catch (e) {
             console.warn('[MMS] 读取名册失败:', e);
@@ -9926,6 +10134,7 @@ createCharacterEntry(text, categoryKey) {
           if (impApi) impApi.addEventListener('click', () => this.importApiConfig());
 
           this.initBaseAndMapsUI();
+          this.initMapTagsUI();
         },
 
         // ---------- 据点固定模块 + 地图开关 UI ----------
@@ -9973,6 +10182,7 @@ createCharacterEntry(text, categoryKey) {
               rr.maps[key] = el.checked;
               this.saveRoster(rr);
               if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
+              this.renderMapTags();
               this.applyRosterNow();
             });
           };
@@ -10034,6 +10244,111 @@ createCharacterEntry(text, categoryKey) {
           rr.base.fields = fields;
           this.saveRoster(rr);
           if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
+        },
+
+        // ---------- 地图标签管理（三栏：池/小地图/大地图，互斥，多选迁移） ----------
+
+        mapTagsSelection: new Set(),
+
+        initMapTagsUI() {
+          const moveMini = document.getElementById('mms-tags-move-mini');
+          if (moveMini) moveMini.addEventListener('click', () => this.moveSelectedTags('mini'));
+          const moveBig = document.getElementById('mms-tags-move-big');
+          if (moveBig) moveBig.addEventListener('click', () => this.moveSelectedTags('big'));
+          const resetMini = document.getElementById('mms-tags-reset-mini');
+          if (resetMini) resetMini.addEventListener('click', () => this.resetMapTags('mini'));
+          const resetBig = document.getElementById('mms-tags-reset-big');
+          if (resetBig) resetBig.addEventListener('click', () => this.resetMapTags('big'));
+          this.renderMapTags();
+        },
+
+        renderMapTags() {
+          const cfg = this.loadRoster().mapTags;
+          const tagInfo = {};
+          for (const t of MMS_ALL_MAP_TAGS) tagInfo[t.name] = t;
+
+          const makeChip = (name, selectable) => {
+            const info = tagInfo[name] || { type: 'svg' };
+            const chip = document.createElement('span');
+            chip.className = 'map-tag-chip' + (this.mapTagsSelection.has(name) ? ' selected' : '');
+            chip.setAttribute('data-tag', name);
+            const bgMap = typeof BACKGROUND_MAP !== 'undefined' ? BACKGROUND_MAP : null;
+            if (info.type === 'image' && bgMap && bgMap[name]) {
+              const img = document.createElement('img');
+              img.src = bgMap[name];
+              img.loading = 'lazy';
+              img.alt = '';
+              chip.appendChild(img);
+            } else if (info.type === 'image') {
+              chip.textContent = '🖼 ';
+            }
+            chip.appendChild(document.createTextNode(name));
+            if (selectable) {
+              chip.addEventListener('click', () => {
+                if (this.mapTagsSelection.has(name)) this.mapTagsSelection.delete(name);
+                else this.mapTagsSelection.add(name);
+                chip.classList.toggle('selected');
+              });
+            }
+            return chip;
+          };
+
+          const poolEl = document.getElementById('mms-tags-pool');
+          const miniEl = document.getElementById('mms-tags-mini');
+          const bigEl = document.getElementById('mms-tags-big');
+          if (poolEl) {
+            poolEl.innerHTML = '';
+            for (const n of cfg.pool) poolEl.appendChild(makeChip(n, true));
+            if (!cfg.pool.length) poolEl.innerHTML = '<span class="text-[10px] text-gray-500">池空：所有标签已分配</span>';
+          }
+          const poolCount = document.getElementById('mms-tags-pool-count');
+          if (poolCount) poolCount.textContent = cfg.pool.length + ' 个可选';
+          if (miniEl) {
+            miniEl.innerHTML = '';
+            for (const n of cfg.mini) miniEl.appendChild(makeChip(n, true));
+            if (!cfg.mini.length) miniEl.innerHTML = '<span class="text-[10px] text-gray-500">未分配（AI 提示词将无小地图白名单）</span>';
+          }
+          if (bigEl) {
+            bigEl.innerHTML = '';
+            for (const n of cfg.big) bigEl.appendChild(makeChip(n, true));
+            if (!cfg.big.length) bigEl.innerHTML = '<span class="text-[10px] text-gray-500">未分配</span>';
+          }
+        },
+
+        saveMapTags(cfg) {
+          const rr = this.loadRoster();
+          rr.mapTags = cfg;
+          this.saveRoster(rr);
+          this.mapTagsSelection.clear();
+          this.renderMapTags();
+          if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
+          this.applyRosterNow();
+        },
+
+        // 池中勾选的标签迁入目标栏（从另一栏互斥移除）
+        moveSelectedTags(target) {
+          const cfg = this.loadRoster().mapTags;
+          if (!this.mapTagsSelection.size) {
+            alert('请先在标签池或地图栏中点击选择标签');
+            return;
+          }
+          const picked = [...this.mapTagsSelection];
+          const other = target === 'mini' ? 'big' : 'mini';
+          for (const n of picked) {
+            if (!cfg[target].includes(n)) cfg[target].push(n);
+            cfg[other] = cfg[other].filter((x) => x !== n);
+            cfg.pool = cfg.pool.filter((x) => x !== n);
+          }
+          this.saveMapTags(cfg);
+        },
+
+        // 重置目标栏：标签回池
+        resetMapTags(target) {
+          const cfg = this.loadRoster().mapTags;
+          const moved = cfg[target];
+          cfg[target] = [];
+          for (const n of moved) if (!cfg.pool.includes(n)) cfg.pool.push(n);
+          this.saveMapTags(cfg);
         },
 
         // 表单动态行：数值属性（名称 + 当前/上限）
