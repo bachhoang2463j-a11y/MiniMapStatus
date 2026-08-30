@@ -3379,7 +3379,19 @@ function buildPortraitHTML(roleName, portraitUrl) {
           <!-- 名册卡片列表（头像 + 数值胶囊 + 摘要 + 编辑/删除） -->
           <div id="mms-roster-list" class="space-y-2"></div>
 
-          <!-- 据点固定模块 -->
+            <!-- 角色显示模式 -->
+            <div class="flex items-center justify-between roster-surface rounded-xl border border-gray-700/10 p-2.5">
+              <div>
+                <span class="text-xs font-bold text-gray-300 block">👤 角色显示模式</span>
+                <span class="text-[10px] text-gray-400" id="mms-char-mode-desc">全显模式：固定角色 + 新登场关键NPC完整卡片</span>
+              </div>
+              <div class="flex bg-black/10 p-0.5 rounded-lg border border-gray-700/20">
+                <button id="mms-char-mode-full" class="px-2.5 py-1 text-[11px] font-medium rounded-md" type="button">全显</button>
+                <button id="mms-char-mode-fixed" class="px-2.5 py-1 text-[11px] font-medium rounded-md" type="button">固定</button>
+              </div>
+            </div>
+
+            <!-- 据点固定模块 -->
           <div class="roster-surface rounded-xl border border-gray-700/10 p-2.5 space-y-2.5">
             <label class="mms-toggle-row">
               <input type="checkbox" id="mms-base-enabled" />
@@ -9101,13 +9113,16 @@ createCharacterEntry(text, categoryKey) {
         const bigmapOn = !!maps.bigmap;
         const base = roster.base || {};
         const baseOn = !!base.enabled;
+        const charMode = roster.charDisplayMode === 'fixed' ? 'fixed' : 'full';
         const tagCfg = mmsGetMapTags(roster);
         const miniTags = tagCfg.mini.join('、');
         const bigTags = tagCfg.big.join('、');
 
         // 角色自由字段：名册并集，默认穿着/内心
         const freeSet = [];
+        const rosterNames = [];
         for (const r of roster.characters || []) {
+          if (r && r.name) rosterNames.push(mmsPlainName(r.name) || r.name);
           for (const f of (r && r.freeFields) || []) {
             if (f && freeSet.indexOf(f) === -1) freeSet.push(f);
           }
@@ -9119,6 +9134,7 @@ createCharacterEntry(text, categoryKey) {
         const baseFieldKeys = (base.fields || []).map((f) => f && f.key).filter(Boolean);
         const baseFieldList = baseFieldKeys.join('、');
         const baseFieldJson = baseFieldKeys.map((k) => '"' + k + '": "…"').join(', ');
+        const rosterList = rosterNames.length ? rosterNames.join('、') : '（名册为空）';
 
         const lines = [];
         lines.push('你是跑团状态栏数据管理员。依据「最新剧情」把「当前状态」更新为新状态，输出一个 JSON 对象（顶层键为「状态栏」）。固定成员名单见用户消息。');
@@ -9148,10 +9164,12 @@ createCharacterEntry(text, categoryKey) {
         lines.push('}');
         if (minimapOn) {
           lines.push('- 小地图场景键沿用当前状态；确需更换只能从以下选择：' + (miniTags || '（无可用标签）') + '。坐标为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数。');
+          lines.push('- 小地图描述：简单描述角色的状态和位置（如"站在大树后，精神紧绷"）。');
         }
         if (bigmapOn) {
           lines.push('- 大地图用于更大范围的区域/全局场景（城市、荒野全图等），场景键只能从以下选择：' + (bigTags || '（无可用标签）') + '。坐标为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数。');
         }
+        lines.push('- 人物描述：描述NPC的简单动作（如"拿起一杯茶，想继续了解玛德琳的情报"）。与小地图不同，人物侧重行为意图而非位置状态。');
         lines.push('- 角色自由字段：' + charFreeList + '（贴合剧情每轮全量输出）。');
         if (baseOn) {
           lines.push('- 据点字段：名称为自由文本；现金与' + (baseFieldList || '清单字段') + '为数值/清单字段。');
@@ -9171,7 +9189,11 @@ createCharacterEntry(text, categoryKey) {
         lines.push('  例：`"物品": "[+.45子弹x100][绷带-1]"`。数量归零的物品会被自动移除。');
         lines.push('- 现金命令同属性语法："[团队现金-12.80]" / "[团队现金:5000]"。');
         lines.push('- 剧情没有变化的校验字段：整个字段省略不输出（程序会保持原值）。');
-        lines.push('- 新登场角色（当前状态与固定成员中都不存在）：属性输出完整值（如 "[❤️HP:12/12][🛡️Armor:2]"），武器/物品输出完整清单。');
+        if (charMode === 'fixed') {
+          lines.push('- 角色列表只可显示固定成员：' + rosterList + '。其余新登场角色放入「人物」中缩略显示（格式与盟友/NPC一致），不要在角色列表中输出。');
+        } else {
+          lines.push('- 角色列表可显示固定成员：' + rosterList + '。新登场的关键NPC（当前状态与固定成员中都不存在）：属性输出完整值（如 "[❤️HP:12/12][🛡️Armor:2]"），武器/物品输出完整清单。其余非重要角色放入「人物」中缩略显示。');
+        }
         if (!baseOn) {
           lines.push('- 若当前状态中存在「据点」模块，其「现金」与清单字段同样适用命令协议。');
         }
@@ -9292,6 +9314,7 @@ createCharacterEntry(text, categoryKey) {
             absentText: '本轮未提及',
             presentText: '在场·本轮未详',
             absentThreshold: 3,
+            charDisplayMode: 'full', // full=全显模式 / fixed=固定模式
             base: { enabled: false, name: '', cash: '', fields: [] },
             maps: { minimap: true, bigmap: false },
             mapTags: { pool: [], mini: MMS_MINI_DEFAULT_TAGS.slice(), big: [] },
@@ -9321,6 +9344,7 @@ createCharacterEntry(text, categoryKey) {
               absentText: r.absentText || fallback.absentText,
               presentText: r.presentText || fallback.presentText,
               absentThreshold: isNaN(t) ? fallback.absentThreshold : t,
+              charDisplayMode: r.charDisplayMode === 'fixed' ? 'fixed' : 'full',
               base: base,
               maps: maps,
               mapTags: tagCfg,
@@ -10189,6 +10213,40 @@ createCharacterEntry(text, categoryKey) {
         // ---------- 据点固定模块 + 地图开关 UI ----------
 
         initBaseAndMapsUI() {
+          // 角色显示模式（全显/固定）
+          const modeFull = document.getElementById('mms-char-mode-full');
+          const modeFixed = document.getElementById('mms-char-mode-fixed');
+          const modeDesc = document.getElementById('mms-char-mode-desc');
+          const syncModeUI = () => {
+            const mode = this.loadRoster().charDisplayMode || 'full';
+            if (modeFull) {
+              modeFull.className =
+                'px-2.5 py-1 text-[11px] font-medium rounded-md ' +
+                (mode === 'full' ? 'bg-primary text-white shadow-sm' : 'text-gray-400');
+            }
+            if (modeFixed) {
+              modeFixed.className =
+                'px-2.5 py-1 text-[11px] font-medium rounded-md ' +
+                (mode === 'fixed' ? 'bg-primary text-white shadow-sm' : 'text-gray-400');
+            }
+            if (modeDesc) {
+              modeDesc.textContent =
+                mode === 'fixed'
+                  ? '固定模式：角色列表只显示固定名册角色，新角色入人物缩略'
+                  : '全显模式：固定角色 + 新登场关键NPC完整卡片';
+            }
+          };
+          const setMode = (mode) => {
+            const rr = this.loadRoster();
+            rr.charDisplayMode = mode;
+            this.saveRoster(rr);
+            syncModeUI();
+            if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
+          };
+          if (modeFull) modeFull.addEventListener('click', () => setMode('full'));
+          if (modeFixed) modeFixed.addEventListener('click', () => setMode('fixed'));
+          syncModeUI();
+
           // 据点固定模块
           const baseChk = document.getElementById('mms-base-enabled');
           const baseForm = document.getElementById('mms-base-form');
