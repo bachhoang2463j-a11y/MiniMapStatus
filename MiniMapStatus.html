@@ -3420,21 +3420,6 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </div>
           </div>
 
-          <!-- 地图模块开关 -->
-          <div class="roster-surface rounded-xl border border-gray-700/10 p-2.5 space-y-2">
-            <span class="text-xs font-bold text-gray-300 block">🗺️ 地图模块（按需开启，未开启的不渲染、不注入提示词）</span>
-            <div class="flex gap-4">
-              <label class="mms-toggle-row">
-                <input type="checkbox" id="mms-map-minimap" checked />
-                <span class="text-xs">小地图（当前场景平面图）</span>
-              </label>
-              <label class="mms-toggle-row">
-                <input type="checkbox" id="mms-map-bigmap" />
-                <span class="text-xs">大地图（区域/全局场景图）</span>
-              </label>
-            </div>
-          </div>
-
           <!-- 占位文案与缺席阈值 -->
           <div class="flex gap-2 pt-1">
             <div class="mms-field" style="flex: 1">
@@ -3569,9 +3554,21 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </div>
           </div>
 
-          <!-- API 配置 -->
+          <!-- API 预设（下拉栏 + 增删改 + 文件导入导出） -->
           <div class="settings-group">
-            <label class="settings-label">独立更新 AI 接口</label>
+            <div class="flex justify-between items-center mb-2">
+              <label class="settings-label">独立更新 AI 接口</label>
+              <div class="flex gap-1">
+                <button id="mms-api-add" class="mms-btn" type="button" title="新建 API 预设" style="padding: 2px 8px"><i class="fa fa-plus"></i></button>
+                <button id="mms-api-import" class="mms-btn" type="button" title="导入 JSON 文件" style="padding: 2px 8px"><i class="fa fa-download"></i></button>
+                <button id="mms-api-export" class="mms-btn" type="button" title="导出当前预设为 JSON 文件" style="padding: 2px 8px"><i class="fa fa-upload"></i></button>
+              </div>
+            </div>
+            <div class="flex gap-1.5 mb-2">
+              <select id="mms-api-preset-select" class="form-input" style="flex: 1"></select>
+              <button id="mms-api-rename" class="mms-btn" type="button" title="重命名" style="padding: 2px 10px"><i class="fa fa-pencil"></i></button>
+              <button id="mms-api-delete" class="mms-btn" type="button" title="删除" style="padding: 2px 10px"><i class="fa fa-trash-o"></i></button>
+            </div>
             <div class="mms-field">
               <label for="mms-api-source">API 源</label>
               <select id="mms-api-source">
@@ -3608,38 +3605,35 @@ function buildPortraitHTML(roleName, portraitUrl) {
                 <input id="mms-context-floors" type="number" min="1" max="10" step="1" />
               </div>
             </div>
+            <p class="settings-hint">默认预设（当前酒馆连接）不可删除；新建预设自动复制当前配置</p>
           </div>
 
-          <!-- 更新提示词（系统提示词 + 自定义提示词 + LLM协助） -->
+          <!-- 提示词预设（下拉栏 + 增删改 + 文件导入导出，合并系统/自定义提示词） -->
           <div class="settings-group">
-            <div class="flex justify-between items-center">
+            <div class="flex justify-between items-center mb-2">
               <label class="settings-label">更新提示词</label>
-              <button id="mms-llm-help-btn" class="mms-btn" type="button">
-                <i class="fa fa-magic mr-1"></i>LLM 协助
-              </button>
-            </div>
-            <div class="mms-field">
-              <label for="mms-core-prompt">
-                系统提示词（协议核心 · 默认只读，<b>双击解锁编辑</b>，清空保存即恢复内置默认）
-              </label>
-              <textarea id="mms-core-prompt" rows="8" spellcheck="false" readonly class="mms-core-prompt-readonly"></textarea>
-              <p class="settings-hint">此处完整展示发送给更新 LLM 的协议核心（模块结构 + 命令语法 + 固定成员规则）</p>
-            </div>
-            <div class="mms-field">
-              <label for="mms-custom-prompt">
-                自定义提示词（追加在系统提示词之后 · 可定义线索/情报等自定义卡片格式）
-              </label>
-              <textarea
-                id="mms-custom-prompt"
-                rows="6"
-                spellcheck="false"
-                placeholder="## 自定义卡片模块（示例格式，按需修改）&#10;若剧情涉及以下模块，按此结构全量输出，AI 省略时系统会保留上次内容：&#10;&quot;线索&quot;: { &quot;已知线索&quot;: [&quot;线索内容…&quot;], &quot;待查证&quot;: [&quot;…&quot;] }&#10;&quot;情报&quot;: { &quot;江湖传闻&quot;: [&quot;…&quot;] }&#10;&#10;也可以只写简单要求（如&quot;增加一个关系网卡片&quot;），然后点右上角 LLM 协助生成标准格式。"
-              ></textarea>
-              <div class="flex justify-end mt-1">
-                <button id="mms-prompt-reset" class="mms-btn" type="button" style="padding: 3px 10px">清空自定义提示词</button>
+              <div class="flex gap-1">
+                <button id="mms-llm-help-btn" class="mms-btn" type="button" title="LLM 协助生成">
+                  <i class="fa fa-magic"></i> LLM 协助
+                </button>
+                <button id="mms-prompt-add" class="mms-btn" type="button" title="新建提示词预设（初始为默认协议）" style="padding: 2px 8px"><i class="fa fa-plus"></i></button>
+                <button id="mms-prompt-import" class="mms-btn" type="button" title="导入 JSON 文件" style="padding: 2px 8px"><i class="fa fa-download"></i></button>
+                <button id="mms-prompt-export" class="mms-btn" type="button" title="导出当前预设为 JSON 文件" style="padding: 2px 8px"><i class="fa fa-upload"></i></button>
               </div>
             </div>
-            <p class="settings-hint">配置保存在酒馆助手的全局变量中（跟随用户存档，PC / 手机共用）</p>
+            <div class="flex gap-1.5 mb-2">
+              <select id="mms-prompt-preset-select" class="form-input" style="flex: 1"></select>
+              <button id="mms-prompt-rename" class="mms-btn" type="button" title="重命名" style="padding: 2px 10px"><i class="fa fa-pencil"></i></button>
+              <button id="mms-prompt-delete" class="mms-btn" type="button" title="删除" style="padding: 2px 10px"><i class="fa fa-trash-o"></i></button>
+            </div>
+            <div class="mms-field">
+              <label for="mms-core-prompt" id="mms-core-prompt-label">
+                提示词全文（发送给更新 LLM 的系统提示词 · 默认预设只读跟随设置动态生成，<b>双击解锁编辑</b>）
+              </label>
+              <textarea id="mms-core-prompt" rows="12" spellcheck="false" readonly class="mms-core-prompt-readonly"></textarea>
+              <p class="settings-hint" id="mms-core-prompt-hint">默认协议按名册/据点/地图设置动态拼装；新建预设的初始值为当前默认协议快照，可自由修改（自定义卡片格式直接写在里面）</p>
+            </div>
+            <p class="settings-hint">预设保存在酒馆助手的全局变量中（跟随用户存档，PC / 手机共用）</p>
           </div>
 
           <!-- Debug 模式 -->
@@ -3658,28 +3652,6 @@ function buildPortraitHTML(roleName, portraitUrl) {
               </div>
               <div id="mms-debug-content" class="text-[11px] font-mono text-gray-400 space-y-2 max-h-72 overflow-y-auto"></div>
             </div>
-          </div>
-
-          <!-- 配置导入 / 导出（提示词与 API 预设可独立迁移） -->
-          <div class="settings-group">
-            <label class="settings-label">配置导入 / 导出</label>
-            <div class="flex gap-2 mb-2">
-              <button id="mms-export-prompt" class="mms-btn" type="button">
-                <i class="fa fa-file-text-o mr-1"></i>导出提示词
-              </button>
-              <button id="mms-export-api" class="mms-btn" type="button">
-                <i class="fa fa-plug mr-1"></i>导出 API 预设
-              </button>
-            </div>
-            <div class="mms-field">
-              <label for="mms-io-text">导入/导出内容（导出自动填入并复制到剪贴板；导入时粘贴 JSON 后点下方按钮）</label>
-              <textarea id="mms-io-text" rows="4" spellcheck="false" class="text-[11px] font-mono" placeholder='导出的 JSON 会出现在这里；导入时把 JSON 粘贴到此处'></textarea>
-            </div>
-            <div class="flex justify-end gap-2">
-              <button id="mms-import-prompt" class="mms-btn" type="button">导入为提示词</button>
-              <button id="mms-import-api" class="mms-btn" type="button">导入为 API 预设</button>
-            </div>
-            <p class="settings-hint">两者独立导出/导入，可跨聊天、跨设备迁移；API 预设含密钥，请注意保管</p>
           </div>
         </div>
 
@@ -9284,7 +9256,8 @@ createCharacterEntry(text, categoryKey) {
             contextFloors: 2,
             temperature: 0.3,
             maxTokens: 4096,
-            corePrompt: '', // 系统提示词覆盖（空=内置默认）
+            corePrompt: '',
+            systemPrompt: '',
             debug: false,
           };
           try {
@@ -9295,6 +9268,118 @@ createCharacterEntry(text, categoryKey) {
           } catch (e) {
             return defaults;
           }
+        },
+
+        // ---------- 提示词预设（下拉栏，含锁定的动态默认） ----------
+
+        loadPromptPresets() {
+          const fallback = {
+            active: 'default',
+            presets: [{ id: 'default', name: '默认协议（动态）', content: '', locked: true }],
+          };
+          try {
+            if (!this.env.hasVarsApi) return fallback;
+            const g = getVariables({ type: 'global' }) || {};
+            const p = g && g.$mms_prompt_presets;
+            if (!p || typeof p !== 'object' || !Array.isArray(p.presets)) return fallback;
+            // 确保默认预设始终在首位
+            const presets = p.presets.filter(Boolean);
+            if (!presets.some((x) => x.id === 'default')) {
+              presets.unshift({ id: 'default', name: '默认协议（动态）', content: '', locked: true });
+            }
+            return { active: p.active || 'default', presets };
+          } catch (e) {
+            return fallback;
+          }
+        },
+
+        savePromptPresets(data) {
+          try {
+            if (!this.env.hasVarsApi) return;
+            insertOrAssignVariables({ $mms_prompt_presets: data }, { type: 'global' });
+          } catch (e) {
+            console.error('[MMS] 保存提示词预设失败:', e);
+          }
+        },
+
+        // ---------- API 预设（下拉栏，含锁定的默认连接） ----------
+
+        loadApiPresets() {
+          const fallback = {
+            active: 'default',
+            presets: [
+              {
+                id: 'default',
+                name: '默认（当前酒馆连接）',
+                config: {},
+                locked: true,
+              },
+            ],
+          };
+          try {
+            if (!this.env.hasVarsApi) return fallback;
+            const g = getVariables({ type: 'global' }) || {};
+            const p = g && g.$mms_api_presets;
+            if (!p || typeof p !== 'object' || !Array.isArray(p.presets)) return fallback;
+            const presets = p.presets.filter(Boolean);
+            if (!presets.some((x) => x.id === 'default')) {
+              presets.unshift({ id: 'default', name: '默认（当前酒馆连接）', config: {}, locked: true });
+            }
+            return { active: p.active || 'default', presets };
+          } catch (e) {
+            return fallback;
+          }
+        },
+
+        saveApiPresets(data) {
+          try {
+            if (!this.env.hasVarsApi) return;
+            insertOrAssignVariables({ $mms_api_presets: data }, { type: 'global' });
+          } catch (e) {
+            console.error('[MMS] 保存API预设失败:', e);
+          }
+        },
+
+        // ---------- 预设 JSON 文件导入/导出 ----------
+
+        exportPresetFile(data, filename) {
+          try {
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          } catch (e) {
+            alert('导出失败：' + e.message);
+          }
+        },
+
+        importPresetFile(accept, callback) {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = accept;
+          input.style.display = 'none';
+          input.addEventListener('change', () => {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+              try {
+                callback(JSON.parse(reader.result));
+              } catch (e) {
+                alert('JSON 解析失败：' + e.message);
+              }
+            };
+            reader.readAsText(file);
+            document.body.removeChild(input);
+          });
+          document.body.appendChild(input);
+          input.click();
         },
 
         saveConfig(cfg) {
@@ -9682,15 +9767,13 @@ createCharacterEntry(text, categoryKey) {
               '\n</最新剧情>\n\n请输出更新后的完整状态栏 JSON。';
 
             const customApi = this.buildCustomApi(cfg);
-            // 系统提示词 = 协议核心（按名册/据点/地图设置动态拼装，可覆盖）+ 自定义提示词（追加）
-            const corePrompt =
-              cfg.corePrompt && String(cfg.corePrompt).trim()
-                ? String(cfg.corePrompt)
+            // 系统提示词 = 当前激活的提示词预设（默认预设动态拼装；自定义预设为固定存储内容）
+            const ps = this.loadPromptPresets();
+            const activePreset = ps.presets.find((p) => p.id === ps.active) || ps.presets[0];
+            const sysPrompt =
+              activePreset && !activePreset.locked && activePreset.content
+                ? activePreset.content
                 : mmsBuildSystemPrompt(roster);
-            const extraPrompt = cfg.systemPrompt && String(cfg.systemPrompt).trim()
-              ? '\n\n' + String(cfg.systemPrompt).trim()
-              : '';
-            const sysPrompt = corePrompt + extraPrompt;
             let lastError = null;
 
             for (let attempt = 0; attempt < 3; attempt++) {
@@ -9974,60 +10057,9 @@ createCharacterEntry(text, categoryKey) {
             };
             el.addEventListener('change', handler);
           };
-          bindField('mms-api-url', 'apiUrl');
-          bindField('mms-api-key', 'apiKey');
-          bindField('mms-api-model', 'model');
-          bindField('mms-api-preset', 'preset');
-          bindField('mms-context-floors', 'contextFloors', (v) =>
-            Math.min(10, Math.max(1, parseInt(v, 10) || 2)),
-          );
-          bindField('mms-custom-prompt', 'systemPrompt');
-          const promptReset = document.getElementById('mms-prompt-reset');
-          if (promptReset) {
-            promptReset.addEventListener('click', () => {
-              const ta = document.getElementById('mms-custom-prompt');
-              if (ta) ta.value = '';
-              const c = this.loadConfig();
-              delete c.systemPrompt;
-              this.saveConfig(c);
-            });
-          }
-
-          // ---------- 系统提示词：只读展示 + 双击解锁编辑（动态拼装，名册/据点/地图变化时刷新） ----------
-          const coreTa = document.getElementById('mms-core-prompt');
-          if (coreTa) {
-            const syncCorePrompt = () => {
-              const c = this.loadConfig();
-              coreTa.value =
-                c.corePrompt && String(c.corePrompt).trim()
-                  ? String(c.corePrompt)
-                  : mmsBuildSystemPrompt(this.loadRoster());
-            };
-            syncCorePrompt();
-            this.refreshCorePromptDisplay = syncCorePrompt;
-            coreTa.addEventListener('dblclick', () => {
-              coreTa.removeAttribute('readonly');
-              coreTa.classList.remove('mms-core-prompt-readonly');
-              coreTa.classList.add('unlocked');
-              coreTa.title = '编辑中：清空并失焦即恢复动态默认';
-              coreTa.focus();
-            });
-            coreTa.addEventListener('blur', () => {
-              const c = this.loadConfig();
-              const text = coreTa.value.trim();
-              if (!text || text === mmsBuildSystemPrompt(this.loadRoster())) {
-                delete c.corePrompt; // 清空或与动态默认一致 → 恢复默认
-              } else {
-                c.corePrompt = coreTa.value;
-              }
-              this.saveConfig(c);
-              coreTa.setAttribute('readonly', 'readonly');
-              coreTa.classList.add('mms-core-prompt-readonly');
-              coreTa.classList.remove('unlocked');
-              coreTa.title = '双击解锁编辑';
-              syncCorePrompt();
-            });
-          }
+          // ==================== 预设系统（API + 提示词下拉栏） ====================
+          this.initApiPresetUI();
+          this.initPromptPresetUI();
 
           // ---------- Debug 模式 ----------
           const debugChk = document.getElementById('mms-debug-toggle');
@@ -10084,14 +10116,15 @@ createCharacterEntry(text, categoryKey) {
             });
           }
 
-          // ---------- LLM 协助弹窗 ----------
+          // ---------- LLM 协助弹窗（读写当前提示词预设内容） ----------
           const helpBtn = document.getElementById('mms-llm-help-btn');
           const helpModal = document.getElementById('mms-llm-help-modal');
           const helpClose = document.getElementById('mms-llm-help-close');
           const helpCurrent = document.getElementById('mms-llm-help-current');
           if (helpBtn && helpModal) {
             helpBtn.addEventListener('click', () => {
-              if (helpCurrent) helpCurrent.value = (this.loadConfig().systemPrompt || '');
+              const coreTa = document.getElementById('mms-core-prompt');
+              if (helpCurrent && coreTa) helpCurrent.value = coreTa.value;
               helpModal.style.display = 'flex';
               document.body.style.overflow = 'hidden';
             });
@@ -10111,28 +10144,394 @@ createCharacterEntry(text, categoryKey) {
           const helpApply = document.getElementById('mms-llm-help-apply');
           if (helpApply && helpCurrent) {
             helpApply.addEventListener('click', () => {
-              const c = this.loadConfig();
+              const ps = this.loadPromptPresets();
+              const preset = ps.presets.find((p) => p.id === ps.active);
               const text = helpCurrent.value.trim();
-              if (text) c.systemPrompt = text;
-              else delete c.systemPrompt;
-              this.saveConfig(c);
-              const ta = document.getElementById('mms-custom-prompt');
-              if (ta) ta.value = text;
+              if (preset && preset.locked) {
+                alert('默认预设只读。请新建一个提示词预设后再应用 LLM 协助结果');
+                return;
+              }
+              if (preset && text) {
+                preset.content = text;
+                this.savePromptPresets(ps);
+                this.renderPromptPresetUI();
+              }
               closeHelp();
             });
           }
 
-          const sourceSel = document.getElementById('mms-api-source');
-          if (sourceSel) {
-            sourceSel.value = cfg.source || 'custom';
-            sourceSel.addEventListener('change', () => {
-              const c = this.loadConfig();
-              c.source = sourceSel.value;
-              this.saveConfig(c);
+          this.initRosterUI();
+        },
+
+        // ---------- API 预设 UI ----------
+
+        initApiPresetUI() {
+          this.renderApiPresetUI();
+          const select = document.getElementById('mms-api-preset-select');
+          if (select) {
+            select.addEventListener('change', () => {
+              const data = this.loadApiPresets();
+              data.active = select.value;
+              this.saveApiPresets(data);
+              // 同步当前预设配置到 $mms_config（向后兼容 runUpdate 读取）
+              this.syncActiveApiToConfig(data);
+              this.renderApiPresetUI();
             });
           }
+          const addBtn = document.getElementById('mms-api-add');
+          if (addBtn) addBtn.addEventListener('click', () => this.addApiPreset());
+          const delBtn = document.getElementById('mms-api-delete');
+          if (delBtn) delBtn.addEventListener('click', () => this.deleteApiPreset());
+          const renameBtn = document.getElementById('mms-api-rename');
+          if (renameBtn) renameBtn.addEventListener('click', () => this.renameApiPreset());
+          const importBtn = document.getElementById('mms-api-import');
+          if (importBtn)
+            importBtn.addEventListener('click', () =>
+              this.importPresetFile('.json', (data) => this.importApiPresetFile(data)),
+            );
+          const exportBtn = document.getElementById('mms-api-export');
+          if (exportBtn) exportBtn.addEventListener('click', () => this.exportApiPresetFile());
 
-          this.initRosterUI();
+          // 配置字段编辑（写入当前预设 + 兼容同步到 $mms_config）
+          const bindApiField = (id, key, transform) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const handler = () => {
+              const data = this.loadApiPresets();
+              const preset = data.presets.find((p) => p.id === data.active);
+              if (!preset) return;
+              preset.config[key] = transform ? transform(el.value) : el.value;
+              this.saveApiPresets(data);
+              this.syncActiveApiToConfig(data);
+            };
+            el.addEventListener('change', handler);
+          };
+          bindApiField('mms-api-url', 'apiUrl');
+          bindApiField('mms-api-key', 'apiKey');
+          bindApiField('mms-api-model', 'model');
+          bindApiField('mms-api-preset', 'preset');
+          bindApiField('mms-context-floors', 'contextFloors', (v) =>
+            Math.min(10, Math.max(1, parseInt(v, 10) || 2)),
+          );
+          const sourceSel = document.getElementById('mms-api-source');
+          if (sourceSel) {
+            sourceSel.addEventListener('change', () => {
+              const data = this.loadApiPresets();
+              const preset = data.presets.find((p) => p.id === data.active);
+              if (!preset) return;
+              preset.config.source = sourceSel.value;
+              this.saveApiPresets(data);
+              this.syncActiveApiToConfig(data);
+            });
+          }
+        },
+
+        renderApiPresetUI() {
+          const select = document.getElementById('mms-api-preset-select');
+          if (!select) return;
+          const data = this.loadApiPresets();
+          select.innerHTML = '';
+          data.presets.forEach((p) => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name + (p.locked ? ' 🔒' : '');
+            select.appendChild(opt);
+          });
+          select.value = data.active;
+          // 表单回填当前预设
+          const preset = data.presets.find((p) => p.id === data.active) || data.presets[0];
+          const c = (preset && preset.config) || {};
+          const set = (id, v) => {
+            const el = document.getElementById(id);
+            if (el) el.value = v == null ? '' : String(v);
+          };
+          set('mms-api-url', c.apiUrl);
+          set('mms-api-key', c.apiKey);
+          set('mms-api-model', c.model);
+          set('mms-api-preset', c.preset);
+          set('mms-context-floors', c.contextFloors != null ? c.contextFloors : 2);
+          const sourceSel = document.getElementById('mms-api-source');
+          if (sourceSel) sourceSel.value = c.source || 'custom';
+          const delBtn = document.getElementById('mms-api-delete');
+          if (delBtn) delBtn.disabled = !!(preset && preset.locked);
+        },
+
+        syncActiveApiToConfig(data) {
+          const preset = data.presets.find((p) => p.id === data.active) || data.presets[0];
+          if (!preset) return;
+          const c = this.loadConfig();
+          Object.assign(c, preset.config || {});
+          this.saveConfig(c);
+        },
+
+        addApiPreset() {
+          const data = this.loadApiPresets();
+          const name = prompt('新 API 预设名称：', '');
+          if (!name) return;
+          const id = 'api_' + Date.now();
+          const cur = data.presets.find((p) => p.id === data.active);
+          data.presets.push({
+            id,
+            name,
+            config: cur && !cur.locked ? JSON.parse(JSON.stringify(cur.config || {})) : {},
+            locked: false,
+          });
+          data.active = id;
+          this.saveApiPresets(data);
+          this.syncActiveApiToConfig(data);
+          this.renderApiPresetUI();
+        },
+
+        deleteApiPreset() {
+          const data = this.loadApiPresets();
+          const preset = data.presets.find((p) => p.id === data.active);
+          if (!preset) return;
+          if (preset.locked) {
+            alert('默认预设不可删除');
+            return;
+          }
+          if (!confirm('确定删除 API 预设「' + preset.name + '」？')) return;
+          data.presets = data.presets.filter((p) => p.id !== data.active);
+          data.active = 'default';
+          this.saveApiPresets(data);
+          this.syncActiveApiToConfig(data);
+          this.renderApiPresetUI();
+        },
+
+        renameApiPreset() {
+          const data = this.loadApiPresets();
+          const preset = data.presets.find((p) => p.id === data.active);
+          if (!preset) return;
+          if (preset.locked) {
+            alert('默认预设不可重命名');
+            return;
+          }
+          const name = prompt('重命名 API 预设：', preset.name);
+          if (!name) return;
+          preset.name = name;
+          this.saveApiPresets(data);
+          this.renderApiPresetUI();
+        },
+
+        exportApiPresetFile() {
+          const data = this.loadApiPresets();
+          const preset = data.presets.find((p) => p.id === data.active);
+          if (!preset) return;
+          this.exportPresetFile(
+            { type: 'mms-api-config', v: 2, name: preset.name, config: preset.config },
+            'mms-api-preset.json',
+          );
+        },
+
+        importApiPresetFile(data) {
+          if (!data || data.type !== 'mms-api-config') {
+            alert('这不是 API 预设文件（type 应为 mms-api-config）');
+            return;
+          }
+          const ps = this.loadApiPresets();
+          // 兼容 v1（扁平字段）与 v2（嵌套 config）
+          const config = data.config || {
+            source: data.source,
+            apiUrl: data.apiUrl,
+            apiKey: data.apiKey,
+            model: data.model,
+            preset: data.preset,
+            contextFloors: data.contextFloors,
+          };
+          ps.presets.push({
+            id: 'api_' + Date.now(),
+            name: data.name || '导入的API预设',
+            config,
+            locked: false,
+          });
+          ps.active = ps.presets[ps.presets.length - 1].id;
+          this.saveApiPresets(ps);
+          this.syncActiveApiToConfig(ps);
+          this.renderApiPresetUI();
+        },
+
+        // ---------- 提示词预设 UI ----------
+
+        initPromptPresetUI() {
+          this.renderPromptPresetUI();
+          const select = document.getElementById('mms-prompt-preset-select');
+          if (select) {
+            select.addEventListener('change', () => {
+              const data = this.loadPromptPresets();
+              data.active = select.value;
+              this.savePromptPresets(data);
+              this.renderPromptPresetUI();
+            });
+          }
+          const addBtn = document.getElementById('mms-prompt-add');
+          if (addBtn) addBtn.addEventListener('click', () => this.addPromptPreset());
+          const delBtn = document.getElementById('mms-prompt-delete');
+          if (delBtn) delBtn.addEventListener('click', () => this.deletePromptPreset());
+          const renameBtn = document.getElementById('mms-prompt-rename');
+          if (renameBtn) renameBtn.addEventListener('click', () => this.renamePromptPreset());
+          const importBtn = document.getElementById('mms-prompt-import');
+          if (importBtn)
+            importBtn.addEventListener('click', () =>
+              this.importPresetFile('.json', (data) => this.importPromptPresetFile(data)),
+            );
+          const exportBtn = document.getElementById('mms-prompt-export');
+          if (exportBtn) exportBtn.addEventListener('click', () => this.exportPromptPresetFile());
+
+          // 提示词编辑器：默认预设只读，用户预设双击解锁
+          const coreTa = document.getElementById('mms-core-prompt');
+          if (coreTa) {
+            coreTa.addEventListener('dblclick', () => {
+              const data = this.loadPromptPresets();
+              const preset = data.presets.find((p) => p.id === data.active);
+              if (!preset || preset.locked) {
+                alert('默认预设只读（随名册/地图设置动态生成）。请新建提示词预设后编辑');
+                return;
+              }
+              coreTa.removeAttribute('readonly');
+              coreTa.classList.remove('mms-core-prompt-readonly');
+              coreTa.classList.add('unlocked');
+              coreTa.title = '编辑中：失焦保存';
+              coreTa.focus();
+            });
+            coreTa.addEventListener('blur', () => {
+              const data = this.loadPromptPresets();
+              const preset = data.presets.find((p) => p.id === data.active);
+              coreTa.setAttribute('readonly', 'readonly');
+              coreTa.classList.add('mms-core-prompt-readonly');
+              coreTa.classList.remove('unlocked');
+              coreTa.title = '双击解锁编辑';
+              if (preset && !preset.locked) {
+                preset.content = coreTa.value;
+                this.savePromptPresets(data);
+              }
+            });
+          }
+        },
+
+        renderPromptPresetUI() {
+          const select = document.getElementById('mms-prompt-preset-select');
+          const coreTa = document.getElementById('mms-core-prompt');
+          if (!select) return;
+          const data = this.loadPromptPresets();
+          select.innerHTML = '';
+          data.presets.forEach((p) => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name + (p.locked ? ' 🔒' : '');
+            select.appendChild(opt);
+          });
+          select.value = data.active;
+          const preset = data.presets.find((p) => p.id === data.active) || data.presets[0];
+          if (coreTa) {
+            if (preset && preset.locked) {
+              coreTa.value = mmsBuildSystemPrompt(this.loadRoster());
+            } else if (preset) {
+              coreTa.value = preset.content || '';
+            }
+          }
+          const label = document.getElementById('mms-core-prompt-label');
+          if (label) {
+            label.innerHTML = preset && preset.locked
+              ? '提示词全文（默认协议 · 只读，随名册/据点/地图设置<b>动态生成</b>）'
+              : '提示词全文（自定义预设 · <b>双击解锁编辑</b>，失焦保存）';
+          }
+          const hint = document.getElementById('mms-core-prompt-hint');
+          if (hint) {
+            hint.textContent = preset && preset.locked
+              ? '默认协议按当前设置实时拼装；新建预设的初始值为当前默认协议快照，可自由修改（自定义卡片格式直接写进去）'
+              : '此预设内容固定存储，不再随设置变化；LLM 协助的结果会写入当前预设';
+          }
+          const delBtn = document.getElementById('mms-prompt-delete');
+          if (delBtn) delBtn.disabled = !!(preset && preset.locked);
+        },
+
+        // 供名册/地图/据点设置变化时刷新默认预设显示
+        refreshCorePromptDisplay() {
+          const data = this.loadPromptPresets();
+          const preset = data.presets.find((p) => p.id === data.active);
+          if (preset && preset.locked) this.renderPromptPresetUI();
+        },
+
+        addPromptPreset() {
+          const data = this.loadPromptPresets();
+          const name = prompt('新提示词预设名称：', '');
+          if (!name) return;
+          const id = 'prompt_' + Date.now();
+          // 初始值 = 当前默认协议快照
+          data.presets.push({
+            id,
+            name,
+            content: mmsBuildSystemPrompt(this.loadRoster()),
+            locked: false,
+          });
+          data.active = id;
+          this.savePromptPresets(data);
+          this.renderPromptPresetUI();
+        },
+
+        deletePromptPreset() {
+          const data = this.loadPromptPresets();
+          const preset = data.presets.find((p) => p.id === data.active);
+          if (!preset) return;
+          if (preset.locked) {
+            alert('默认预设不可删除');
+            return;
+          }
+          if (!confirm('确定删除提示词预设「' + preset.name + '」？')) return;
+          data.presets = data.presets.filter((p) => p.id !== data.active);
+          data.active = 'default';
+          this.savePromptPresets(data);
+          this.renderPromptPresetUI();
+        },
+
+        renamePromptPreset() {
+          const data = this.loadPromptPresets();
+          const preset = data.presets.find((p) => p.id === data.active);
+          if (!preset) return;
+          if (preset.locked) {
+            alert('默认预设不可重命名');
+            return;
+          }
+          const name = prompt('重命名提示词预设：', preset.name);
+          if (!name) return;
+          preset.name = name;
+          this.savePromptPresets(data);
+          this.renderPromptPresetUI();
+        },
+
+        exportPromptPresetFile() {
+          const data = this.loadPromptPresets();
+          const preset = data.presets.find((p) => p.id === data.active);
+          if (!preset) return;
+          this.exportPresetFile(
+            { type: 'mms-prompt-config', v: 2, name: preset.name, content: preset.locked ? '' : preset.content },
+            'mms-prompt-preset.json',
+          );
+        },
+
+        importPromptPresetFile(data) {
+          if (!data || data.type !== 'mms-prompt-config') {
+            alert('这不是提示词预设文件（type 应为 mms-prompt-config）');
+            return;
+          }
+          const ps = this.loadPromptPresets();
+          // 兼容 v1（corePrompt+customPrompt）与 v2（content）
+          let content = data.content;
+          if (content == null) {
+            const parts = [];
+            if (data.corePrompt) parts.push(data.corePrompt);
+            if (data.customPrompt) parts.push(data.customPrompt);
+            content = parts.join('\n\n');
+          }
+          ps.presets.push({
+            id: 'prompt_' + Date.now(),
+            name: data.name || '导入的提示词',
+            content: content || '',
+            locked: false,
+          });
+          ps.active = ps.presets[ps.presets.length - 1].id;
+          this.savePromptPresets(ps);
+          this.renderPromptPresetUI();
         },
 
         // ---------- 固定角色名册 UI ----------
@@ -10374,7 +10773,8 @@ createCharacterEntry(text, categoryKey) {
           const tagInfo = {};
           for (const t of MMS_ALL_MAP_TAGS) tagInfo[t.name] = t;
 
-          const makeChip = (name, selectable) => {
+          // mode: 'pool' = 池中芯片（多选迁移），'map' = 地图栏芯片（单击退回池）
+          const makeChip = (name, mode) => {
             const info = tagInfo[name] || { type: 'svg' };
             const chip = document.createElement('span');
             chip.className = 'map-tag-chip' + (this.mapTagsSelection.has(name) ? ' selected' : '');
@@ -10390,11 +10790,25 @@ createCharacterEntry(text, categoryKey) {
               chip.textContent = '🖼 ';
             }
             chip.appendChild(document.createTextNode(name));
-            if (selectable) {
+            if (mode === 'pool') {
+              // 池中：多选（配合迁入按钮）
               chip.addEventListener('click', () => {
                 if (this.mapTagsSelection.has(name)) this.mapTagsSelection.delete(name);
                 else this.mapTagsSelection.add(name);
                 chip.classList.toggle('selected');
+              });
+            } else if (mode === 'map') {
+              // 地图栏：单击直接退回池（附 title 提示）
+              chip.title = '点击退回标签池';
+              chip.addEventListener('click', () => {
+                const rr = this.loadRoster();
+                rr.mapTags.mini = rr.mapTags.mini.filter((x) => x !== name);
+                rr.mapTags.big = rr.mapTags.big.filter((x) => x !== name);
+                if (!rr.mapTags.pool.includes(name)) rr.mapTags.pool.push(name);
+                this.saveRoster(rr);
+                this.mapTagsSelection.delete(name);
+                this.renderMapTags();
+                if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
               });
             }
             return chip;
@@ -10405,19 +10819,19 @@ createCharacterEntry(text, categoryKey) {
           const bigEl = document.getElementById('mms-tags-big');
           if (poolEl) {
             poolEl.innerHTML = '';
-            for (const n of cfg.pool) poolEl.appendChild(makeChip(n, true));
+            for (const n of cfg.pool) poolEl.appendChild(makeChip(n, 'pool'));
             if (!cfg.pool.length) poolEl.innerHTML = '<span class="text-[10px] text-gray-500">池空：所有标签已分配</span>';
           }
           const poolCount = document.getElementById('mms-tags-pool-count');
           if (poolCount) poolCount.textContent = cfg.pool.length + ' 个可选';
           if (miniEl) {
             miniEl.innerHTML = '';
-            for (const n of cfg.mini) miniEl.appendChild(makeChip(n, true));
+            for (const n of cfg.mini) miniEl.appendChild(makeChip(n, 'map'));
             if (!cfg.mini.length) miniEl.innerHTML = '<span class="text-[10px] text-gray-500">未分配（AI 提示词将无小地图白名单）</span>';
           }
           if (bigEl) {
             bigEl.innerHTML = '';
-            for (const n of cfg.big) bigEl.appendChild(makeChip(n, true));
+            for (const n of cfg.big) bigEl.appendChild(makeChip(n, 'map'));
             if (!cfg.big.length) bigEl.innerHTML = '<span class="text-[10px] text-gray-500">未分配</span>';
           }
         },
