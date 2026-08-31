@@ -9610,6 +9610,8 @@ createCharacterEntry(text, categoryKey) {
           if (m) { cmds.push({ name: m[1].trim(), op: 'add', count: 1 }); continue; }
           m = content.match(/^(.+?)\s*-\s*(\d+)$/);
           if (m) { cmds.push({ name: m[1].trim(), op: 'delta', count: parseInt(m[2], 10) }); continue; }
+          m = content.match(/^(.+?)\s*\+\s*(\d+)$/);
+          if (m) { cmds.push({ name: m[1].trim(), op: 'add', count: parseInt(m[2], 10) }); continue; }
           m = content.match(/^(.+?)\s*[:：]\s*(\d+)$/);
           if (m) { cmds.push({ name: m[1].trim(), op: 'set', count: parseInt(m[2], 10) }); continue; }
           // 裸段（带xN视为获得N个，否则获得1个）
@@ -10123,7 +10125,7 @@ createCharacterEntry(text, categoryKey) {
         return out;
       }
 
-      // ---------- 更新器系统提示词（v4：完全由名册字段/模块配置动态拼装，不硬编码角色字段与模块结构） ----------
+      // ---------- 更新器系统提示词（v5：名册/模块/标签数据动态注入，规范文本与结构参照静态生成） ----------
 
       // 依据名册（角色字段与模式并集）、固定模块列表、地图开关与标签分配，动态生成发送给更新 LLM 的系统提示词
       function mmsBuildSystemPrompt(roster) {
@@ -10153,25 +10155,142 @@ createCharacterEntry(text, categoryKey) {
         }
         const charCheckList = checkSet.join('、');
         const charFreeList = freeSet.join('、');
-        const charFieldParts = ['"属性": "…"'];
-        for (const k of checkSet) charFieldParts.push('"' + k + '": "…"');
-        for (const k of freeSet) charFieldParts.push('"' + k + '": "…"');
-        const charFieldJson = charFieldParts.join(', ');
         const allCharFields = checkSet.concat(freeSet);
 
         const rosterList = rosterNames.length ? rosterNames.join('、') : '（名册为空）';
 
+        // 校验字段动态清单：角色（属性+名册校验字段）与各固定模块的命令字段
+        const checkParts = [];
+        if (allCharFields.length) {
+          const charCheckKeys = ['属性'].concat(checkSet.filter((k) => k !== '属性'));
+          checkParts.push('角色的' + charCheckKeys.join('、'));
+        }
+        for (const m of modules) {
+          const keys = [];
+          if (m.cash) keys.push('现金');
+          for (const f of m.fields || []) {
+            if (f && f.key && !keys.includes(f.key)) keys.push(f.key);
+          }
+          if (keys.length) checkParts.push(m.name + '的' + keys.join('、'));
+        }
+
+        // 自由字段动态清单
+        const freeListParts = ['日期和时间', '地点'];
+        if (minimapOn) freeListParts.push('小地图');
+        if (bigmapOn) freeListParts.push('大地图');
+        freeListParts.push('人物（盟友/NPC/敌人）', '行动选项');
+        for (const m of modules) {
+          if (m.titleVal) freeListParts.push(m.name + '的名称');
+        }
+        if (charFreeList) freeListParts.push('角色的' + charFreeList);
+        freeListParts.push('所有自定义模块');
+
+        // 示例条目的字段值：校验字段示范增量命令，自由字段示范全量句
+        const fieldExample = (key, mode) => {
+          if (mode === 'check') {
+            if (key === '属性') return '"[HP-2]"';
+            if (key === '武器') return '"[.45左轮+1]"';
+            if (key === '弹药') return '"[.45子弹:30]"';
+            if (key === '物品') return '"[绷带-2]"';
+            return '"[名称+N]"';
+          }
+          if (key === '穿着') return '"👔 略显凌乱的三件套西装，沾有灰尘"';
+          if (key === '内心') return '"💭 必须在天黑前搞清楚仪式的真正目的"';
+          return '"…"';
+        };
+
         const lines = [];
-        lines.push('你是跑团状态栏数据管理员。依据「最新剧情」把「当前状态」更新为新状态，输出一个 JSON 对象（顶层键为「状态栏」）。固定成员名单见用户消息。');
+        lines.push('你是跑团状态栏数据管理员。依据「最新剧情」与「当前状态」，输出增量更新后的状态栏 JSON 对象（顶层键为「状态栏」）。固定成员名单见用户消息。');
         lines.push('');
-        lines.push('## 状态栏模块结构');
+        lines.push('## 一、输出契约');
+        lines.push('1. 只输出合法 JSON 本体，禁止解释文字与 markdown 代码块。');
+        lines.push('2. 保持当前状态的字段命名、层级结构与 Emoji 风格。不得自创顶层模块或已有模块的变体（如已有「情报」再输出「局势情报」），只在已有键名下更新。');
+        lines.push('3. 字段输出策略：');
+        lines.push('   - 【校验字段】：有变化的仅输出增量指令；无变化的整项省略。');
+        lines.push('   - 【自由字段】' + freeListParts.join('、') + '：贴合剧情每轮全量输出。未提及的人物条目从数组移除，新登场的加入。');
+        lines.push('   - 自定义模块按原有结构全量输出，不要丢弃。');
+        lines.push('');
+        lines.push('## 二、校验字段：增量指令规范（仅在有变动时输出，属性值如 8/10 不可超出其上限）');
+        lines.push('- 校验指令：`[键+N]` 增加、`[键-N]` 减少、`[键:值]` 覆盖设值（键名不带 Emoji）。');
+        lines.push('  例：`"属性": "[HP-2][SAN-5]"`、`"[团队现金:5000]"`、`"武器": "[.45左轮+1]"`、`"物品": "[绷带-2][.45子弹:30]"`');
+        lines.push('- 当前校验字段：' + (checkParts.length ? checkParts.join('；') : '（当前无校验字段）') + '（其值在当前状态中被 [ ] 包裹，如 `[❤️HP:12/12]`、`[.45子弹x30][绷带]`）');
+        if (!modulesOn) {
+          lines.push('- 若当前状态中存在固定模块（如「据点」「载具」），其「现金」与清单字段同样适用命令协议。');
+        }
+        lines.push('');
+        lines.push('## 三、自由字段：生成指引（每轮全量刷新）');
+        lines.push('');
+        let secNo = 1;
+        lines.push('### ' + secNo++ + '. ⏰ 日期和时间 & 📍 地点');
+        lines.push('具体明确，剧情未明说时依上下文合理推断，严禁"未知/某日"等模糊词。');
+        lines.push('例：`"⏰ 1921年 · 6月15日 · 18:00"`、`"📍 唐人街 · 回春堂阁楼"`');
+        lines.push('');
+        if (minimapOn) {
+          lines.push('### ' + secNo++ + '. 🗺️ 小地图（仅主角/在场者视野可见）');
+          lines.push('- 场景键沿用当前状态；确需更换只能从以下选择：' + (miniTags || '（无可用标签）') + '。坐标 (x, y) 为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 整数。');
+          lines.push('- 显示可见的人物与物品，含掩体、可互动物件，不只画角色。');
+          lines.push('- 格式：`"Emoji【名称】(x, y) 10字内位置与姿态描述"`');
+          lines.push('  例：`"🪑【翻倒的书桌】(35, 40) 适合作为临时掩体"`、`"🧍【弗兰克】(52, 61) 蹲在木箱后举枪警戒"`');
+          lines.push('');
+        }
+        if (bigmapOn) {
+          lines.push('### ' + secNo++ + '. 🗺️ 大地图');
+          lines.push('用于更大范围的区域/全局场景（城市、荒野全图等）。场景键只能从以下选择：' + (bigTags || '（无可用标签）') + '。坐标 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 整数，' + (minimapOn ? '条目格式同小地图。' : '条目格式：`"Emoji【名称】(x, y) 10字内位置与姿态描述"`。'));
+          lines.push('');
+        }
+        lines.push('### ' + secNo++ + '. 👥 人物（侧重意图与即时行为）');
+        if (minimapOn) lines.push('- 与小地图的分工：地图写位置与姿态，这里写行为意图。');
+        lines.push('- 盟友：`"Emoji【名称】[职业/武器] 行动或意图（10字内）"`');
+        lines.push('- NPC：`"Emoji【名称】[身份/态度] 交涉倾向（10字内）"`');
+        lines.push('- 敌人：`"Emoji【名称】[类型/规模/武器] 战术行动（10字内）"`，多名杂兵合并描述规模');
+        lines.push('  例：`"👥【邪教徒x3】[近战/疯狂] 举着短刀包抄过来"`');
+        lines.push('');
+        lines.push('### ' + secNo++ + '. 🧑 团队行动选项（严格遵循 4 维设计，指明在场执行角色，每条 20 字左右）');
+        lines.push('- 1（🎲）：高难度高收益，必须包含 COC7 技能或属性检定。`"1. 🎲【技能名检定】+ 角色行动描述"`');
+        lines.push('- 2（🎯）：最直接、攻击性或核心推进目标的行动。');
+        lines.push('- 3（⌛）：防御、隐蔽、搜集线索或观察的稳妥行动。');
+        lines.push('- 4（🦢）：救援、安抚、道德抉择或感化交涉的善良行动。');
+        lines.push('');
+        lines.push('### ' + secNo++ + '. 🎭 角色列表');
+        if (charMode === 'fixed') {
+          lines.push('- 仅限固定成员：' + rosterList + '。其余新登场角色放入「人物」，不要在角色列表中输出。');
+        } else {
+          lines.push('- 固定成员：' + rosterList + '。');
+          lines.push('- 新登场的关键NPC（当前状态与固定成员中都不存在）：属性与校验字段输出完整值（如 `"[❤️HP:12/12]"`、`"[韦伯利左轮]"`），自由字段照常撰写。其余非重要角色放入「人物」。');
+        }
+        if (allCharFields.length) {
+          lines.push('- 字段：' + allCharFields.join('、') + '。校验字段（' + (charCheckList || '无') + '）只输出命令；自由字段（' + (charFreeList || '无') + '）全量输出。');
+        }
+        lines.push('- 剧情提及 → 输出其条目。');
+        lines.push('- 明确不在场 → 输出条目且内心字段写"不在场"，其余字段省略。');
+        lines.push('- 完全未提及 → 整个条目省略。');
+        lines.push('- 附有人设说明的成员（见用户消息），自由字段必须遵从该人设。');
+        lines.push('');
+        lines.push('## 四、目标 JSON 结构参照');
         lines.push('{');
         lines.push('  "状态栏": {');
         lines.push('    "日期和时间": "⏰ …",');
         lines.push('    "地点": "📍 …",');
-        if (minimapOn) lines.push('    "小地图": { "场景键": ["Emoji【名称】(x, y) 一句话描述"] },');
-        if (bigmapOn) lines.push('    "大地图": { "场景键": ["Emoji【名称】(x, y) 一句话描述"] },');
-        lines.push('    "角色列表": [ { "角色": { "名字": "…"' + (charFieldJson ? ', ' + charFieldJson : '') + ' } } ],');
+        if (minimapOn) lines.push('    "小地图": { "场景键": ["Emoji【名称】(x, y) 10字内描述"] },');
+        if (bigmapOn) lines.push('    "大地图": { "场景键": ["Emoji【名称】(x, y) 10字内描述"] },');
+        // 示例角色条目：字段全集来自名册并集（校验字段给命令示例、自由字段给全量示例）
+        const exFields = [];
+        exFields.push('          "名字": "🔮埃利奥特"');
+        exFields.push('          "属性": "[HP-2]"');
+        for (const k of checkSet) {
+          if (k === '属性') continue;
+          exFields.push('          "' + k + '": ' + fieldExample(k, 'check'));
+        }
+        for (const k of freeSet) {
+          exFields.push('          "' + k + '": ' + fieldExample(k, 'free'));
+        }
+        lines.push('    "角色列表": [');
+        lines.push('      {');
+        lines.push('        "角色": {');
+        lines.push(exFields.join(',\n'));
+        lines.push('        }');
+        lines.push('      }');
+        lines.push('    ],');
         lines.push('    "人物": { "盟友": ["…"], "NPC": ["…"], "敌人": ["…"] },');
         for (const m of modules) {
           const parts = [];
@@ -10184,82 +10303,17 @@ createCharacterEntry(text, categoryKey) {
           }
           lines.push('    "' + m.name + '": {' + parts.join(', ') + ' },');
         }
-        lines.push('    "行动选项": { "名字": "🧑 团队行动", "选项": ["1. …", "2. …", "3. …", "4. …"] }');
+        lines.push('    "行动选项": {');
+        lines.push('      "名字": "🧑 团队行动",');
+        lines.push('      "选项": [');
+        lines.push('        "1. 🎲【侦查检定】埃利奥特仔细搜查书架夹层，寻找密信",');
+        lines.push('        "2. 🎯 弗兰克直接拔枪威慑眼前的可疑侍者",');
+        lines.push('        "3. ⌛ 玛德琳退到门旁警戒阴影，确保撤退路线通畅",');
+        lines.push('        "4. 🦢 索恩上前搀扶受伤的店主并安抚其情绪"');
+        lines.push('      ]');
+        lines.push('    }');
         lines.push('  }');
         lines.push('}');
-        if (minimapOn) {
-          lines.push('- 小地图场景键沿用当前状态；确需更换只能从以下选择：' + (miniTags || '（无可用标签）') + '。坐标为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数。');
-          lines.push('- 小地图描述：简单描述角色的状态和位置（如"站在大树后，精神紧绷"）。');
-        }
-        if (bigmapOn) {
-          lines.push('- 大地图用于更大范围的区域/全局场景（城市、荒野全图等），场景键只能从以下选择：' + (bigTags || '（无可用标签）') + '。坐标为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数。');
-        }
-        lines.push('- 人物描述：描述NPC的简单动作（如"拿起一杯茶，想继续了解玛德琳的情报"）。与小地图不同，人物侧重行为意图而非位置状态。');
-        if (allCharFields.length) {
-          lines.push('- 角色字段：' + allCharFields.join('、') + '。其中校验字段（' + (charCheckList || '无') + '）只输出命令；自由字段（' + (charFreeList || '无') + '）贴合剧情每轮全量输出。');
-        }
-        for (const m of modules) {
-          const listKeys = (m.fields || []).map((f) => f && f.key).filter(Boolean);
-          const cmdParts = [];
-          if (m.cash) cmdParts.push('现金');
-          for (const k of listKeys) cmdParts.push(k);
-          const descParts = [];
-          if (m.titleVal) descParts.push('名称为自由文本');
-          if (cmdParts.length) descParts.push(cmdParts.join('、') + '为数值/清单字段');
-          lines.push('- ' + m.name + '模块：' + (descParts.length ? descParts.join('；') + '。' : '结构沿用当前状态。'));
-        }
-        lines.push('- 若当前状态中存在其他自定义模块（如线索、情报等），按其原有结构全量输出，不要丢弃。');
-        lines.push('- 严禁自行发明新的顶层模块或重复已有模块的变体（如已有「情报」再输出「局势情报」「防疫指南」）。只在当前状态已有模块的键名下更新，不要另起新键名。');
-        lines.push('- 各模块描述格式沿用当前状态的风格（emoji、【】名称、[ ]物品括号等）。');
-        lines.push('');
-        lines.push('## 校验字段：只输出命令，禁止全量重写');
-        const checkTargets = [];
-        if (allCharFields.length) {
-          checkTargets.push('角色列表的「属性」' + (charCheckList ? '与「' + charCheckList.split('、').join('」「') + '」' : ''));
-        }
-        for (const m of modules) {
-          const listKeys = (m.fields || []).map((f) => f && f.key).filter(Boolean);
-          const parts = [];
-          if (m.cash) parts.push('「现金」');
-          if (listKeys.length) parts.push('「' + listKeys.join('」「') + '」');
-          if (parts.length) checkTargets.push(m.name + '的' + parts.join('与'));
-        }
-        lines.push('适用于：' + (checkTargets.length ? checkTargets.join('，') : '（当前无校验字段）') + '。');
-        lines.push('- 属性命令："[键-N]"减少 / "[键+N]"增加 / "[键:值]"设值。键用裸名（不带emoji）。值为"当前/上限"格式时命令只作用于当前值。');
-        lines.push('  例：`"属性": "[HP-2][SAN:55]"`');
-        lines.push('- 物品命令："[+名称]"获得 / "[+名称xN]"获得N个 / "[名称-N]"消耗 / "[名称:N]"设为数量。适用于武器、物品、弹药、消耗、道具等一切清单字段。');
-        lines.push('  例：`"物品": "[+.45子弹x100][绷带-1]"`。数量归零的物品会被自动移除。');
-        lines.push('- 现金命令同属性语法："[团队现金-12.80]" / "[团队现金:5000]"。');
-        lines.push('- 剧情没有变化的校验字段：整个字段省略不输出（程序会保持原值）。');
-        if (charMode === 'fixed') {
-          lines.push('- 角色列表只可显示固定成员：' + rosterList + '。其余新登场角色放入「人物」中缩略显示（格式与盟友/NPC一致），不要在角色列表中输出。');
-        } else {
-          lines.push('- 角色列表可显示固定成员：' + rosterList + '。新登场的关键NPC（当前状态与固定成员中都不存在）：属性与校验字段输出完整值（如 "[❤️HP:12/12]"、"[🔪] [韦伯利左轮]"），自由字段照常撰写。其余非重要角色放入「人物」中缩略显示。');
-        }
-        if (!modulesOn) {
-          lines.push('- 若当前状态中存在固定模块（如「据点」「载具」），其「现金」与清单字段同样适用命令协议。');
-        }
-        lines.push('');
-        lines.push('## 自由字段：每轮全量输出');
-        const freeListParts = ['日期和时间', '地点'];
-        if (minimapOn) freeListParts.push('小地图');
-        if (bigmapOn) freeListParts.push('大地图');
-        freeListParts.push('人物（盟友/NPC/敌人）', '行动选项');
-        for (const m of modules) {
-          if (m.titleVal) freeListParts.push(m.name + '的名称');
-        }
-        if (charFreeList) freeListParts.push('角色的' + charFreeList);
-        freeListParts.push('所有自定义模块');
-        lines.push(freeListParts.join('、') + '。未提及的人物条目从对应数组移除，新登场的加入。');
-        lines.push('');
-        lines.push('## 固定成员规则（名单与各成员字段清单见用户消息）');
-        lines.push('- 剧情提及固定成员 → 输出其条目（该成员标注为校验的字段用命令，标注为自由的字段全量）。');
-        lines.push('- 若固定成员附有人设说明，撰写其自由字段（内心、穿着、行为描述等）时必须遵从该人设（性格、说话风格、着装偏好、思考方式）。');
-        lines.push('- 剧情明确显示其不在场 → 输出条目且内心字段写"不在场"，其余字段省略。');
-        lines.push('- 剧情完全未提及 → 整个条目省略（程序自动保留其上次数值并标注）。');
-        lines.push('');
-        lines.push('## 输出要求');
-        lines.push('只输出 JSON 本体，禁止解释文字与 markdown 代码块。保持当前状态的模块顺序、字段命名与 emoji 风格。');
         return lines.join('\n');
       }
 
