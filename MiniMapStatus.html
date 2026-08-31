@@ -2100,6 +2100,37 @@ function buildPortraitHTML(roleName, portraitUrl) {
         .map-marker { position: absolute; transform: translate(-50%, -50%); cursor: pointer; z-index: 20; }
         .map-marker:hover { z-index: 25; }
         .map-marker.active { z-index: 30; }
+
+        /* 独立大地图：当前位置高亮光环（正文地点行匹配命中） */
+        .map-marker.here { z-index: 28; }
+        .map-marker.here::after {
+            content: ''; position: absolute; inset: -7px; border-radius: 50%;
+            border: 3px solid #ffd35c; box-shadow: 0 0 12px 3px rgba(255, 200, 60, 0.55);
+            animation: mms-here-ring 1.6s ease-out infinite; pointer-events: none;
+        }
+        .map-marker.here .marker-emoji { filter: drop-shadow(0px 0px 8px #ffd35c); }
+        @keyframes mms-here-ring { 0% { transform: scale(0.82); opacity: 1; } 75% { transform: scale(1.5); opacity: 0; } 100% { transform: scale(1.5); opacity: 0; } }
+
+        /* 独立大地图卡片：徽标 / 工具栏 / 占位 */
+        .mms-bm-badge { font-size: 0.65rem; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+        .mms-bm-badge.hit { background: rgba(255, 200, 60, 0.14); color: #ffd35c; border: 1px solid rgba(255, 200, 60, 0.35); }
+        .mms-bm-badge.miss { background: rgba(232, 86, 86, 0.12); color: #ff9c9c; border: 1px solid rgba(232, 86, 86, 0.3); }
+        .mms-bm-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+        .mms-bm-btn {
+            border: 1px solid #2c3542; background: #232a35; color: #c9d4e3; border-radius: 8px;
+            font-size: 0.7rem; padding: 3px 10px; cursor: pointer; transition: all 0.15s;
+        }
+        .mms-bm-btn:hover:not(:disabled) { border-color: #3d4a5c; color: #fff; }
+        .mms-bm-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .mms-bm-btn.primary { background: linear-gradient(135deg, #5a3fb8, #7c4fd4); border-color: #6d4fd4; color: #fff; }
+        .mms-bm-btn.notify { animation: mms-bm-glow 1.4s ease-in-out infinite; border-color: #6d4fd4; }
+        @keyframes mms-bm-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(139, 108, 240, 0); } 50% { box-shadow: 0 0 12px 2px rgba(139, 108, 240, 0.55); } }
+        .mms-bm-busy { font-size: 0.7rem; color: #b48cff; }
+        .mms-bm-placeholder {
+            border: 2px dashed #3b4657; border-radius: 12px; padding: 22px 14px; text-align: center;
+            color: #9fb0c4; font-size: 0.8rem; display: flex; flex-direction: column; gap: 6px; align-items: center;
+        }
+        .mms-bm-placeholder .sub { font-size: 0.68rem; color: #7d8ca1; }
         
         /* 核心：RPG物品浮动呼吸动画 */
         .marker-emoji { 
@@ -3686,6 +3717,34 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </label>
           </div>
 
+          <!-- 独立大地图（AI 绘制） -->
+          <div class="roster-surface rounded-xl border border-gray-700/10 p-2.5 space-y-2">
+            <label class="mms-toggle-row">
+              <input type="checkbox" id="mms-bigart-enabled" />
+              <span class="text-xs font-bold">🎨 独立大地图（AI 绘制底图+地标，不占正文状态栏）</span>
+            </label>
+            <div id="mms-bigart-form" style="display: none" class="space-y-2">
+              <div class="flex gap-2 items-center">
+                <span class="text-[11px] text-gray-400 w-14 shrink-0">底图风格</span>
+                <select id="mms-bigart-style" class="form-input flex-1 text-xs" style="height: 28px">
+                  <option value="flat">简约平面（色块+线条）</option>
+                  <option value="parchment">手绘羊皮纸</option>
+                </select>
+              </div>
+              <textarea
+                id="mms-bigart-note"
+                class="form-input w-full text-xs"
+                rows="3"
+                placeholder="地图设定备注（可选）：粘贴区域设定/世界书摘录，绘图 AI 会优先遵循。例：故事发生在1925年的悉尼，主要区域有环形码头、岩石区、总督府…"
+              ></textarea>
+              <p class="settings-hint">
+                开启后：更新 LLM 不再维护大地图（不输出、不注入上下文，节省 token）；大地图卡片由独立绘图
+                AI 生成「地理+地标」语义 JSON（约 1K tokens/次），本地渲染成图并缓存到聊天变量，换楼层/翻旧楼零开销；
+                生成与更新按钮在大地图卡片上（更新=增量合并保留旧图，重绘=整图重来），地图风格可随时免费切换。
+              </p>
+            </div>
+          </div>
+
           <!-- 纵向三行：标签池 → 小地图 → 大地图 -->
           <div class="map-tags-layout">
             <!-- 标签池 -->
@@ -4337,15 +4396,369 @@ const AVATAR_MAP = {
         }
       }
 
-      
+
+      // ==========================================
+      // 独立大地图：语义 JSON 渲染器（绘图 LLM 只输出地理+地标 JSON，视觉全部由本渲染器固定）
+      // ==========================================
+
+      // 当前楼层的大地图渲染状态（由 MMS.injectBigMapArt 在每次渲染前写入，createAttributeItem 读取）
+      let MMS_BIGMAP_ART_STATE = { enabled: false };
+
+      const MMS_MAPART_STYLES = {
+        flat: {
+          ground: { field: '#ece4c9', sea: '#9cc4dc' },
+          grass: '#d3e0ae', snow: '#edf2f5', forest: '#b6cc97', desert: '#ecd9a4',
+          fieldCrop: '#e6d49a', lake: '#a9d2e8', river: '#a9d2e8', riverEdge: '#82b3cf',
+          road: '#faf5e6', roadEdge: '#d9cba6', landStroke: '#bfb086', wall: '#a08e66',
+          wallInner: '#c9b992', tower: '#b3a179', towerEdge: '#8f7d5c',
+          stone: '#c6a97e', stoneEdge: '#a68c60', wood: '#c9a97a', woodEdge: '#8a6a42',
+          roof: '#a2705a', plaster: '#f4efe2', plasterEdge: '#b0a687',
+          houseFill: '#e3d5b2', houseEdge: '#c8b790', tree: '#a8c489', treeEdge: '#8ba76e',
+          crop: '#c9a852', water: '#a9d2e8', waterEdge: '#82b3cf', boat: '#b05a4a', boatEdge: '#8a4238',
+          label: '#8a7a58', font: "'PingFang SC','Microsoft YaHei',sans-serif",
+          strokeW: { road: 8, roadEdge: 20, river: 40, wall: 15, thin: 2 },
+        },
+        parchment: {
+          ground: { field: '#ecd9ae', sea: '#a8c4d4' },
+          grass: '#c6d3a0', snow: '#eef2f4', forest: '#9db07a', desert: '#e4cf9a',
+          fieldCrop: '#dfc98e', lake: '#a9c9dd', river: '#8fb5c9', riverEdge: '#6e93a6',
+          road: '#5f4a30', roadEdge: null, landStroke: '#3f3020', wall: '#6b533a',
+          wallInner: '#3f3020', tower: '#d8c298', towerEdge: '#4a3826',
+          stone: '#d9c294', stoneEdge: '#3f3020', wood: '#cfae7d', woodEdge: '#5f4630',
+          roof: '#a2705a', plaster: '#f2ead2', plasterEdge: '#4a3826',
+          houseFill: '#e2cda0', houseEdge: '#4a3826', tree: '#9db07a', treeEdge: '#5f7a4a',
+          crop: '#c9a852', water: '#a9c9dd', waterEdge: '#5f7a88', boat: '#8a4238', boatEdge: '#3f3020',
+          label: '#6b4326', font: "'KaiTi','STKaiti','PingFang SC',serif",
+          strokeW: { road: 1.6, roadEdge: 0, river: 36, wall: 5, thin: 2 },
+          roadDash: '11 9',
+        },
+      };
+
+      function mmsMapArtRoundRect(x, y, w, h, r) {
+        return (
+          'M ' + (x + r) + ' ' + y + ' h ' + (w - 2 * r) +
+          ' a ' + r + ' ' + r + ' 0 0 1 ' + r + ' ' + r +
+          ' v ' + (h - 2 * r) + ' a ' + r + ' ' + r + ' 0 0 1 ' + -r + ' ' + r +
+          ' h ' + -(w - 2 * r) + ' a ' + r + ' ' + r + ' 0 0 1 ' + -r + ' ' + -r +
+          ' v ' + -(h - 2 * r) + ' a ' + r + ' ' + r + ' 0 0 1 ' + r + ' ' + -r + ' Z'
+        );
+      }
+
+      function mmsMapArtFeature(f, S, style) {
+        const x = f.at[0], y = f.at[1];
+        const w = f.size ? f.size[0] : 0, h = f.size ? f.size[1] : 0;
+        switch (f.type) {
+          case 'castle': {
+            const st = style === 'parchment' ? { fill: '#d9c294', edge: '#3f3020', sw: 2.5 } : { fill: '#c6a97e', edge: '#a68c60', sw: 2 };
+            let g = '';
+            g += '<polygon points="' + (x - 64) + ',' + (y - 68) + ' ' + (x - 51) + ',' + (y - 92) + ' ' + (x - 38) + ',' + (y - 68) + '" fill="' + S.roof + '" stroke="' + st.edge + '" stroke-width="2"/>';
+            g += '<polygon points="' + (x + 38) + ',' + (y - 68) + ' ' + (x + 51) + ',' + (y - 92) + ' ' + (x + 64) + ',' + (y - 68) + '" fill="' + S.roof + '" stroke="' + st.edge + '" stroke-width="2"/>';
+            g += '<polygon points="' + (x - 18) + ',' + (y - 82) + ' ' + x + ',' + (y - 110) + ' ' + (x + 18) + ',' + (y - 82) + '" fill="' + S.roof + '" stroke="' + st.edge + '" stroke-width="2"/>';
+            g += '<rect x="' + (x - 64) + '" y="' + (y - 70) + '" width="26" height="66" fill="' + st.fill + '" stroke="' + st.edge + '" stroke-width="' + st.sw + '"/>';
+            g += '<rect x="' + (x + 38) + '" y="' + (y - 70) + '" width="26" height="66" fill="' + st.fill + '" stroke="' + st.edge + '" stroke-width="' + st.sw + '"/>';
+            g += '<rect x="' + (x - 18) + '" y="' + (y - 86) + '" width="36" height="46" fill="' + st.fill + '" stroke="' + st.edge + '" stroke-width="' + st.sw + '"/>';
+            g += '<polygon points="' + (x - 45) + ',' + (y - 43) + ' ' + (x + 45) + ',' + (y - 43) + ' ' + (x + 58) + ',' + (y + 30) + ' ' + (x - 58) + ',' + (y + 30) + '" fill="' + st.fill + '" stroke="' + st.edge + '" stroke-width="' + st.sw + '"/>';
+            return g;
+          }
+          case 'church': {
+            const edge = style === 'parchment' ? '#4a3826' : '#b0a687';
+            let g = '';
+            if (style === 'parchment') g += '<circle cx="' + x + '" cy="' + y + '" r="58" fill="#eee0b8" stroke="#5f4a30" stroke-width="1.8"/>';
+            else g += '<circle cx="' + x + '" cy="' + y + '" r="58" fill="#f2ead3" stroke="#d8c8a4" stroke-width="2"/>';
+            g += '<rect x="' + (x - 16) + '" y="' + (y - 33) + '" width="32" height="66" fill="' + S.plaster + '" stroke="' + edge + '" stroke-width="2"/>';
+            g += '<rect x="' + (x - 32) + '" y="' + (y - 17) + '" width="64" height="26" fill="' + S.plaster + '" stroke="' + edge + '" stroke-width="2"/>';
+            g += '<polygon points="' + (x - 16) + ',' + (y - 33) + ' ' + x + ',' + (y - 63) + ' ' + (x + 16) + ',' + (y - 33) + '" fill="#d9c9a4" stroke="' + edge + '" stroke-width="2"/>';
+            g += '<path d="M ' + x + ' ' + (y - 57) + ' v-12 M ' + (x - 5) + ' ' + (y - 64) + ' h10" stroke="' + edge + '" stroke-width="2"/>';
+            return g;
+          }
+          case 'opera': {
+            const edge = style === 'parchment' ? '#4a3826' : '#8a90a0';
+            let g = '';
+            const shells = [[-30, 1.0], [0, 1.25], [30, 1.0]];
+            for (const s of shells) {
+              const dx = s[0], sc = s[1];
+              g += '<path d="M ' + (x + dx - 16) + ' ' + (y + 18) + ' C ' + (x + dx - 14) + ' ' + (y - 6 * sc) + ', ' + (x + dx - 4) + ' ' + (y - 20 * sc) + ', ' + (x + dx + 10) + ' ' + (y - 26 * sc) + ' C ' + (x + dx + 16) + ' ' + (y - 12 * sc) + ', ' + (x + dx + 18) + ' ' + (y + 4) + ', ' + (x + dx + 16) + ' ' + (y + 18) + ' Z" fill="#f2f3f0" stroke="' + edge + '" stroke-width="2"/>';
+            }
+            g += '<rect x="' + (x - 44) + '" y="' + (y + 16) + '" width="88" height="10" fill="' + (style === 'parchment' ? '#c9a06a' : '#b28a58') + '" stroke="' + edge + '" stroke-width="1.6"/>';
+            return g;
+          }
+          case 'house':
+            return '<rect x="' + x + '" y="' + y + '" width="' + (w || 40) + '" height="' + (h || 28) + '" rx="3" fill="' + (style === 'parchment' ? '#e2cda0' : '#d9c6a4') + '" stroke="' + (style === 'parchment' ? '#4a3826' : '#bfa87e') + '" stroke-width="2"/>' +
+              '<rect x="' + (x + (w || 40) / 2 - 3) + '" y="' + (y - 14) + '" width="6" height="16" fill="' + (style === 'parchment' ? '#4a3826' : '#bfa87e') + '"/>';
+          case 'boathouse':
+            return '<rect x="' + x + '" y="' + y + '" width="' + (w || 52) + '" height="' + (h || 34) + '" rx="3" fill="' + S.wood + '" stroke="' + S.woodEdge + '" stroke-width="2"/>';
+          case 'boat': {
+            const rx = f.small ? 15 : 22, ry = f.small ? 6 : 9;
+            return '<ellipse cx="' + x + '" cy="' + y + '" rx="' + rx + '" ry="' + ry + '" fill="' + S.boat + '" stroke="' + S.boatEdge + '" stroke-width="1.5"/>';
+          }
+          case 'fountain':
+            return '<circle cx="' + x + '" cy="' + y + '" r="15" fill="' + S.water + '" stroke="' + S.waterEdge + '" stroke-width="2"/>' +
+              '<path d="M ' + (x - 12) + ' ' + y + ' h24 M ' + x + ' ' + (y - 12) + ' v24" stroke="' + S.waterEdge + '" stroke-width="1.4"/>';
+          case 'stall':
+            return '<rect x="' + x + '" y="' + y + '" width="20" height="12" rx="2" fill="' + S.wood + '" stroke="' + S.woodEdge + '" stroke-width="1.6"/>';
+          case 'farm': {
+            const rows = f.rows || 1;
+            const cw = w || 80, ch = h || 32;
+            let g = '<rect x="' + x + '" y="' + y + '" width="' + cw + '" height="' + ch + '" fill="' + (style === 'parchment' ? '#dfc98e' : '#d9c98f') + '" stroke="' + (style === 'parchment' ? '#a8865a' : '#b8a86f') + '" stroke-width="1.4"/>';
+            const n = Math.floor(cw / 14);
+            for (let i = 0; i < n; i++) {
+              for (let r = 0; r < rows; r++) {
+                g += '<path d="M ' + (x + 8 + i * 14) + ' ' + (y + 4 + r * 22) + ' v10" stroke="' + S.crop + '" stroke-width="2" stroke-linecap="round"/>';
+              }
+            }
+            return g;
+          }
+          case 'pavilion':
+            return '<polygon points="' + (x - 12) + ',' + (y + 14) + ' ' + x + ',' + (y - 10) + ' ' + (x + 12) + ',' + (y + 14) + '" fill="#e3d5b2" stroke="#b0a687" stroke-width="1.6"/>';
+          case 'city': {
+            const edge = '#8f7d5c';
+            let g = '<circle cx="' + x + '" cy="' + y + '" r="34" fill="#d8c8a0" stroke="' + edge + '" stroke-width="3"/>';
+            g += '<rect x="' + (x - 14) + '" y="' + (y - 14) + '" width="28" height="28" fill="#c9b287" stroke="' + edge + '" stroke-width="2"/>';
+            g += '<rect x="' + (x - 38) + '" y="' + (y + 16) + '" width="16" height="12" fill="#d2b78d" stroke="' + edge + '"/>';
+            g += '<rect x="' + (x + 20) + '" y="' + (y + 16) + '" width="16" height="12" fill="#d2b78d" stroke="' + edge + '"/>';
+            g += '<rect x="' + (x - 10) + '" y="' + (y + 30) + '" width="16" height="12" fill="#d2b78d" stroke="' + edge + '"/>';
+            return g;
+          }
+          case 'fortress': {
+            const edge = '#6b5a3e';
+            let g = '<rect x="' + (x - 18) + '" y="' + (y - 18) + '" width="36" height="36" fill="#cbb68c" stroke="' + edge + '" stroke-width="3"/>';
+            const corners = [[-18, -18], [18, -18], [-18, 18], [18, 18]];
+            for (const c of corners) g += '<circle cx="' + (x + c[0]) + '" cy="' + (y + c[1]) + '" r="4.5" fill="' + edge + '"/>';
+            g += '<path d="M ' + x + ' ' + (y - 18) + ' v-14 h12" fill="none" stroke="' + edge + '" stroke-width="2.4"/>';
+            return g;
+          }
+          case 'gate':
+            return '<rect x="' + (x - 22) + '" y="' + (y - 9) + '" width="14" height="32" fill="#c9b68c" stroke="#8a7a58" stroke-width="2"/>' +
+              '<rect x="' + (x + 8) + '" y="' + (y - 9) + '" width="14" height="32" fill="#c9b68c" stroke="#8a7a58" stroke-width="2"/>';
+          case 'port': {
+            let g = '<rect x="' + (x - 8) + '" y="' + (y - 20) + '" width="16" height="40" fill="#c9a97a" stroke="#8a6a42" stroke-width="2" transform="rotate(-14 ' + x + ' ' + y + ')"/>';
+            g += '<rect x="' + (x - 16) + '" y="' + (y - 44) + '" width="20" height="14" fill="' + S.wood + '" stroke="' + S.woodEdge + '" stroke-width="2"/>';
+            g += '<rect x="' + (x + 8) + '" y="' + (y - 48) + '" width="20" height="14" fill="' + S.wood + '" stroke="' + S.woodEdge + '" stroke-width="2"/>';
+            return g;
+          }
+          case 'volcano': {
+            let g = '<polygon points="' + (x - 32) + ',' + (y + 85) + ' ' + x + ',' + (y - 2) + ' ' + (x + 32) + ',' + (y + 85) + '" fill="#c07a5a" stroke="#9a5a40" stroke-width="2"/>';
+            g += '<ellipse cx="' + x + '" cy="' + (y - 2) + '" rx="17" ry="6" fill="#6e3a28"/>';
+            g += '<path d="M ' + (x - 4) + ' ' + (y + 12) + ' L ' + (x + 2) + ' ' + (y + 42) + ' L ' + (x - 6) + ' ' + (y + 70) + '" fill="none" stroke="#a34a30" stroke-width="3" stroke-linecap="round"/>';
+            return g;
+          }
+          default:
+            return '';
+        }
+      }
+
+      function mmsMapArtCompass(S, style) {
+        if (style === 'parchment') {
+          return '<g transform="translate(858,146)">' +
+            '<circle r="24" fill="#f2e6c4" stroke="#6b4f30" stroke-width="2"/>' +
+            '<polygon points="0,-18 6,4 0,0 -6,4" fill="#8a3a2a"/>' +
+            '<polygon points="0,18 6,-4 0,0 -6,-4" fill="#6b4f30"/>' +
+            '<text y="-28" text-anchor="middle" font-size="14" fill="#5b3a24" font-family="' + S.font + '">N</text></g>';
+        }
+        return '<g><circle cx="912" cy="112" r="26" fill="#f4f7f9" stroke="#7a8ea0" stroke-width="2"/>' +
+          '<polygon points="912,90 918,112 906,112" fill="#b05a4a"/>' +
+          '<polygon points="912,134 918,112 906,112" fill="#7a8ea0"/>' +
+          '<text x="912" y="84" text-anchor="middle" font-size="15" fill="#5d788c" font-family="' + S.font + '">N</text></g>';
+      }
+
+      function mmsMapArtScaleBar(S, style) {
+        if (style !== 'parchment') return '';
+        return '<g stroke="#5b3a24" stroke-width="2">' +
+          '<path d="M 110 942 h150 M 110 936 v12 M 185 938 v8 M 260 936 v12"/>' +
+          '<text x="110" y="930" font-size="13" fill="#5b3a24" stroke="none" font-family="' + S.font + '">0</text>' +
+          '<text x="248" y="930" font-size="13" fill="#5b3a24" stroke="none" font-family="' + S.font + '">500步</text></g>';
+      }
+
+      // 语义 JSON → SVG 字符串（flat=简约平面 / parchment=手绘羊皮纸）
+      function mmsRenderMapArt(json, styleName) {
+        const S = MMS_MAPART_STYLES[styleName] || MMS_MAPART_STYLES.flat;
+        const style = styleName === 'parchment' ? 'parchment' : 'flat';
+        const parts = [];
+        const P = (s) => parts.push(s);
+
+        let defs = '';
+        if (style === 'parchment') {
+          defs = '<defs>' +
+            '<filter id="mms-map-pn"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="7" result="n"/>' +
+            '<feColorMatrix in="n" type="matrix" values="0 0 0 0 0.38  0 0 0 0 0.27  0 0 0 0 0.13  0 0 0 0.55 0"/>' +
+            '<feComposite operator="in" in2="SourceGraphic"/></filter>' +
+            '<radialGradient id="mms-map-vig" cx="50%" cy="50%" r="74%"><stop offset="58%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(90,60,30,0.32)"/></radialGradient>' +
+            '<pattern id="mms-map-hatch" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="9" height="9" fill="#e8d5ab"/><line x1="0" y1="0" x2="0" y2="9" stroke="#c9ae7c" stroke-width="1.1"/></pattern>' +
+            '<pattern id="mms-map-grn" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)"><rect width="10" height="10" fill="#c6d3a0"/><line x1="0" y1="0" x2="0" y2="10" stroke="#93a878" stroke-width="1.2"/></pattern>' +
+            '</defs>';
+        } else {
+          defs = '<defs><pattern id="mms-map-grid" width="50" height="50" patternUnits="userSpaceOnUse">' +
+            '<path d="M50 0H0V50" fill="none" stroke="#8a7a58" stroke-opacity="0.10"/></pattern></defs>';
+        }
+
+        // 底色 + 装饰
+        const groundFill = S.ground[json.ground === 'sea' ? 'sea' : 'field'] || S.ground.field;
+        P('<rect width="1000" height="1000" fill="' + groundFill + '"/>');
+        if (style === 'parchment') {
+          P('<rect width="1000" height="1000" fill="' + groundFill + '" filter="url(#mms-map-pn)" opacity="0.5"/>');
+          P('<rect width="1000" height="1000" fill="url(#mms-map-vig)"/>');
+          P('<rect x="28" y="28" width="944" height="944" fill="none" stroke="#6b4f30" stroke-width="4"/>');
+          P('<rect x="42" y="42" width="916" height="916" fill="none" stroke="#6b4f30" stroke-width="1.5"/>');
+          if (json.name) P('<text x="500" y="104" text-anchor="middle" font-size="46" fill="#5b3a24" letter-spacing="14" font-family="' + S.font + '">' + json.name + '</text>');
+          P('<path d="M 380 122 C 440 132, 560 132, 620 122" stroke="#8a6a42" stroke-width="2" fill="none"/>');
+        } else {
+          P('<rect width="1000" height="1000" fill="url(#mms-map-grid)"/>');
+          if (json.ground === 'sea') {
+            const waves = [[90, 180], [850, 900], [80, 780], [905, 430], [880, 760], [60, 420]];
+            P('<g fill="none" stroke="#cfe4ef" stroke-width="3" opacity="0.8" stroke-linecap="round">' +
+              waves.map((w) => '<path d="M ' + w[0] + ' ' + w[1] + ' q 18 -10 36 0 q 18 10 36 0"/>').join('') + '</g>');
+          }
+        }
+
+        // 地形色块
+        for (const t of json.terrain || []) {
+          const fill = t.type === 'forest' && style === 'parchment' ? 'url(#mms-map-grn)'
+            : t.type === 'field' && style === 'parchment' ? 'url(#mms-map-hatch)'
+            : S[t.type] || S.grass;
+          const edge = t.type === 'lake' ? S.waterEdge : (t.type === 'snow' ? '#d3dde2' : (style === 'parchment' ? '#5f4a30' : null));
+          const sw = style === 'parchment' ? 1.8 : 2;
+          if (t.shape === 'ellipse' && t.at && t.r) {
+            P('<ellipse cx="' + t.at[0] + '" cy="' + t.at[1] + '" rx="' + t.r[0] + '" ry="' + t.r[1] + '" fill="' + fill + '"' + (edge ? ' stroke="' + edge + '" stroke-width="' + sw + '"' : '') + '/>');
+          } else if (t.shape === 'path' && t.d) {
+            P('<path d="' + t.d + '" fill="' + fill + '"' + (edge ? ' stroke="' + edge + '" stroke-width="' + sw + '"' : '') + '/>');
+          } else if (t.shape === 'rect' && t.at && t.size) {
+            P('<rect x="' + t.at[0] + '" y="' + t.at[1] + '" width="' + t.size[0] + '" height="' + t.size[1] + '" fill="' + fill + '"' + (edge ? ' stroke="' + edge + '" stroke-width="' + sw + '"' : '') + '/>');
+          }
+        }
+
+        // 城区
+        for (const d of json.districts || []) {
+          let fill;
+          if (style === 'parchment') fill = d.type === 'garden' || d.type === 'royal' ? 'url(#mms-map-grn)' : 'url(#mms-map-hatch)';
+          else fill = { royal: '#cfe0ae', craft: '#e0cfa8', garden: '#b9d09c', plaza: '#f2ead3', harbor: '#cfae7d' }[d.type] || '#e0cfa8';
+          const edge = style === 'parchment' ? '#5f4a30' : (d.type === 'plaza' ? '#d8c8a4' : null);
+          const sw = style === 'parchment' ? 1.8 : 2;
+          if (d.shape === 'ellipse' && d.at && d.r) {
+            P('<ellipse cx="' + d.at[0] + '" cy="' + d.at[1] + '" rx="' + d.r[0] + '" ry="' + d.r[1] + '" fill="' + fill + '"' + (d.type === 'royal' && style !== 'parchment' ? ' opacity="0.75"' : '') + (edge ? ' stroke="' + edge + '" stroke-width="' + sw + '"' : '') + '/>');
+          } else if (d.at) {
+            P('<rect x="' + d.at[0] + '" y="' + d.at[1] + '" width="' + (d.size ? d.size[0] : 100) + '" height="' + (d.size ? d.size[1] : 70) + '" rx="' + (d.r || 0) + '" fill="' + fill + '"' + (edge ? ' stroke="' + edge + '" stroke-width="' + sw + '"' : '') + '/>');
+          }
+        }
+
+        // 河流
+        if (json.river) {
+          const w = S.strokeW.river;
+          if (style === 'parchment') {
+            P('<path d="' + json.river + '" fill="none" stroke="' + S.river + '" stroke-width="' + w + '" opacity="0.85" stroke-linecap="round"/>');
+            P('<path d="' + json.river + '" fill="none" stroke="' + S.riverEdge + '" stroke-width="2" stroke-dasharray="18 14"/>');
+          } else {
+            P('<path d="' + json.river + '" fill="none" stroke="' + S.riverEdge + '" stroke-width="' + (w + 10) + '" stroke-linecap="round"/>');
+            P('<path d="' + json.river + '" fill="none" stroke="' + S.river + '" stroke-width="' + w + '" stroke-linecap="round"/>');
+          }
+        }
+
+        // 道路
+        if ((json.roads || []).length) {
+          if (style === 'parchment') {
+            P('<g fill="none" stroke="' + S.road + '" stroke-width="1.6" stroke-dasharray="' + (S.roadDash || '11 9') + '">' +
+              json.roads.map((d) => '<path d="' + d + '"/>').join('') + '</g>');
+          } else {
+            P('<g fill="none" stroke="' + S.roadEdge + '" stroke-width="' + S.strokeW.roadEdge + '" stroke-linecap="round">' +
+              json.roads.map((d) => '<path d="' + d + '"/>').join('') + '</g>');
+            P('<g fill="none" stroke="' + S.road + '" stroke-width="' + S.strokeW.road + '" stroke-linecap="round">' +
+              json.roads.map((d) => '<path d="' + d + '"/>').join('') + '</g>');
+          }
+        }
+
+        // 桥梁
+        for (const b of json.bridges || []) {
+          if (!b.at) continue;
+          const bw = b.size ? b.size[0] : 50, bh = b.size ? b.size[1] : 26;
+          P('<rect x="' + b.at[0] + '" y="' + b.at[1] + '" width="' + bw + '" height="' + bh + '" rx="4" fill="' + (style === 'parchment' ? '#c9a06a' : '#b28a58') + '" stroke="' + (style === 'parchment' ? '#5f4630' : '#8a6a42') + '" stroke-width="2"/>');
+          P('<path d="' + [0, 1, 2].map((i) => 'M ' + (b.at[0] + 12 + i * 12) + ' ' + (b.at[1] + 1) + ' v' + (bh - 2)).join(' ') + '" stroke="' + (style === 'parchment' ? '#5f4630' : '#8a6a42') + '" stroke-width="1.4"/>');
+        }
+
+        // 山脉
+        if (json.ridge && json.ridge.from && json.ridge.to) {
+          const x0 = json.ridge.from[0], y0 = json.ridge.from[1], x1 = json.ridge.to[0], y1 = json.ridge.to[1];
+          const n = json.ridge.peaks || 5;
+          let g = '';
+          for (let i = 0; i < n; i++) {
+            const t = n === 1 ? 0 : i / (n - 1);
+            const cx = x0 + (x1 - x0) * t, cy = y0 + (y1 - y0) * t;
+            const s = 60 - t * 18;
+            g += '<polygon points="' + (cx - 30) + ',' + (cy + s * 0.55) + ' ' + cx + ',' + (cy - s * 0.55) + ' ' + (cx + 30) + ',' + (cy + s * 0.55) + '" fill="' + (style === 'parchment' ? '#c4b494' : '#bfae8e') + '" stroke="' + (style === 'parchment' ? '#6b5a3e' : '#99875f') + '" stroke-width="2"/>';
+            g += '<polygon points="' + (cx - 8) + ',' + (cy - s * 0.18) + ' ' + cx + ',' + (cy - s * 0.55) + ' ' + (cx + 8) + ',' + (cy - s * 0.18) + '" fill="#f6f6f0"/>';
+          }
+          P(g);
+        }
+
+        // 城墙 / 大陆轮廓
+        const o = json.outline;
+        if (o) {
+          let dAttr;
+          if (o.shape === 'roundRect' && o.at && o.size) dAttr = mmsMapArtRoundRect(o.at[0], o.at[1], o.size[0], o.size[1], o.r || 30);
+          else dAttr = o.d;
+          if (dAttr) {
+            if (o.land) {
+              P('<path d="' + dAttr + '" fill="' + (json.ground === 'sea' ? '#ddd0a9' : 'none') + '" stroke="' + S.landStroke + '" stroke-width="4"/>');
+            } else {
+              P('<path d="' + dAttr + '" fill="none" stroke="' + S.wall + '" stroke-width="' + S.strokeW.wall + '"/>');
+              if (style !== 'parchment' && o.shape === 'roundRect') {
+                P('<path d="' + mmsMapArtRoundRect(o.at[0] + 13, o.at[1] + 13, o.size[0] - 26, o.size[1] - 26, Math.max(4, (o.r || 30) - 8)) + '" fill="none" stroke="' + S.wallInner + '" stroke-width="3"/>');
+              }
+            }
+          }
+        }
+        for (const b of json.bays || []) {
+          P('<path d="' + b + '" fill="' + S.ground.sea + '"/>');
+          P('<path d="' + b + '" fill="none" stroke="' + S.landStroke + '" stroke-width="3"/>');
+        }
+
+        // 塔楼 / 城门
+        for (const t of json.towers || []) {
+          P('<circle cx="' + t[0] + '" cy="' + t[1] + '" r="12" fill="' + S.tower + '" stroke="' + S.towerEdge + '" stroke-width="2"/>');
+        }
+        for (const g of json.gates || []) {
+          const x = g[0], y = g[1];
+          P('<rect x="' + (x - 22) + '" y="' + (y - 12) + '" width="44" height="36" fill="#f0e8d0"/>');
+          P('<rect x="' + (x - 40) + '" y="' + (y - 18) + '" width="16" height="34" rx="3" fill="' + S.towerEdge + '"/>');
+          P('<rect x="' + (x + 24) + '" y="' + (y - 18) + '" width="16" height="34" rx="3" fill="' + S.towerEdge + '"/>');
+          P('<path d="M ' + (x - 16) + ' ' + (y + 20) + ' Q ' + x + ' ' + (y - 2) + ' ' + (x + 16) + ' ' + (y + 20) + '" fill="none" stroke="' + (style === 'parchment' ? '#3f3020' : '#6b5a3e') + '" stroke-width="3"/>');
+        }
+
+        // 批量民居 / 树木
+        if ((json.houses || []).length) {
+          P('<g fill="' + S.houseFill + '" stroke="' + S.houseEdge + '" stroke-width="1.5">' +
+            json.houses.map((hh) => '<rect x="' + hh[0] + '" y="' + hh[1] + '" width="26" height="18" rx="2"/>').join('') + '</g>');
+        }
+        if ((json.trees || []).length) {
+          P('<g fill="' + S.tree + '" stroke="' + S.treeEdge + '" stroke-width="1.5">' +
+            json.trees.map((tt) => '<circle cx="' + tt[0] + '" cy="' + tt[1] + '" r="' + (style === 'parchment' ? 10 : 13) + '"/>').join('') + '</g>');
+        }
+
+        // 特色建筑
+        for (const f of json.features || []) {
+          if (f && f.at) P(mmsMapArtFeature(f, S, style));
+        }
+
+        // 文字标签
+        if ((json.labels || []).length) {
+          P('<g fill="' + S.label + '" font-size="17" opacity="0.85" text-anchor="middle" font-family="' + S.font + '">' +
+            json.labels.map((l) => '<text x="' + l.at[0] + '" y="' + l.at[1] + '">' + l.text + '</text>').join('') + '</g>');
+        }
+
+        // 装饰（罗盘/比例尺）
+        P(mmsMapArtCompass(S, style));
+        P(mmsMapArtScaleBar(S, style));
+
+        return '<svg viewBox="0 0 1000 1000" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" style="display:block" font-family="' + S.font + '">' + defs + '\n' + parts.join('\n') + '\n</svg>';
+      }
+
       // ==========================================
       // 战术视觉地图引擎 (多场景 + 海边通透版)
       // ==========================================
       class TacticalMapEngine {
-        constructor(containerElement, markersData, mapTypeStr) {
+        constructor(containerElement, markersData, mapTypeStr, options) {
           this.container = containerElement;
           this.markers = markersData;
           this.mapTypeStr = mapTypeStr || "";
+          this.options = options || {};
           
           // 智能推断环境类型
           this.envType = 'dark-room'; // 默认：昏暗室内
@@ -4413,7 +4826,9 @@ const AVATAR_MAP = {
         }
 
         getSVG() {
-          const uid = this.container.id; 
+          // 独立大地图：优先使用绘图 AI 生成的底图（本地渲染器产出）
+          if (this.options && this.options.customSVG) return this.options.customSVG;
+          const uid = this.container.id;
           
           // === [新增] 底图拦截逻辑 ===
           let matchedBg = null;
@@ -7338,6 +7753,10 @@ const AVATAR_MAP = {
                 <div class="marker-emoji">${AVATAR_MAP[marker.name] ? `<img src="${AVATAR_MAP[marker.name]}" style="width:3rem;height:3rem;border-radius:50%;object-fit:cover;box-shadow:0 2px 4px rgba(0,0,0,0.4);border:2px solid white;display:inline-block;vertical-align:middle;margin-top:-0.75rem;" />` : (marker.emoji || '📍')}</div>
                 <div class="map-tooltip">${marker.name}</div>
              `;
+             // 独立大地图：正文地点行匹配命中的地标 → 金色光环高亮
+             if (this.options && this.options.hereName && marker.name === this.options.hereName) {
+               el.classList.add('here');
+             }
              el.addEventListener('click', (e) => { e.stopPropagation(); this.activateMarker(index, el); });
              this.markersContainer.appendChild(el);
           });
@@ -7797,6 +8216,11 @@ createAttributeItem(key, value) {
     }).filter(Boolean);
 
     if (mapMarkersData.length > 0) {
+      // 独立大地图（AI 绘制）：走专用卡片（AI 底图 + 工具栏）
+      const bma = MMS_BIGMAP_ART_STATE;
+      if (bma && bma.enabled && key === bma.key) {
+        return this.createBigMapArtItem(key, mapMarkersData, bma);
+      }
       const li = document.createElement('li');
       li.innerHTML = `<div class="font-medium text-primary mb-1" style="font-family: monospace;"> 🌏当前场景：${this.formatNodeName(key)}</div>`;
       const mapDiv = document.createElement('div');
@@ -7906,6 +8330,97 @@ createAttributeItem(key, value) {
   }
 
   return item;
+}
+
+// 独立大地图（AI 绘制）专用卡片：AI 底图引擎 + 位置徽标 + 生成/更新工具栏
+createBigMapArtItem(key, markersData, bma) {
+  const li = document.createElement('li');
+
+  // 头部：地图名 + 当前位置匹配徽标
+  const head = document.createElement('div');
+  head.className = 'flex items-center justify-between gap-2 mb-1 flex-wrap';
+  let badgeHtml = '';
+  if (bma.empty) {
+    badgeHtml = '';
+  } else if (bma.hereMatched) {
+    badgeHtml = '<span class="mms-bm-badge hit">📍 当前：' + bma.hereName + '</span>';
+  } else {
+    badgeHtml = '<span class="mms-bm-badge miss">⚠️ 剧情地点未匹配地标</span>';
+  }
+  head.innerHTML =
+    '<span class="font-medium text-primary" style="font-family: monospace;"> 🌍大地图：' + this.formatNodeName(key) + '</span>' + badgeHtml;
+  li.appendChild(head);
+
+  // 尚未生成：占位 + 生成按钮
+  if (bma.empty) {
+    const box = document.createElement('div');
+    box.className = 'mms-bm-placeholder';
+    box.innerHTML =
+      '<div>🎨 独立大地图尚未生成</div>' +
+      '<div class="sub">由绘图 AI 依据剧情生成底图与地标（约 1K tokens，每个聊天仅一次，之后缓存零开销）</div>';
+    const btn = document.createElement('button');
+    btn.className = 'mms-bm-btn primary';
+    btn.type = 'button';
+    btn.textContent = '🎲 生成大地图';
+    btn.disabled = !!bma.generating;
+    btn.addEventListener('click', () => window.MMS && window.MMS.generateMapArt('full'));
+    box.appendChild(btn);
+    li.appendChild(box);
+    return li;
+  }
+
+  // 地图本体：复用战术地图引擎（拖拽/缩放/悬停/点击交互），底图换成 AI 生成 SVG
+  const mapDiv = document.createElement('div');
+  if (!window.mapInstanceCount) window.mapInstanceCount = 0;
+  mapDiv.id = `map-instance-${window.mapInstanceCount++}`;
+  li.appendChild(mapDiv);
+  const engineOpts = { customSVG: bma.svg, hereName: bma.hereName };
+  setTimeout(() => new TacticalMapEngine(mapDiv, markersData, key, engineOpts), 50);
+
+  // 工具栏：风格切换（免费）/ 增量更新 / 整图重绘
+  const bar = document.createElement('div');
+  bar.className = 'mms-bm-bar';
+  const busy = !!bma.generating;
+
+  const styleBtn = document.createElement('button');
+  styleBtn.className = 'mms-bm-btn';
+  styleBtn.type = 'button';
+  styleBtn.textContent = bma.style === 'parchment' ? '📐 换简约平面' : '📜 换羊皮纸风';
+  styleBtn.title = '同一份地图数据，本地即时重绘，零 AI 开销';
+  styleBtn.disabled = busy;
+  styleBtn.addEventListener('click', () => window.MMS && window.MMS.switchMapArtStyle());
+
+  const mergeBtn = document.createElement('button');
+  mergeBtn.className = 'mms-bm-btn' + (bma.hereMatched ? '' : ' notify');
+  mergeBtn.type = 'button';
+  mergeBtn.textContent = '➕ 更新地图';
+  mergeBtn.title = '增量合并：保留现有地图，追加剧情新发现的地点';
+  mergeBtn.disabled = busy;
+  mergeBtn.addEventListener('click', () => window.MMS && window.MMS.generateMapArt('merge'));
+
+  const regenBtn = document.createElement('button');
+  regenBtn.className = 'mms-bm-btn';
+  regenBtn.type = 'button';
+  regenBtn.textContent = '🎲 整图重绘';
+  regenBtn.title = '忽略旧图，重新生成完整地图（消耗一次绘图调用）';
+  regenBtn.disabled = busy;
+  regenBtn.addEventListener('click', () => {
+    if (window.confirm('整图重绘将忽略现有地图重新生成（消耗一次绘图调用），确定？')) {
+      window.MMS && window.MMS.generateMapArt('full');
+    }
+  });
+
+  bar.appendChild(styleBtn);
+  bar.appendChild(mergeBtn);
+  bar.appendChild(regenBtn);
+  if (busy) {
+    const spin = document.createElement('span');
+    spin.className = 'mms-bm-busy';
+    spin.textContent = '⏳ 绘图 AI 生成中…（约 10~30 秒）';
+    bar.appendChild(spin);
+  }
+  li.appendChild(bar);
+  return li;
 }
 
 isLocationRelatedField(key) {
@@ -8155,6 +8670,7 @@ createCharacterEntry(text, categoryKey) {
       const MMS_MARKER = '【状态栏标记点】';
       const MMS_EVENT_UPDATED = 'mms:status-updated';
       const MMS_EVENT_FAILED = 'mms:status-update-failed';
+      const MMS_EVENT_MAPART = 'mms:map-art-updated';
       const MMS_INJECT_ID = 'mms-status-inject';
       // 世界书注入条目名（聊天绑定世界书内）
       const MMS_WB_ENTRY_NAME = 'MMS-状态栏数据';
@@ -9088,10 +9604,11 @@ createCharacterEntry(text, categoryKey) {
         }
         R['角色列表'] = newList;
 
-        // 地图模块按需开启：未开启的从状态移除
+        // 地图模块按需开启：未开启的从状态移除（独立大地图开启时，大地图不归状态 LLM 管）
         const mapsCfg = (roster && roster.maps) || {};
+        const bigArtOn = !!(roster && roster.bigmapArt && roster.bigmapArt.enabled);
         if (mapsCfg.minimap === false) delete R['小地图'];
-        if (!mapsCfg.bigmap) delete R['大地图'];
+        if (!mapsCfg.bigmap || bigArtOn) delete R['大地图'];
 
         // 据点固定模块：缺失字段用基线补齐（不覆盖已有值）
         const baseCfg = roster && roster.base;
@@ -9119,7 +9636,8 @@ createCharacterEntry(text, categoryKey) {
         const rosterChars = (roster && roster.characters) || [];
         const mapsCfg = roster && roster.maps ? roster.maps : {};
         const minimapOn = mapsCfg.minimap !== false;
-        const bigmapOn = !!mapsCfg.bigmap;
+        // 独立大地图开启时，状态 LLM 不再维护大地图（不输出、不合并、不注入）
+        const bigmapOn = !!mapsCfg.bigmap && !(roster && roster.bigmapArt && roster.bigmapArt.enabled);
         const baseCfg = roster && roster.base ? roster.base : null;
         const prevRoot = prev && (prev['状态栏'] || prev) ? prev['状态栏'] || prev : {};
         const aiRoot = aiOut && (aiOut['状态栏'] || aiOut) ? aiOut['状态栏'] || aiOut : {};
@@ -9236,7 +9754,8 @@ createCharacterEntry(text, categoryKey) {
         roster = roster || {};
         const maps = roster.maps || {};
         const minimapOn = maps.minimap !== false;
-        const bigmapOn = !!maps.bigmap;
+        // 独立大地图开启时，状态 LLM 不再维护大地图（不输出、不合并、不注入）
+        const bigmapOn = !!maps.bigmap && !(roster.bigmapArt && roster.bigmapArt.enabled);
         const base = roster.base || {};
         const baseOn = !!base.enabled;
         const charMode = roster.charDisplayMode === 'fixed' ? 'fixed' : 'full';
@@ -9565,6 +10084,7 @@ createCharacterEntry(text, categoryKey) {
             base: { enabled: false, name: '', cash: '', fields: [] },
             maps: { minimap: true, bigmap: false },
             mapTags: { pool: [], mini: MMS_MINI_DEFAULT_TAGS.slice(), big: [] },
+            bigmapArt: { enabled: false, note: '', style: 'flat' },
           };
           try {
             if (!this.env.hasVarsApi) return fallback;
@@ -9585,6 +10105,14 @@ createCharacterEntry(text, categoryKey) {
               r.maps && typeof r.maps === 'object'
                 ? { minimap: r.maps.minimap !== false, bigmap: !!r.maps.bigmap }
                 : fallback.maps;
+            const bigmapArt =
+              r.bigmapArt && typeof r.bigmapArt === 'object'
+                ? {
+                    enabled: !!r.bigmapArt.enabled,
+                    note: String(r.bigmapArt.note || ''),
+                    style: r.bigmapArt.style === 'parchment' ? 'parchment' : 'flat',
+                  }
+                : fallback.bigmapArt;
             const tagCfg = mmsGetMapTags(r);
             return {
               characters: Array.isArray(r.characters) ? r.characters.filter(Boolean) : [],
@@ -9595,6 +10123,7 @@ createCharacterEntry(text, categoryKey) {
               base: base,
               maps: maps,
               mapTags: tagCfg,
+              bigmapArt: bigmapArt,
             };
           } catch (e) {
             console.warn('[MMS] 读取名册失败:', e);
@@ -9912,7 +10441,10 @@ createCharacterEntry(text, categoryKey) {
 
         renderFromState(state) {
           try {
-            updateYamlDataSource(this.stateToYaml(state));
+            this.lastState = state;
+            // 独立大地图：仅渲染层注入（显示副本），不写回变量、不进注入上下文
+            const display = this.injectBigMapArt(state);
+            updateYamlDataSource(this.stateToYaml(display));
             setTimeout(() => reRenderStatusBar(), 60);
           } catch (e) {
             console.error('[MMS] 状态渲染失败:', e);
@@ -9927,7 +10459,360 @@ createCharacterEntry(text, categoryKey) {
           }
         },
 
+        // ---------- 独立大地图（AI 绘制：语义 JSON + 本地渲染器） ----------
+
+        // 聊天变量 $mms_map_art = { json, ts }：每个聊天一张演化中的地图，缓存后零 LLM 开销
+        loadMapArt() {
+          this.mapArt = null;
+          try {
+            if (!this.env.hasVarsApi) return;
+            const chatVars = getVariables({ type: 'chat' }) || {};
+            const a = chatVars && chatVars.$mms_map_art;
+            if (a && typeof a === 'object' && a.json && Array.isArray(a.json.markers) && a.json.markers.length) {
+              this.mapArt = this.sanitizeMapArt(a.json);
+            }
+          } catch (e) {
+            this.mapArt = null;
+          }
+        },
+
+        saveMapArt(json) {
+          try {
+            if (!this.env.hasVarsApi) return;
+            insertOrAssignVariables({ $mms_map_art: { json: json, ts: Date.now() } }, { type: 'chat' });
+          } catch (e) {
+            console.error('[MMS] 保存大地图失败:', e);
+          }
+        },
+
+        // 解析正文地点行（形如【📍悉尼·澳大利亚酒店-总督套房】），取候选地名与地标匹配
+        matchHereMarker(art) {
+          try {
+            const text = this.messageText || '';
+            const main = extractMaintext(text) || text;
+            const matches = [];
+            const re = /📍\s*([^】\n]{1,40})/g;
+            let m;
+            while ((m = re.exec(main)) !== null) matches.push(m[1]);
+            if (!matches.length) return null;
+            const last = matches[matches.length - 1];
+            // 从最细到最粗（"悉尼·澳大利亚酒店-总督套房" → 总督套房/澳大利亚酒店/悉尼），优先精确楼层
+            const cands = last.split(/[·\-—–]/).map((s) => s.trim()).filter(Boolean).reverse();
+            for (const c of cands) {
+              const hit = (art.markers || []).find(
+                (mk) => mk && mk.name && (c.includes(mk.name) || mk.name.includes(c)),
+              );
+              if (hit) return hit;
+            }
+          } catch (e) { /* 忽略 */ }
+          return null;
+        },
+
+        // 渲染前注入：把大地图（AI 版）合成进显示状态，并更新全局渲染开关 MMS_BIGMAP_ART_STATE
+        injectBigMapArt(state) {
+          const display = JSON.parse(JSON.stringify(state || {}));
+          const rootKey = Object.keys(display)[0];
+          if (!rootKey || !display[rootKey] || typeof display[rootKey] !== 'object') {
+            MMS_BIGMAP_ART_STATE = { enabled: false };
+            return display;
+          }
+          let artCfg = null;
+          try {
+            artCfg = this.loadRoster().bigmapArt;
+          } catch (e) {
+            artCfg = null;
+          }
+          if (!artCfg || !artCfg.enabled) {
+            MMS_BIGMAP_ART_STATE = { enabled: false };
+            return display;
+          }
+          const style = artCfg.style === 'parchment' ? 'parchment' : 'flat';
+          const art = this.mapArt;
+          if (art && Array.isArray(art.markers) && art.markers.length) {
+            const name = art.name || '大地图';
+            const here = this.matchHereMarker(art);
+            display[rootKey]['大地图'] = {};
+            display[rootKey]['大地图'][name] = art.markers.map(
+              (mk) => (mk.emoji || '📍') + '【' + mk.name + '】(' + mk.x + ', ' + mk.y + ') ' + (mk.desc || ''),
+            );
+            MMS_BIGMAP_ART_STATE = {
+              enabled: true,
+              key: name,
+              name: name,
+              svg: mmsRenderMapArt(art, style),
+              style: style,
+              hereName: here ? here.name : null,
+              hereMatched: !!here,
+              empty: false,
+              generating: !!this.mapArtBusy,
+            };
+          } else {
+            display[rootKey]['大地图'] = {};
+            display[rootKey]['大地图']['AI大地图'] = [
+              '🗺️【大地图尚未生成】(50, 50) 点击下方按钮，由绘图 AI 依据剧情生成',
+            ];
+            MMS_BIGMAP_ART_STATE = {
+              enabled: true,
+              key: 'AI大地图',
+              name: 'AI大地图',
+              svg: null,
+              style: style,
+              hereName: null,
+              hereMatched: false,
+              empty: true,
+              generating: !!this.mapArtBusy,
+            };
+          }
+          return display;
+        },
+
+        // 风格切换：同一份 JSON 本地重绘，零 AI 开销
+        switchMapArtStyle() {
+          const rr = this.loadRoster();
+          rr.bigmapArt.style = rr.bigmapArt.style === 'parchment' ? 'flat' : 'parchment';
+          this.saveRoster(rr);
+          const sel = document.getElementById('mms-bigart-style');
+          if (sel) sel.value = rr.bigmapArt.style;
+          if (this.lastState) this.renderFromState(this.lastState);
+        },
+
+        collectLocationLines(floorId, count) {
+          const lines = [];
+          try {
+            if (typeof getChatMessages !== 'function') return lines;
+            const start = Math.max(0, floorId - count + 1);
+            for (let id = floorId; id >= start; id--) {
+              const t = this.readFloorMaintext(id);
+              if (!t) continue;
+              const re = /【[^】]*📍[^】]*】/g;
+              let m;
+              while ((m = re.exec(t)) !== null) lines.push(m[0]);
+            }
+          } catch (e) { /* 忽略 */ }
+          return lines;
+        },
+
+        buildMapArtSystemPrompt() {
+          const lines = [];
+          lines.push('你是跑团大地图绘制师。根据剧情信息规划一张区域大地图，输出「语义 JSON」——本地渲染器会把它绘制成图，你只负责地理布局与地标，不要输出 SVG，不要解释。');
+          lines.push('');
+          lines.push('## JSON 结构（顶层对象，只输出它）');
+          lines.push('{');
+          lines.push('  "name": "地图名",');
+          lines.push('  "ground": "field",  // 陆地底色；海岛/大陆图用 "sea"');
+          lines.push('  "terrain": [ {"type":"grass|snow|forest|desert|field|lake","shape":"ellipse","at":[x,y],"r":[rx,ry]} ],  // path 形态: {"shape":"path","d":"M...C..."}');
+          lines.push('  "outline": {"shape":"roundRect","at":[x,y],"size":[w,h],"r":36,"wall":true},  // 城市围墙；大陆轮廓: {"shape":"path","d":"M...C...","land":true}');
+          lines.push('  "towers": [[x,y]], "gates": [[x,y]],');
+          lines.push('  "river": "M x y C ...", "bridges": [{"at":[x,y],"size":[w,h]}],');
+          lines.push('  "roads": ["M x y C ..."],');
+          lines.push('  "districts": [ {"type":"royal|craft|garden|plaza|harbor","shape":"ellipse|rect","at":[x,y],"r":[rx,ry],"label":"区名"} ],');
+          lines.push('  "ridge": {"from":[x,y],"to":[x,y],"peaks":7},  // 山脉（可选）');
+          lines.push('  "features": [ {"type":"castle|church|house|opera|boathouse|boat|fountain|stall|farm|pavilion|city|fortress|gate|port|volcano","at":[x,y]} ],');
+          lines.push('  "houses": [[x,y]], "trees": [[x,y]],');
+          lines.push('  "labels": [ {"at":[x,y],"text":"地名"} ],');
+          lines.push('  "markers": [ {"emoji":"🏰","name":"地标名","x":50,"y":25,"desc":"一句话描述"} ]');
+          lines.push('}');
+          lines.push('');
+          lines.push('## 规则');
+          lines.push('1. 画布 1000×1000：terrain/outline/river/roads/features/houses/trees/labels/districts 用 0~1000 画布坐标；markers 用 10~90 的整数（百分比）。');
+          lines.push('2. markers 是玩家可见地标（5~12 个），每个地标必须在对应位置有 features 地物：marker(x,y) 对应画布坐标 (x*10, y*10)，确保 emoji 落在地物上；河流、道路不得压住地标落点。');
+          lines.push('3. 城市图：outline(wall)+towers+gates 为城墙，districts 分区，roads 主干道，river 可穿城并配 bridges，houses 15~40 个民居坐标，trees 郊野点缀。');
+          lines.push('4. 大陆图：ground="sea"，outline 用 path+land:true 画海岸线，terrain 拼雪原/森林/沙漠/农田/湖泊，ridge 表达山脉，roads 连接主要地标。');
+          lines.push('5. 布局紧凑饱满、疏密有致；地标之间保持距离，不要都挤在中心或边缘。');
+          lines.push('6. 只输出 JSON 对象，不要 markdown 围栏，不要任何解释文字。');
+          return lines.join('\n');
+        },
+
+        buildMapArtUserPrompt(mode, artCfg, latest, context, locLines) {
+          let p = '';
+          if (artCfg && artCfg.note) {
+            p += '<地图设定备注（优先遵循）>\n' + artCfg.note + '\n</地图设定备注>\n\n';
+          }
+          if (locLines && locLines.length) {
+            p += '<剧情出现过的地点行（按时间顺序，最新在最后）>\n' + locLines.join('\n') + '\n</地点行>\n\n';
+          }
+          if (context) {
+            p += '<前情提要>\n' + context + '\n</前情提要>\n\n';
+          }
+          if (latest) {
+            p += '<最新剧情>\n' + latest + '\n</最新剧情>\n\n';
+          }
+          if (mode === 'merge' && this.mapArt) {
+            p +=
+              '<当前地图 JSON（必须完整保留其中全部内容：已有地标的名称/坐标/描述、全部地物与地理，一律不得修改或删减）>\n' +
+              JSON.stringify(this.mapArt) +
+              '\n</当前地图>\n\n' +
+              '请依据剧情中新出现的地点，输出合并后的完整地图 JSON：旧内容原样保留，只为新地点追加 markers 条目，并在对应位置（x*10, y*10）追加 features/houses 等地物；如需新路/新区也可追加，但不得改动旧元素。\n';
+          } else {
+            p += '请依据以上剧情信息规划一张大地图并输出完整 JSON。地图必须覆盖剧情中已出现或提及的所有重要地点，并为每个地点配置 markers 与对应地物。\n';
+          }
+          return p;
+        },
+
+        parseMapArtOutput(raw) {
+          let text = String(raw || '').trim();
+          text = text.replace(/^```[a-zA-Z]*\s*\n?/, '').replace(/\n?```\s*$/, '');
+          const first = text.indexOf('{');
+          const last = text.lastIndexOf('}');
+          if (first === -1 || last === -1 || last <= first) {
+            throw new Error('AI 输出中未找到 JSON 对象');
+          }
+          const json = JSON.parse(text.slice(first, last + 1));
+          if (!json || typeof json !== 'object' || Array.isArray(json)) {
+            throw new Error('JSON 顶层不是对象');
+          }
+          if (!Array.isArray(json.markers) || json.markers.length === 0) {
+            throw new Error('缺少 markers 地标数组');
+          }
+          for (const m of json.markers) {
+            if (!m || !m.name) throw new Error('存在缺少名称的地标');
+          }
+          return json;
+        },
+
+        sanitizeMapArt(json) {
+          const clamp = (v) =>
+            Math.max(MMS_COORD_MIN, Math.min(MMS_COORD_MAX, Math.round(Number(v) || 50)));
+          json.name = String(json.name || '大地图').slice(0, 30);
+          if (json.ground !== 'sea') json.ground = 'field';
+          const cap = (arr, n) => (Array.isArray(arr) ? arr.slice(0, n) : []);
+          json.terrain = cap(json.terrain, 24);
+          json.roads = cap(json.roads, 12);
+          json.bridges = cap(json.bridges, 8);
+          json.districts = cap(json.districts, 10);
+          json.features = cap(json.features, 90);
+          json.houses = cap(json.houses, 60);
+          json.trees = cap(json.trees, 50);
+          json.labels = cap(json.labels, 14);
+          json.markers = cap(json.markers, 30).map((m) => ({
+            emoji: String((m && m.emoji) || '📍').slice(0, 8),
+            name: String((m && m.name) || '').slice(0, 24),
+            x: clamp(m && m.x),
+            y: clamp(m && m.y),
+            desc: String((m && m.desc) || '').slice(0, 80),
+          }));
+          return json;
+        },
+
+        // 独立绘图 LLM：mode = 'full'（整图重绘） | 'merge'（增量合并）
+        async generateMapArt(mode = 'full') {
+          if (!this.env.hasGenApi || !this.env.hasVarsApi) {
+            alert('当前酒馆助手版本缺少 generateRaw 或变量接口，无法生成大地图');
+            return false;
+          }
+          if (this.mapArtBusy) {
+            alert('大地图正在生成中，请稍候');
+            return false;
+          }
+          if (mode === 'merge' && !this.mapArt) mode = 'full';
+
+          const floorId = this.floorId != null ? this.floorId : 0;
+          const cfg = this.loadConfig();
+          const roster = this.loadRoster();
+          const artCfg = roster.bigmapArt || {};
+
+          this.mapArtBusy = true;
+          this.setIndicator('updating', mode === 'merge' ? '大地图增量合并中…' : '大地图生成中…');
+          if (this.lastState) this.renderFromState(this.lastState); // 显示"生成中"状态
+
+          try {
+            const floorCount = Math.min(10, Math.max(1, Number(cfg.contextFloors) || 2));
+            const { latest, context } = this.collectStorySegments(floorId, floorCount);
+            const locLines = this.collectLocationLines(floorId, floorCount);
+            const sysPrompt = this.buildMapArtSystemPrompt();
+            const userPrompt = this.buildMapArtUserPrompt(mode, artCfg, latest, context, locLines);
+            const customApi = this.buildCustomApi(cfg);
+
+            let lastError = null;
+            for (let attempt = 0; attempt < 3; attempt++) {
+              try {
+                const config = {
+                  ordered_prompts: [
+                    { role: 'system', content: sysPrompt },
+                    { role: 'user', content: userPrompt },
+                  ],
+                  custom_api: customApi,
+                  should_silence: true,
+                  generation_id: 'mms-mapart-' + floorId + '-' + Date.now(),
+                };
+                const result = await generateRaw(config);
+                const raw = typeof result === 'string' ? result : (result && result.content) || '';
+                this.debugLog(sysPrompt, userPrompt, raw, customApi);
+                const json = this.sanitizeMapArt(this.parseMapArtOutput(raw));
+
+                this.mapArt = json;
+                this.saveMapArt(json);
+                this.mapArtBusy = false;
+                if (this.lastState) this.renderFromState(this.lastState);
+                if (this.env.hasEventApi) {
+                  eventEmit(MMS_EVENT_MAPART, {});
+                }
+                this.setIndicator('ok', '大地图已更新');
+                setTimeout(() => {
+                  if (!this.updating && !this.mapArtBusy) this.setIndicator(null);
+                }, 4000);
+                return true;
+              } catch (e) {
+                lastError = e;
+                console.warn('[MMS] 大地图生成失败（第 ' + (attempt + 1) + ' 次）：', e);
+                if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+              }
+            }
+            throw lastError || new Error('未知错误');
+          } catch (e) {
+            this.mapArtBusy = false;
+            if (this.lastState) this.renderFromState(this.lastState);
+            const msg = e && e.message ? e.message : String(e);
+            this.setIndicator('error', '大地图生成失败：' + msg);
+            alert('大地图生成失败：' + msg + '\n请检查独立 API 配置（设置 → API），或稍后重试。');
+            return false;
+          }
+        },
+
         // ---------- 深度 0 系统注入 ----------
+
+        // 当前聊天是否有有效状态数据（本楼或往前最近一楼有 stat_data / 旧式 Status_block）
+        hasValidState() {
+          try {
+            if (this.floorId == null) return false;
+            const vars = this.readFloorVars(this.floorId);
+            if (vars && vars.stat_data) return true;
+            // 本楼无变量 → 往前找（与 findPrevState 相同逻辑，但同步轻量版）
+            if (typeof getChatMessages === 'function' && typeof getLastMessageId === 'function') {
+              const last = getLastMessageId();
+              for (let id = Math.min(this.floorId - 1, last); id >= 0 && id >= this.floorId - 50; id--) {
+                if (this.env.hasVarsApi) {
+                  const v = this.readFloorVars(id);
+                  if (v && v.stat_data) return true;
+                }
+                const arr = getChatMessages(id);
+                const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+                if (m && typeof m.message === 'string' && /<Status_block>/i.test(m.message)) return true;
+              }
+            }
+            return false;
+          } catch (e) {
+            return false;
+          }
+        },
+
+        // 无有效状态聊天：禁用世界书条目（不删除，换回有数据的聊天时 ensureInjection 会重新启用）
+        async disableWorldbookEntry() {
+          try {
+            const charWb = await Promise.resolve(getCharWorldbookNames('current'));
+            const wbName = charWb && charWb.primary ? charWb.primary : (charWb.additional || [])[0] || null;
+            if (!wbName) return;
+            const entries = await getWorldbook(wbName);
+            const existing = (entries || []).find((e) => e && e.name === MMS_WB_ENTRY_NAME);
+            if (!existing || !existing.enabled) return; // 已禁用或不存在
+            await updateWorldbookWith(wbName, (list) =>
+              list.map((e) => (e && e.name === MMS_WB_ENTRY_NAME ? { ...e, enabled: false } : e)),
+            );
+            console.info('[MMS] 当前聊天无状态数据，已禁用世界书条目「' + MMS_WB_ENTRY_NAME + '」');
+          } catch (e) {
+            console.warn('[MMS] 禁用世界书条目失败:', e);
+          }
+        },
 
         // 状态注入：写入当前角色卡主世界书的「MMS-状态栏数据」蓝灯条目（与蚀心数据库同模式）。
         // 同一角色卡所有聊天共用一本世界书（不新建聊天世界书，避免列表臃肿）；
@@ -9967,11 +10852,13 @@ createCharacterEntry(text, categoryKey) {
             const existing = (entries || []).find((e) => e && e.name === MMS_WB_ENTRY_NAME);
 
             if (existing) {
-              // 内容相同则跳过（避免频繁重写世界书）
-              if (existing.content === content) return;
-              // 只更新内容，保留用户自定义的位置/深度/排序/角色
+              // 内容相同且已启用则跳过（避免频繁重写世界书）
+              if (existing.content === content && existing.enabled) return;
+              // 更新内容并确保启用（无状态聊天被禁用后，换回有数据的聊天时恢复）
               await updateWorldbookWith(wbName, (list) =>
-                list.map((e) => (e && e.name === MMS_WB_ENTRY_NAME ? { ...e, content } : e)),
+                list.map((e) =>
+                  e && e.name === MMS_WB_ENTRY_NAME ? { ...e, content, enabled: true } : e,
+                ),
               );
             } else {
               // 首次创建：蓝灯条目 at_depth/深度0/排序10/system身份
@@ -11124,6 +12011,45 @@ createCharacterEntry(text, categoryKey) {
           if (bigEl) bigEl.checked = !!this.loadRoster().maps.bigmap;
           bindMapToggle('mms-map-minimap', 'minimap');
           bindMapToggle('mms-map-bigmap', 'bigmap');
+
+          // 独立大地图（AI 绘制）
+          const bigArtChk = document.getElementById('mms-bigart-enabled');
+          const bigArtForm = document.getElementById('mms-bigart-form');
+          const bigArtStyle = document.getElementById('mms-bigart-style');
+          const bigArtNote = document.getElementById('mms-bigart-note');
+          const syncBigArtUI = () => {
+            const art = this.loadRoster().bigmapArt;
+            if (bigArtChk) bigArtChk.checked = art.enabled;
+            if (bigArtForm) bigArtForm.style.display = art.enabled ? 'block' : 'none';
+            if (bigArtStyle) bigArtStyle.value = art.style;
+            if (bigArtNote && bigArtNote.value !== art.note) bigArtNote.value = art.note;
+          };
+          if (bigArtChk) {
+            bigArtChk.addEventListener('change', () => {
+              const rr = this.loadRoster();
+              rr.bigmapArt.enabled = bigArtChk.checked;
+              this.saveRoster(rr);
+              syncBigArtUI();
+              if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
+              this.applyRosterNow();
+            });
+          }
+          if (bigArtStyle) {
+            bigArtStyle.addEventListener('change', () => {
+              const rr = this.loadRoster();
+              rr.bigmapArt.style = bigArtStyle.value === 'parchment' ? 'parchment' : 'flat';
+              this.saveRoster(rr);
+              if (this.lastState) this.renderFromState(this.lastState);
+            });
+          }
+          if (bigArtNote) {
+            bigArtNote.addEventListener('change', () => {
+              const rr = this.loadRoster();
+              rr.bigmapArt.note = bigArtNote.value.trim();
+              this.saveRoster(rr);
+            });
+          }
+          syncBigArtUI();
         },
 
         appendBaseRow(key = '', value = '') {
@@ -11905,6 +12831,9 @@ createCharacterEntry(text, categoryKey) {
           if (!msg || typeof msg.message !== 'string') return;
           this.messageText = msg.message;
 
+          // 独立大地图：加载聊天级缓存（$mms_map_art，所有楼层共享，零重复生成）
+          this.loadMapArt();
+
           // 正文渲染（与旧版一致）
           const maintextContent = extractMaintext(this.messageText);
           if (maintextContent) updateMaintext(maintextContent);
@@ -11976,6 +12905,11 @@ createCharacterEntry(text, categoryKey) {
                   this.setIndicator('error', '更新失败：' + payload.error + '（点击重试）');
                 }
               });
+              // 独立大地图更新（任意楼层生成完毕 → 本楼原地刷新底图与地标）
+              eventOn(MMS_EVENT_MAPART, () => {
+                this.loadMapArt();
+                if (this.lastState) this.renderFromState(this.lastState);
+              });
               // 自动更新的唯一触发点：新AI楼层生成完毕（不是内容变化/swipe/编辑）
               const newMsgEv =
                 (typeof tavern_events !== 'undefined' && tavern_events && tavern_events.MESSAGE_RECEIVED) ||
@@ -11990,9 +12924,33 @@ createCharacterEntry(text, categoryKey) {
                   this.maybeAutoUpdate();
                 } catch (e) { /* 忽略 */ }
               });
+              // 换聊天兜底：新空聊天无AI楼→无iframe→boot不跑，用CHAT_CHANGED事件禁用残留条目
+              const chatChangedEv =
+                (typeof tavern_events !== 'undefined' && tavern_events && tavern_events.CHAT_CHANGED) ||
+                'chat_id_changed';
+              eventOn(chatChangedEv, async () => {
+                try {
+                  await new Promise((r) => setTimeout(r, 500)); // 等聊天加载
+                  // 重新初始化楼层上下文
+                  this.floorId = typeof getCurrentMessageId === 'function' ? getCurrentMessageId() : null;
+                  this.messageText = '';
+                  if (typeof getCurrentMessage === 'function') {
+                    const msg = getCurrentMessage();
+                    if (msg && typeof msg.message === 'string') this.messageText = msg.message;
+                  }
+                  if (this.env.hasWorldbookApi && !this.hasValidState()) {
+                    this.disableWorldbookEntry();
+                  }
+                } catch (e) { /* 忽略 */ }
+              });
             } catch (e) {
               /* 事件系统异常不影响渲染 */
             }
+          }
+
+          // 无有效状态的聊天（新建/空聊天/无AI楼）：世界书条目同步禁用，避免旧数据残留
+          if (this.env.hasWorldbookApi && !this.hasValidState()) {
+            this.disableWorldbookEntry();
           }
 
           this.setupDriftGuard();
