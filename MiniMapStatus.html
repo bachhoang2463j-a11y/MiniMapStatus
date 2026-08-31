@@ -169,18 +169,90 @@ function buildPortraitHTML(roleName, portraitUrl) {
 
   // 暴露给卡片复用：修复 ReferenceError（截图所示）
   window.buildPortraitHTML = buildPortraitHTML;
-  window.openPortraitLightbox = function (url, title) {
+
+  // 立绘选择持久化：聊天变量 $mms_portrait_choice = { 角色名: PORTRAIT_MAP键 }
+  window.savePortraitChoice = function (charName, portraitKey) {
+    try {
+      if (typeof getVariables !== 'function' || typeof insertOrAssignVariables !== 'function') return;
+      const vars = getVariables({ type: 'chat' }) || {};
+      const c = vars.$mms_portrait_choice && typeof vars.$mms_portrait_choice === 'object' ? vars.$mms_portrait_choice : {};
+      c[charName] = portraitKey;
+      insertOrAssignVariables({ $mms_portrait_choice: c }, { type: 'chat' });
+    } catch (e) { /* 静默降级：无变量 API 时仅本次会话生效 */ }
+  };
+  window.loadPortraitChoice = function (charName) {
+    try {
+      if (typeof getVariables !== 'function') return null;
+      const vars = getVariables({ type: 'chat' }) || {};
+      return (vars.$mms_portrait_choice && vars.$mms_portrait_choice[charName]) || null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // 收集同角色的全部立绘候选（拆分立绘：如 弗兰克 / 弗兰克脱衣）
+  // 名字先去 emoji/空白（角色名常带 🛡️ 前缀）；匹配优先级：精确相等 > 键以角色名开头 > 角色名以键开头
+  window.collectPortraitVariants = function (charName) {
+    const map = getPortraitMap();
+    let name = String(charName || '').trim();
+    if (!name) return [];
+    if (typeof mmsPlainName === 'function') name = mmsPlainName(name) || name;
+    if (!name) return [];
+    const exact = [];
+    const starts = [];
+    const contains = [];
+    for (const k of Object.keys(map)) {
+      if (k === name) exact.push(k);
+      else if (k.startsWith(name) || name.startsWith(k)) starts.push(k);
+      else if (name.includes(k) || k.includes(name)) contains.push(k);
+    }
+    return exact.concat(starts, contains)
+      .filter((k, i, arr) => arr.indexOf(k) === i)
+      .map((k) => ({ name: k, url: map[k] }));
+  };
+
+  // 立绘灯箱：url=当前图，title=角色名，candidates=[{name,url}]（含当前），onSwitch(候选名, url) 切换回调
+  let pcLightboxOnSwitch = null;
+  window.openPortraitLightbox = function (url, title, candidates) {
     const modal = document.getElementById('pc-portrait-lightbox');
     const img = document.getElementById('pc-lightbox-img');
     const cap = document.getElementById('pc-lightbox-cap');
+    const variantsEl = document.getElementById('pc-lightbox-variants');
     if (!modal || !img) return;
     let src = url;
     try { src = encodeURI(decodeURI(url)); } catch(e) { try { src = encodeURI(url); } catch(e2) {} }
     img.src = src;
     img.alt = title || '';
     if (cap) cap.textContent = title ? `${title} - 立绘原图` : '';
+    pcLightboxOnSwitch = null;
+    // 同角色其它立绘切换条
+    if (variantsEl) {
+      variantsEl.innerHTML = '';
+      const list = Array.isArray(candidates) ? candidates.filter((c) => c && c.url) : [];
+      if (list.length > 1) {
+        for (const cand of list) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'pc-lightbox-variant-btn' + (cand.url === url ? ' active' : '');
+          btn.textContent = cand.name;
+          btn.title = '切换立绘：' + cand.name;
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            let next = cand.url;
+            try { next = encodeURI(decodeURI(cand.url)); } catch (err) { try { next = encodeURI(cand.url); } catch (err2) {} }
+            img.src = next;
+            if (cap) cap.textContent = cand.name + ' - 立绘原图';
+            variantsEl.querySelectorAll('.pc-lightbox-variant-btn').forEach((b) => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (pcLightboxOnSwitch) pcLightboxOnSwitch(cand.name, cand.url);
+          });
+          variantsEl.appendChild(btn);
+        }
+      }
+    }
     modal.classList.add('active');
   };
+  window.setPortraitLightboxSwitch = function (fn) { pcLightboxOnSwitch = typeof fn === 'function' ? fn : null; };
 })();
 </script>
 
@@ -707,6 +779,35 @@ function buildPortraitHTML(roleName, portraitUrl) {
         }
         .pc-lightbox-modal.active {
           display: flex;
+        }
+        /* 立绘切换条：同角色的其它立绘（拆分立绘）快速切换 */
+        .pc-lightbox-variants {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 6px;
+          margin-top: 10px;
+        }
+        .pc-lightbox-variant-btn {
+          padding: 4px 12px;
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: #d6d3d1;
+          cursor: pointer;
+          border: 1.5px solid rgba(120, 113, 108, 0.6);
+          border-radius: 6px;
+          background: rgba(41, 37, 36, 0.8);
+          transition: all 0.15s ease;
+          white-space: nowrap;
+        }
+        .pc-lightbox-variant-btn:hover {
+          border-color: rgba(245, 158, 11, 0.7);
+          color: #f59e0b;
+        }
+        .pc-lightbox-variant-btn.active {
+          border-color: #f59e0b;
+          color: #f59e0b;
+          background: rgba(245, 158, 11, 0.12);
         }
         @keyframes pcFadeIn {
           from { opacity: 0; transform: scale(0.96); }
@@ -3260,6 +3361,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
         <button onclick="document.getElementById('pc-portrait-lightbox').classList.remove('active')" class="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-stone-800 border border-stone-600 text-stone-300 flex items-center justify-center hover:bg-stone-700" title="关闭">✕</button>
         <img id="pc-lightbox-img" src="" alt="" class="rounded-xl max-h-[75vh] w-auto mx-auto object-contain block" />
         <div id="pc-lightbox-cap" class="text-center text-xs text-stone-300 mt-2"></div>
+        <div id="pc-lightbox-variants" class="pc-lightbox-variants"></div>
       </div>
     </div>
 
@@ -8208,6 +8310,27 @@ const AVATAR_MAP = {
             if (matchedKey) portraitUrl = map[matchedKey];
           }
 
+          // 同角色立绘候选（拆分立绘：如 弗兰克 / 弗兰克脱衣），供灯箱内玩家切换
+          // 名字统一去 emoji 作候选与选择存取键
+          const portraitPlainName = (typeof mmsPlainName === 'function' ? mmsPlainName(cleanName) : cleanName) || cleanName;
+          let portraitCandidates = [];
+          if (window.collectPortraitVariants) {
+            const keySet = new Map();
+            for (const basis of [portraitPlainName, roleKey]) {
+              if (!basis) continue;
+              for (const cand of window.collectPortraitVariants(basis)) {
+                if (!keySet.has(cand.name)) keySet.set(cand.name, cand);
+              }
+            }
+            portraitCandidates = Array.from(keySet.values());
+          }
+          // 玩家已选立绘覆盖（聊天变量 $mms_portrait_choice 持久化）
+          if (portraitCandidates.length && window.loadPortraitChoice) {
+            const chosen = window.loadPortraitChoice(portraitPlainName);
+            const hit = chosen && portraitCandidates.find((c) => c.name === chosen);
+            if (hit) portraitUrl = hit.url;
+          }
+
           Object.keys(userData).forEach(key => {
             if (key === nameField) return;
             if (key === portraitField) return;
@@ -8223,10 +8346,28 @@ const AVATAR_MAP = {
             portraitCol.setAttribute('role', 'button');
             portraitCol.setAttribute('tabindex', '0');
             portraitCol.setAttribute('aria-label', `查看 ${cleanName.replace(/'/g, "\\'")} 立绘原图`);
-            const lightboxUrl = portraitUrl;
-            portraitCol.addEventListener('click', () => window.openPortraitLightbox && window.openPortraitLightbox(lightboxUrl, cleanName));
+            let lightboxUrl = portraitUrl;
+            const cardImg = () => portraitCol.querySelector('img');
+            // 灯箱内切换立绘：保存选择（聊天变量持久化）+ 卡片立绘即时更新
+            const switchPortrait = (candName, candUrl) => {
+              lightboxUrl = candUrl;
+              if (window.savePortraitChoice) window.savePortraitChoice(portraitPlainName, candName);
+              const im = cardImg();
+              if (im) {
+                let next = candUrl;
+                try { next = encodeURI(decodeURI(candUrl)); } catch(err) { try { next = encodeURI(candUrl); } catch(err2) {} }
+                im.src = next;
+                im.style.display = '';
+              }
+            };
+            const openLightbox = () => {
+              if (!window.openPortraitLightbox) return;
+              window.openPortraitLightbox(lightboxUrl, cleanName, portraitCandidates);
+              if (window.setPortraitLightboxSwitch) window.setPortraitLightboxSwitch(switchPortrait);
+            };
+            portraitCol.addEventListener('click', openLightbox);
             portraitCol.addEventListener('keydown', (e) => {
-              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); window.openPortraitLightbox && window.openPortraitLightbox(lightboxUrl, cleanName); }
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLightbox(); }
             });
           } else {
             portraitCol.style.display = 'none';
