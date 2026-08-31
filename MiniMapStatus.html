@@ -3100,6 +3100,14 @@ function buildPortraitHTML(roleName, portraitUrl) {
             <div class="flex items-center gap-1.5 flex-shrink-0">
               <span id="mms-update-indicator" class="mms-indicator" style="display: none" title=""></span>
               <button
+                id="mms-snapshot-btn"
+                class="theme-btn rounded-full border border-gray-700/50 hover:bg-primary/20 transition-colors"
+                title="状态快照（保存当前状态为回退点 / 恢复）"
+                style="display: none"
+              >
+                <i class="fa fa-camera"></i>
+              </button>
+              <button
                 id="mms-edit-btn"
                 class="theme-btn rounded-full border border-gray-700/50 hover:bg-primary/20 transition-colors"
                 title="编辑状态数据（YAML）"
@@ -3374,30 +3382,18 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <div id="mms-attr-rows" class="space-y-1.5"></div>
             </div>
 
-            <!-- 自由属性键值对（动态行） -->
+            <!-- 角色字段（校验/自由统一列表，顺序即输出顺序） -->
             <div class="roster-surface p-2.5 rounded-xl border border-gray-700/10 space-y-2">
               <div class="flex justify-between items-center">
                 <div>
-                  <span class="text-xs font-bold text-gray-300 block">自由属性（AI 每轮全量输出）</span>
-                  <span class="text-[10px] text-gray-400">键值对自由扩展（内心、穿着、携带物品等）</span>
+                  <span class="text-xs font-bold text-gray-300 block">角色字段（顺序即输出顺序）</span>
+                  <span class="text-[10px] text-gray-400">勾选「校验」走命令协议（[+物品xN]/[物品-N]，适合武器/物品/弹药/消耗/道具等清单）；不勾选为自由字段（每轮全量输出，适合穿着/内心等）</span>
                 </div>
-                <button id="mms-free-add-row" class="text-[11px] text-primary hover:underline font-medium flex items-center gap-1" type="button">
-                  <i class="fa fa-plus-circle"></i> 增加自由项
+                <button id="mms-field-add-row" class="text-[11px] text-primary hover:underline font-medium flex items-center gap-1" type="button">
+                  <i class="fa fa-plus-circle"></i> 增加字段
                 </button>
               </div>
-              <div id="mms-free-rows" class="space-y-1.5"></div>
-            </div>
-
-            <!-- 初始武器 / 物品 -->
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="text-[11px] font-semibold text-gray-300 block mb-1">初始武器（可选）</label>
-                <input id="mms-roster-weapons" type="text" class="form-input w-full" placeholder="[🔪] [柯尔特M1911]" spellcheck="false" />
-              </div>
-              <div>
-                <label class="text-[11px] font-semibold text-gray-300 block mb-1">初始物品（可选）</label>
-                <input id="mms-roster-items" type="text" class="form-input w-full" placeholder="[💼] [黄铜手电]" spellcheck="false" />
-              </div>
+              <div id="mms-field-rows" class="space-y-1.5"></div>
             </div>
 
             <!-- 人设提示词 -->
@@ -3436,46 +3432,19 @@ function buildPortraitHTML(roleName, portraitUrl) {
               </div>
             </div>
 
-            <!-- 通用自定义固定模块（勾选=激活，编辑=折叠/展开；支持据点/载具/任意模块） -->
+            <!-- 固定自定义模块列表（据点/载具/任意，可多个共存） -->
           <div class="roster-surface rounded-xl border border-gray-700/10 p-2.5 space-y-2.5">
             <div class="flex justify-between items-center">
-              <label class="mms-toggle-row" style="flex: 0 0 auto">
-                <input type="checkbox" id="mms-base-enabled" />
-                <span class="text-xs font-bold text-gray-300">🏟️ 固定自定义模块</span>
-              </label>
-              <button id="mms-base-collapse" class="mms-btn" type="button" style="padding: 2px 10px" title="折叠/展开编辑">
-                <i class="fa fa-chevron-down" id="mms-base-collapse-icon"></i> <span id="mms-base-collapse-text">编辑</span>
+              <div>
+                <span class="text-xs font-bold text-gray-300 block">🏟️ 固定自定义模块（可多个共存）</span>
+                <span class="text-[10px] text-gray-400">据点、载具、情报站等任意常驻模块；模块名与状态栏顶层键名一致</span>
+              </div>
+              <button id="mms-module-add" class="mms-btn" type="button" style="padding: 2px 10px" title="添加固定模块">
+                <i class="fa fa-plus"></i> 添加模块
               </button>
             </div>
-            <div id="mms-base-form" class="space-y-2" style="display: none">
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <label class="text-[11px] font-semibold text-gray-300 block mb-1">模块名称（据点/载具/任意，与状态栏键名一致）</label>
-                  <input id="mms-base-name" type="text" class="form-input w-full" placeholder="如：据点 / 载具 / 情报站" spellcheck="false" />
-                </div>
-                <div>
-                  <label class="text-[11px] font-semibold text-gray-300 block mb-1">标题字段初始值（如名称: 总督套房）</label>
-                  <input id="mms-base-title" type="text" class="form-input w-full" placeholder="如：总督套房" spellcheck="false" />
-                </div>
-              </div>
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <label class="text-[11px] font-semibold text-gray-300 block mb-1">现金初始值（如 4767.20美元）</label>
-                  <input id="mms-base-cash" type="text" class="form-input w-full" placeholder="4767.20美元" spellcheck="false" />
-                </div>
-                <div></div>
-              </div>
-              <div>
-                <div class="flex justify-between items-center mb-1">
-                  <span class="text-[11px] font-semibold text-gray-300">清单字段（武器/防御/弹药/杂物等，自由命名）</span>
-                  <button id="mms-base-add-row" class="text-[11px] text-primary hover:underline font-medium" type="button">
-                    <i class="fa fa-plus-circle"></i> 增加字段
-                  </button>
-                </div>
-                <div id="mms-base-rows" class="space-y-1.5"></div>
-              </div>
-              <p class="settings-hint">模块名与状态栏中的顶层键名对应（如「据点」「载具」）；启用后该模块常驻显示，缺失字段用基线补齐</p>
-            </div>
+            <div id="mms-module-list" class="space-y-2.5"></div>
+            <p class="settings-hint">启用后该模块常驻显示，缺失字段用基线补齐；现金留空则不输出现金字段；清单字段走命令协议（[+物品xN]/[物品-N]）</p>
           </div>
 
           <!-- 占位文案与缺席阈值 -->
@@ -8026,25 +7995,41 @@ const AVATAR_MAP = {
             entries.push(e);
           }
 
-          const B = rootData['据点'];
-          if (B && typeof B === 'object' && !Array.isArray(B)) {
-            const e = Object.assign({}, B);
-            if (e['名称'] != null || e['现金'] != null) {
-              const parts = ['[🏛️]'];
-              if (e['名称'] != null) parts.push('[名称: ' + e['名称'] + ']');
-              parts.push('[💰]');
-              if (e['现金'] != null) parts.push('[团队现金: ' + e['现金'] + ']');
-              e['总览'] = parts.join('');
-              delete e['名称'];
-              delete e['现金'];
+          // 固定模块（据点/载具/任意）：含 名称/现金 清单结构的对象模块 → 总览格式卡片
+          // 归一化同名键（如「🏟️据点」与「据点」）只渲染一张卡，避免模块"增值"
+          const handledModuleKeys = new Set();
+          const seenModuleNorm = new Set();
+          for (const k of Object.keys(rootData)) {
+            if (MMS_KNOWN_MODULES.includes(k) && k !== '据点') continue;
+            const v = rootData[k];
+            if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+            const nk = mmsNormalizeName(k);
+            if (nk && seenModuleNorm.has(nk)) {
+              handledModuleKeys.add(k); // emoji 别名键：数据已由首个键呈现，跳过
+              continue;
             }
-            e['名字'] = e['名字'] || ' 🏟️据点';
+            if (nk) seenModuleNorm.add(nk);
+            if (v['名称'] == null && v['现金'] == null) continue;
+            const e = Object.assign({}, v);
+            const plain = mmsPlainName(k) || k;
+            const emoji = /载具|车|船|舰|飞行/.test(k) ? '🚙' : '🏟️';
+            const parts = ['[' + emoji + ']'];
+            if (e['名称'] != null) parts.push('[名称: ' + e['名称'] + ']');
+            parts.push('[💰]');
+            if (e['现金'] != null) parts.push('[团队现金: ' + e['现金'] + ']');
+            e['总览'] = parts.join('');
+            delete e['名称'];
+            delete e['现金'];
+            // 键名已带 emoji 则沿用原键名，纯名键补模块图标
+            e['名字'] = e['名字'] != null ? e['名字'] : k !== plain ? ' ' + k : ' ' + emoji + plain;
             entries.push(e);
+            handledModuleKeys.add(k);
           }
 
           // 自定义模块（线索/情报/任意用户发明）：通用卡片透传
           for (const k of Object.keys(rootData)) {
-            if (MMS_KNOWN_MODULES.includes(k)) continue;
+            if (handledModuleKeys.has(k)) continue;
+            if (MMS_KNOWN_MODULES.includes(k) && k !== '据点') continue;
             const v = rootData[k];
             if (v == null) continue;
             if (typeof v === 'object' && !Array.isArray(v)) {
@@ -8838,64 +8823,74 @@ createCharacterEntry(text, categoryKey) {
 
 
       // 结构化输出约束（宽松版：只约束主干形状，具体字段靠提示词与后置校验）
-      const MMS_JSON_SCHEMA = {
-        name: 'status_bar_state',
-        description: '跑团状态栏数据（模块化结构，校验字段为命令串）',
-        value: {
-          type: 'object',
-          properties: {
-            状态栏: {
+      // v3：按名册动态生成——角色字段来自名册 fields 并集，固定模块来自 roster.modules
+      function mmsBuildJsonSchema(roster) {
+        const checkSet = [];
+        const freeSet = [];
+        for (const r of (roster && roster.characters) || []) {
+          for (const f of mmsCharFields(r)) {
+            if (!f.key) continue;
+            const bucket = f.mode === 'check' ? checkSet : freeSet;
+            if (bucket.indexOf(f.key) === -1) bucket.push(f.key);
+          }
+        }
+        const charProps = { 名字: { type: 'string' }, 属性: { type: 'string' } };
+        for (const k of checkSet.concat(freeSet)) charProps[k] = { type: 'string' };
+
+        const statusProps = {
+          日期和时间: { type: 'string' },
+          地点: { type: 'string' },
+          小地图: { type: 'object' },
+          角色列表: {
+            type: 'array',
+            items: {
               type: 'object',
               properties: {
-                日期和时间: { type: 'string' },
-                地点: { type: 'string' },
-                小地图: { type: 'object' },
-                角色列表: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      角色: {
-                        type: 'object',
-                        properties: {
-                          名字: { type: 'string' },
-                          属性: { type: 'string' },
-                          穿着: { type: 'string' },
-                          内心: { type: 'string' },
-                          武器: { type: 'string' },
-                          物品: { type: 'string' },
-                        },
-                        required: ['名字'],
-                      },
-                    },
-                  },
-                },
-                人物: { type: 'object' },
-                据点: {
+                角色: {
                   type: 'object',
-                  properties: {
-                    名称: { type: 'string' },
-                    现金: { type: 'string' },
-                    载具: { type: 'string' },
-                    武器: { type: 'string' },
-                    防御: { type: 'string' },
-                    杂物: { type: 'string' },
-                  },
-                },
-                行动选项: {
-                  type: 'object',
-                  properties: {
-                    名字: { type: 'string' },
-                    选项: { type: 'array', items: { type: 'string' } },
-                  },
+                  properties: charProps,
+                  required: ['名字'],
                 },
               },
-              required: ['日期和时间', '地点'],
             },
           },
-          required: ['状态栏'],
-        },
-      };
+          人物: { type: 'object' },
+          行动选项: {
+            type: 'object',
+            properties: {
+              名字: { type: 'string' },
+              选项: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        };
+        if (roster && roster.maps && roster.maps.bigmap) {
+          statusProps.大地图 = { type: 'object' };
+        }
+        for (const m of mmsRosterModules(roster).filter((x) => x.enabled && x.name)) {
+          const props = {};
+          if (m.titleVal) props.名称 = { type: 'string' };
+          if (m.cash) props.现金 = { type: 'string' };
+          for (const f of m.fields || []) {
+            if (f && f.key) props[f.key] = { type: 'string' };
+          }
+          statusProps[m.name] = { type: 'object', properties: props };
+        }
+        return {
+          name: 'status_bar_state',
+          description: '跑团状态栏数据（模块化结构，校验字段为命令串）',
+          value: {
+            type: 'object',
+            properties: {
+              状态栏: {
+                type: 'object',
+                properties: statusProps,
+                required: ['日期和时间', '地点'],
+              },
+            },
+            required: ['状态栏'],
+          },
+        };
+      }
 
       // ---------- MMS 引擎本体 ----------
 
@@ -8903,7 +8898,145 @@ createCharacterEntry(text, categoryKey) {
 
       const MMS_COORD_MIN = 10;
       const MMS_COORD_MAX = 90;
+      // 内建模块键（不含固定自定义模块——模块名由名册动态注册，见 mmsKnownModules）
       const MMS_KNOWN_MODULES = ['日期和时间', '地点', '小地图', '大地图', '角色列表', '人物', '据点', '行动选项', '用户列表'];
+
+      // ---------- MMS v3：弹性字段/模块模型（fields[] + modules[]，兼容旧 weapons/freeFields/base） ----------
+
+      // 角色字段统一视图：[{key, initial, mode}]，mode ∈ 'check'(命令协议校验) / 'free'(每轮全量输出)
+      // 旧结构自动迁移：weapons/items → check 字段，freeFields/freeInitials → free 字段
+      function mmsCharFields(r) {
+        if (!r || typeof r !== 'object') return [];
+        const out = [];
+        const seen = new Set();
+        const push = (key, initial, mode) => {
+          if (!key || seen.has(key)) return;
+          seen.add(key);
+          out.push({ key, initial: initial == null ? '' : String(initial), mode: mode === 'free' ? 'free' : 'check' });
+        };
+        if (Array.isArray(r.fields)) {
+          for (const f of r.fields) {
+            if (f && typeof f === 'object') push(f.key, f.initial, f.mode);
+            else if (typeof f === 'string') push(f, '', 'free');
+          }
+        } else {
+          // 旧模型迁移
+          if (r.weapons != null && String(r.weapons) !== '') push('武器', r.weapons, 'check');
+          if (r.items != null && String(r.items) !== '') push('物品', r.items, 'check');
+          const ff = Array.isArray(r.freeFields) && r.freeFields.length ? r.freeFields : ['穿着', '内心'];
+          for (const f of ff) {
+            push(f, (r.freeInitials && r.freeInitials[f]) || '', 'free');
+          }
+        }
+        return out;
+      }
+
+      // 名册固定模块统一视图：[{enabled, name, titleVal, cash, fields:[{key,value}]}]
+      // 旧结构自动迁移：roster.base → 单模块
+      function mmsRosterModules(roster) {
+        const out = [];
+        const seen = new Set();
+        const push = (m) => {
+          if (!m || !m.name || seen.has(m.name)) return;
+          seen.add(m.name);
+          out.push({
+            enabled: !!m.enabled,
+            name: String(m.name),
+            titleVal: m.titleVal == null ? '' : String(m.titleVal),
+            cash: m.cash == null ? '' : String(m.cash),
+            fields: (Array.isArray(m.fields) ? m.fields : []).filter(Boolean),
+          });
+        };
+        if (roster && Array.isArray(roster.modules)) {
+          for (const m of roster.modules) push(m);
+        }
+        // 旧 base 迁移（新 modules 已存在同名模块时跳过）
+        const base = roster && roster.base;
+        if (base && typeof base === 'object' && base.name) push(base);
+        return out;
+      }
+
+      // 已启用（或已存在）的固定模块名列表
+      function mmsRosterModuleNames(roster) {
+        return mmsRosterModules(roster).filter((m) => m.enabled && m.name).map((m) => m.name);
+      }
+
+      // 已知模块全集 = 内建（不含据点）+ 名册固定模块名（供合并/导入/渲染判断"是否自定义模块"）
+      // 说明：静态 MMS_KNOWN_MODULES 保留「据点」仅供 parseStateOutput 垃圾输出检测；
+      // 此处剔除后，未被名册注册的「据点」可走自定义透传保留而不丢失
+      function mmsKnownModules(roster) {
+        const set = MMS_KNOWN_MODULES.filter((k) => k !== '据点');
+        for (const n of mmsRosterModuleNames(roster)) {
+          if (!set.includes(n)) set.push(n);
+        }
+        return set;
+      }
+
+      // 角色缺席占位字段：键名含"内心"即视为内心字段（沿用旧启发式）
+      function mmsIsAbsentField(key) {
+        return /内心/.test(String(key || ''));
+      }
+
+      // 模块键名匹配：状态顶层键与模块名做归一化比较（兼容带 emoji 前缀的键名，如「🏟️据点」↔「据点」）
+      function mmsMatchModuleKey(root, name, skip) {
+        if (!root || typeof root !== 'object' || !name) return null;
+        if (root[name] != null && !(skip && skip.has(name))) return name; // 精确优先
+        const target = mmsNormalizeName(name);
+        if (!target) return null;
+        for (const k of Object.keys(root)) {
+          if (skip && skip.has(k)) continue;
+          if (mmsNormalizeName(k) === target) return k;
+        }
+        return null;
+      }
+
+      // 顶层模块键名去重：归一化相等的键（如「🏟️据点」与「据点」）合并为一个，
+      // 与 preferNames 精确相等的键名优先保留；被弃键的缺失字段补齐进保留键后删除。
+      // 返回是否有变化（原地修改 root）
+      function mmsDedupeModuleKeys(root, preferNames) {
+        if (!root || typeof root !== 'object') return false;
+        const prefer = (preferNames || []).map((n) => String(n || '')).filter(Boolean);
+        const skip = ['角色列表', '人物', '小地图', '大地图', '行动选项', '日期和时间', '地点'];
+        const group = new Map(); // normalizeKey -> keepKey
+        const mergeInto = (keepObj, dropObj) => {
+          if (!keepObj || !dropObj || typeof keepObj !== 'object' || typeof dropObj !== 'object') return;
+          for (const fk of Object.keys(dropObj)) {
+            if (keepObj[fk] == null || keepObj[fk] === '') keepObj[fk] = dropObj[fk];
+          }
+        };
+        let changed = false;
+        for (const k of Object.keys(root)) {
+          const v = root[k];
+          if (v == null || typeof v !== 'object' || Array.isArray(v)) continue;
+          if (skip.includes(k)) continue;
+          const nk = mmsNormalizeName(k);
+          if (!nk) continue;
+          if (!group.has(nk)) {
+            group.set(nk, k);
+            continue;
+          }
+          let keepKey = group.get(nk);
+          const isPreferKey = (key) => prefer.indexOf(key) !== -1;
+          // prefer 名（名册模块名）精确命中的键优先保留
+          if (isPreferKey(k) && !isPreferKey(keepKey)) {
+            // 当前键升级为保留键：原保留键数据并入后删除
+            mergeInto(root[k], root[keepKey]);
+            delete root[keepKey];
+            group.set(nk, k);
+          } else {
+            // 当前键被弃：其缺失字段并入保留键后删除
+            mergeInto(root[keepKey], root[k]);
+            delete root[k];
+          }
+          changed = true;
+        }
+        return changed;
+      }
+
+      // 导入分类：字段值被 [..] 包裹（清单格式）→ 校验字段；否则自由字段
+      function mmsGuessFieldMode(key, value) {
+        return /\[[^\]]+\]/.test(String(value || '')) ? 'check' : 'free';
+      }
 
       // ---------- 地图标签池（SVG 场景 + BACKGROUND_MAP 外链图片，互斥三栏：pool/mini/big） ----------
 
@@ -9056,8 +9189,8 @@ createCharacterEntry(text, categoryKey) {
 
         const charList = [];
         let people = null;
-        let base = null;
         let map = null;
+        const baseModules = [];
         let action = out['行动选项'] || null;
 
         for (const entry of oldList) {
@@ -9080,16 +9213,22 @@ createCharacterEntry(text, categoryKey) {
             people = Object.assign({}, people || {}, userData);
             if (nameField) delete people[nameField];
           } else if (type === 'base') {
-            base = Object.assign({}, base || {}, userData);
-            if (nameField) delete base[nameField];
-            if (base['总览']) {
-              const nm = String(base['总览']).match(/\[名称[:：]\s*([^\]]+)\]/);
-              const cm = String(base['总览']).match(/\[团队现金[:：]\s*([^\]]+)\]/);
-              if (nm) base['名称'] = base['名称'] != null ? base['名称'] : nm[1].trim();
-              if (cm) base['现金'] = base['现金'] != null ? base['现金'] : cm[1].trim();
-              if (!nm && base['名称'] == null) base['名称'] = base['总览'];
-              delete base['总览'];
+            // 固定模块类（据点/载具/任意）：每条独立成模块，不再合并（避免多模块互相覆盖）
+            const b = Object.assign({}, userData);
+            if (nameField) delete b[nameField];
+            if (b['总览']) {
+              const nm = String(b['总览']).match(/\[名称[:：]\s*([^\]]+)\]/);
+              const cm = String(b['总览']).match(/\[团队现金[:：]\s*([^\]]+)\]/);
+              if (nm) b['名称'] = b['名称'] != null ? b['名称'] : nm[1].trim();
+              if (cm) b['现金'] = b['现金'] != null ? b['现金'] : cm[1].trim();
+              if (!nm && b['名称'] == null) b['名称'] = b['总览'];
+              delete b['总览'];
             }
+            const modKey = plain || '据点';
+            // 同名模块（旧数据少见）才合并；异名模块（据点/载具等）各自独立保留
+            const idx = baseModules.findIndex((x) => x.key === modKey);
+            if (idx >= 0) baseModules[idx].data = Object.assign({}, baseModules[idx].data, b);
+            else baseModules.push({ key: modKey, data: b });
           } else if (type === 'map') {
             map = map || {};
             for (const k of Object.keys(userData)) {
@@ -9112,7 +9251,12 @@ createCharacterEntry(text, categoryKey) {
         if (map && !out['小地图']) out['小地图'] = map;
         if (charList.length && !out['角色列表']) out['角色列表'] = charList;
         if (people && !out['人物']) out['人物'] = people;
-        if (base && !out['据点']) out['据点'] = base;
+        // 固定模块：据点沿用旧键名，其余模块（载具等）以条目名为键独立输出
+        for (const bm of baseModules) {
+          const key = bm.key === '据点' ? '据点' : bm.key;
+          if (!out[key]) out[key] = bm.data;
+          else if (key === '据点') out[key] = Object.assign({}, bm.data, out[key]);
+        }
         if (action && !out['行动选项']) out['行动选项'] = action;
 
         return { 状态栏: out };
@@ -9265,7 +9409,8 @@ createCharacterEntry(text, categoryKey) {
           .join('');
       }
 
-      // 解析物品清单串：{prefix, items:[{display, name, count}]}
+      // 解析物品清单串：{prefix, items:[{display, name, count, sep}]}
+      // 数量格式两种：xN（[绷带x2]）与 名称：N（[.32子弹：30]，rpgcombat 风格中文冒号计数）
       function mmsParseItemList(str) {
         const s = String(str || '');
         const segments = s.match(/\[([^\[\]]+)\]/g) || [];
@@ -9280,10 +9425,15 @@ createCharacterEntry(text, categoryKey) {
           }
           const m = content.match(/^(.*?)\s*x\s*(\d+)\s*$/);
           if (m && m[1].trim()) {
-            items.push({ display: m[1].trim(), name: m[1].trim(), count: parseInt(m[2], 10) });
-          } else {
-            items.push({ display: content, name: content, count: null });
+            items.push({ display: m[1].trim(), name: m[1].trim(), count: parseInt(m[2], 10), sep: '' });
+            continue;
           }
+          const m2 = content.match(/^(.+?)\s*([:：])\s*(\d+)\s*$/);
+          if (m2 && m2[1].trim()) {
+            items.push({ display: m2[1].trim(), name: m2[1].trim(), count: parseInt(m2[3], 10), sep: m2[2] });
+            continue;
+          }
+          items.push({ display: content, name: content, count: null, sep: '' });
         }
         return { prefixes, items };
       }
@@ -9356,7 +9506,11 @@ createCharacterEntry(text, categoryKey) {
         }
         const parts = [];
         for (const p of list.prefixes) parts.push(p);
-        for (const it of list.items) parts.push(`[${it.count != null ? `${it.display}x${it.count}` : it.display}]`);
+        for (const it of list.items) {
+          if (it.count == null) parts.push(`[${it.display}]`);
+          else if (it.sep) parts.push(`[${it.display}${it.sep}${it.count}]`);
+          else parts.push(`[${it.display}x${it.count}]`);
+        }
         return parts.join('');
       }
 
@@ -9410,18 +9564,13 @@ createCharacterEntry(text, categoryKey) {
       }
 
       function mmsTemplateChar(r, displayCfg) {
-        const c = {
-          名字: r.name || '',
-          属性: mmsAttrsToString(r.attrs),
-          武器: r.weapons || '',
-          物品: r.items || '',
-        };
+        const c = { 名字: r.name || '' };
+        const attrsStr = mmsAttrsToString(r.attrs);
+        if (attrsStr) c['属性'] = attrsStr;
         if (r.role) c['身份'] = r.role;
-        const freeFields = r.freeFields && r.freeFields.length ? r.freeFields : ['穿着', '内心'];
-        for (const f of freeFields) {
-          if (!f || c[f] !== undefined) continue;
-          const initial = r.freeInitials && r.freeInitials[f] ? r.freeInitials[f] : '';
-          c[f] = /内心/.test(f) ? displayCfg.absentText : initial;
+        for (const f of mmsCharFields(r)) {
+          if (!f.key || c[f.key] !== undefined) continue;
+          c[f.key] = mmsIsAbsentField(f.key) ? displayCfg.absentText : f.initial;
         }
         if (r.portraitTag) c['立绘'] = r.portraitTag;
         return c;
@@ -9454,27 +9603,35 @@ createCharacterEntry(text, categoryKey) {
           for (const a of attrs) {
             setPoint('attr:' + plain + ':' + a.display, a.value, plain + '·' + a.display + ' = ' + a.value);
           }
-          // 物品清单解析
-          const items = mmsParseItemList(c['物品'] || c['武器'] || '');
-          for (const it of items.items) {
-            const cnt = it.count != null ? it.count : 1;
-            setPoint('item:' + plain + ':' + it.name, cnt, plain + '·' + it.name + ' ×' + cnt);
+          // 清单字段解析：所有含 [..] 的文本字段（武器/物品/弹药/消耗/道具等）
+          for (const k of Object.keys(c)) {
+            if (k === nf || k === '属性' || k === '立绘') continue;
+            const v = c[k];
+            if (typeof v !== 'string' || !v.includes('[')) continue;
+            for (const it of mmsParseItemList(v).items) {
+              const cnt = it.count != null ? it.count : 1;
+              setPoint('item:' + plain + ':' + it.name, cnt, plain + '·' + it.name + ' ×' + cnt);
+            }
           }
           // 在场状态
           setPoint('char:' + plain, 1, plain + ' 在场');
         }
 
-        // 据点
-        const B = root['据点'];
-        if (B && typeof B === 'object') {
+        // 固定模块（据点/载具/任意）：所有非内建对象模块均提取现金与清单数量
+        const builtinKeys = ['日期和时间', '地点', '小地图', '大地图', '角色列表', '人物', '行动选项', '用户列表'];
+        for (const mk of Object.keys(root)) {
+          if (builtinKeys.includes(mk)) continue;
+          const B = root[mk];
+          if (!B || typeof B !== 'object' || Array.isArray(B)) continue;
           const cashNum = String(B['现金'] || '').match(/-?\d[\d,]*(?:\.\d+)?/);
-          if (cashNum) setPoint('base:cash', parseFloat(cashNum[0].replace(/,/g, '')), '据点·现金 = ' + B['现金']);
+          if (cashNum) setPoint('base:' + mk + ':cash', parseFloat(cashNum[0].replace(/,/g, '')), mk + '·现金 = ' + B['现金']);
           for (const k of Object.keys(B)) {
             if (k === '名称' || k === '现金') continue;
-            const list = mmsParseItemList(String(B[k] || ''));
-            for (const it of list.items) {
+            const v = B[k];
+            if (typeof v !== 'string' || !v.includes('[')) continue;
+            for (const it of mmsParseItemList(v).items) {
               const cnt = it.count != null ? it.count : 1;
-              setPoint('base:' + k + ':' + it.name, cnt, '据点·' + it.name + ' ×' + cnt);
+              setPoint('base:' + mk + ':' + k + ':' + it.name, cnt, mk + '·' + it.name + ' ×' + cnt);
             }
           }
         }
@@ -9544,8 +9701,7 @@ createCharacterEntry(text, categoryKey) {
         return diff;
       }
 
-      // 通用固定模块模板：名称/标题字段基线 + 自定义清单字段
-      // 注意：baseCfg.name 现在是模块名（如"据点"/"载具"），标题字段值存在 baseCfg.titleVal
+      // 固定模块模板：名称/现金基线 + 自定义清单字段（mod.name 为模块键名，如"据点"/"载具"）
       function mmsTemplateBase(baseCfg) {
         const b = {};
         if (baseCfg.titleVal) b['名称'] = baseCfg.titleVal;
@@ -9562,6 +9718,11 @@ createCharacterEntry(text, categoryKey) {
       function mmsMergeChar(base, aiChar, rosterEntry, storyText, displayCfg, absenceCount, threshold) {
         const src = aiChar && typeof aiChar === 'object' ? aiChar : null;
         const b = base && typeof base === 'object' ? base : {};
+        const fields = mmsCharFields(rosterEntry);
+        const checkFields = fields.filter((f) => f.mode === 'check');
+        // 保留键：名字/属性/立绘 由专用逻辑处理，校验字段走命令协议，其余皆自由字段
+        const reserved = new Set(['名字', '属性', '立绘']);
+        for (const f of checkFields) reserved.add(f.key);
         const c = {};
 
         c['名字'] = src && src['名字'] != null ? src['名字'] : b['名字'] != null ? b['名字'] : rosterEntry ? rosterEntry.name : '';
@@ -9571,34 +9732,43 @@ createCharacterEntry(text, categoryKey) {
           src && src['属性'] != null
             ? mmsApplyAttrCommands(b['属性'] || '', src['属性'], templateAttrs)
             : b['属性'] || (templateAttrs ? mmsAttrsToString(templateAttrs) : '');
-        c['武器'] =
-          src && src['武器'] != null ? mmsApplyItemCommands(b['武器'] || '', src['武器']) : b['武器'] || '';
-        c['物品'] =
-          src && src['物品'] != null ? mmsApplyItemCommands(b['物品'] || '', src['物品']) : b['物品'] || '';
+
+        // 校验字段（武器/物品/弹药/消耗/道具…）：AI 输出命令 → 应用到基底；初值兜底
+        for (const f of checkFields) {
+          if (src && src[f.key] != null) {
+            c[f.key] = mmsApplyItemCommands(b[f.key] || '', src[f.key]);
+          } else {
+            c[f.key] = b[f.key] != null ? b[f.key] : f.initial || '';
+          }
+        }
 
         // 自由字段：AI输出的优先
         for (const k of Object.keys(src || {})) {
-          if (['名字', '属性', '武器', '物品'].includes(k)) continue;
+          if (reserved.has(k)) continue;
           c[k] = src[k];
         }
         // 基底自由字段：AI未输出的保留
         for (const k of Object.keys(b)) {
-          if (['名字', '属性', '武器', '物品'].includes(k)) continue;
+          if (reserved.has(k)) continue;
           if (!(k in c)) c[k] = b[k];
         }
 
         // AI整体漏输出该角色：
-        // - 缺席未超阈值（默认3轮）→ 保留上轮自由字段（内心/穿着均显示上轮相同）
-        // - 超过阈值 → 内心替换为占位（名称命中正文→在场未详文案；否则→未提及文案）
+        // - 缺席未超阈值（默认3轮）→ 保留上轮自由字段
+        // - 超过阈值 → 内心类字段替换为占位（名称命中正文→在场未详文案；否则→未提及文案）
         if (!src && rosterEntry) {
           const overThreshold =
             absenceCount != null && threshold != null && absenceCount > threshold;
           if (overThreshold || absenceCount == null) {
             const plain = mmsPlainName(rosterEntry.name);
             const hit = plain && storyText && storyText.includes(plain);
-            c['内心'] = hit ? displayCfg.presentText : displayCfg.absentText;
+            for (const f of fields) {
+              if (mmsIsAbsentField(f.key) && f.key in c) {
+                c[f.key] = hit ? displayCfg.presentText : displayCfg.absentText;
+              }
+            }
           }
-          // 未超阈值：c 已继承基底的内心等自由字段，什么都不做
+          // 未超阈值：c 已继承基底的自由字段，什么都不做
         }
         return c;
       }
@@ -9628,7 +9798,9 @@ createCharacterEntry(text, categoryKey) {
             const plain = mmsPlainName(r.name);
             const hit = plain && storyText && storyText.includes(plain);
             const t = mmsTemplateChar(r, displayCfg);
-            t['内心'] = hit ? displayCfg.presentText : displayCfg.absentText;
+            for (const f of mmsCharFields(r)) {
+              if (mmsIsAbsentField(f.key)) t[f.key] = hit ? displayCfg.presentText : displayCfg.absentText;
+            }
             newList.push({ 角色: t });
           }
         }
@@ -9648,16 +9820,24 @@ createCharacterEntry(text, categoryKey) {
         if (mapsCfg.minimap === false) delete R['小地图'];
         if (!mapsCfg.bigmap || bigArtOn) delete R['大地图'];
 
-        // 通用固定模块：缺失字段用基线补齐（不覆盖已有值）
-        const baseCfg = roster && roster.base;
-        if (baseCfg && baseCfg.enabled && baseCfg.name) {
-          const B = R[baseCfg.name] && typeof R[baseCfg.name] === 'object' ? R[baseCfg.name] : {};
-          if (baseCfg.titleVal && !B['名称']) B['名称'] = baseCfg.titleVal;
-          if (baseCfg.cash && !B['现金']) B['现金'] = baseCfg.cash;
-          for (const f of baseCfg.fields || []) {
+        // 通用固定模块（据点/载具/任意）：缺失字段用基线补齐（不覆盖已有值）
+        // 键名容错匹配：状态里带 emoji 的键（如「🏟️据点」）归一到模块名，避免重复建键
+        const rosterModules = mmsRosterModules(roster);
+        mmsDedupeModuleKeys(
+          R,
+          rosterModules.filter((m) => m.enabled && m.name).map((m) => m.name),
+        );
+        for (const m of rosterModules) {
+          if (!m.enabled || !m.name) continue;
+          const key = mmsMatchModuleKey(R, m.name);
+          const B = key && R[key] && typeof R[key] === 'object' ? R[key] : {};
+          if (m.titleVal && !B['名称']) B['名称'] = m.titleVal;
+          if (m.cash && !B['现金']) B['现金'] = m.cash;
+          for (const f of m.fields || []) {
             if (f && f.key && (B[f.key] == null || B[f.key] === '')) B[f.key] = f.value || '';
           }
-          R[baseCfg.name] = B;
+          if (key && key !== m.name) delete R[key];
+          R[m.name] = B;
         }
         return out;
       }
@@ -9676,9 +9856,12 @@ createCharacterEntry(text, categoryKey) {
         const minimapOn = mapsCfg.minimap !== false;
         // 独立大地图开启时，状态 LLM 不再维护大地图（不输出、不合并、不注入）
         const bigmapOn = !!mapsCfg.bigmap && !(roster && roster.bigmapArt && roster.bigmapArt.enabled);
-        const baseCfg = roster && roster.base ? roster.base : null;
         const prevRoot = prev && (prev['状态栏'] || prev) ? prev['状态栏'] || prev : {};
         const aiRoot = aiOut && (aiOut['状态栏'] || aiOut) ? aiOut['状态栏'] || aiOut : {};
+        // 顶层模块键名去重：兼容带 emoji 的键名（如「🏟️据点」与名册纯名「据点」并存时合并为一）
+        const moduleNames = mmsRosterModules(roster).filter((m) => m.enabled && m.name).map((m) => m.name);
+        mmsDedupeModuleKeys(prevRoot, moduleNames);
+        mmsDedupeModuleKeys(aiRoot, moduleNames);
         const R = {};
         const out = { 状态栏: R };
 
@@ -9737,29 +9920,35 @@ createCharacterEntry(text, categoryKey) {
         if (aiRoot['人物'] && typeof aiRoot['人物'] === 'object') R['人物'] = aiRoot['人物'];
         else if (prevRoot['人物']) R['人物'] = prevRoot['人物'];
 
-        // 通用固定模块（据点/载具/任意名称）：按 roster.base.moduleName 作为键，
-        // AI输出优先+基线补齐+命令协议；其他非固定模块走下方通用透传
-        const baseModuleName = (baseCfg && baseCfg.enabled && baseCfg.name) ? baseCfg.name : null;
-        if (baseModuleName) {
-          const aiB = aiRoot[baseModuleName] && typeof aiRoot[baseModuleName] === 'object' ? aiRoot[baseModuleName] : null;
-          const prevB = prevRoot[baseModuleName] && typeof prevRoot[baseModuleName] === 'object' ? prevRoot[baseModuleName] : null;
-          if (aiB || prevB || baseCfg.enabled) {
-            const a = aiB || {};
-            const p = prevB || mmsTemplateBase(baseCfg);
-            const B = {};
-            const cashCmd = a['现金'] != null ? mmsApplyCashCommand(p['现金'] || '', a['现金']) : null;
-            B['名称'] = a['名称'] != null ? a['名称'] : p['名称'];
-            B['现金'] = cashCmd != null ? cashCmd : p['现金'];
-            // 清单字段 = 固定模块字段 ∪ AI/prev中已有的清单字段
-            const listFields = new Set();
-            for (const f of baseCfg.fields || []) if (f && f.key) listFields.add(f.key);
-            for (const k of Object.keys(a)) if (k !== '名称' && k !== '现金') listFields.add(k);
-            for (const k of Object.keys(p)) if (k !== '名称' && k !== '现金') listFields.add(k);
-            for (const f of listFields) {
-              B[f] = a[f] != null ? mmsApplyItemCommands(p[f] || '', a[f]) : p[f];
-            }
-            R[baseModuleName] = B;
+        // 通用固定模块（据点/载具/任意名称）：逐模块合并，
+        // AI输出优先+基线补齐+命令协议；键名用容错匹配（带emoji别名归一到模块名）；
+        // 其他非固定模块走下方通用透传
+        const modules = mmsRosterModules(roster).filter((m) => m.enabled && m.name);
+        const moduleMatched = new Set();
+        for (const m of modules) {
+          const aiKey = mmsMatchModuleKey(aiRoot, m.name, moduleMatched);
+          const prevKey = mmsMatchModuleKey(prevRoot, m.name, moduleMatched);
+          const aiB = aiKey && aiRoot[aiKey] && typeof aiRoot[aiKey] === 'object' ? aiRoot[aiKey] : null;
+          const prevB = prevKey && prevRoot[prevKey] && typeof prevRoot[prevKey] === 'object' ? prevRoot[prevKey] : null;
+          const a = aiB || {};
+          const p = prevB || mmsTemplateBase(m);
+          const B = {};
+          const cashCmd = a['现金'] != null ? mmsApplyCashCommand(p['现金'] || '', a['现金']) : null;
+          if (a['名称'] != null || p['名称'] != null) B['名称'] = a['名称'] != null ? a['名称'] : p['名称'];
+          if (cashCmd != null || p['现金'] != null) B['现金'] = cashCmd != null ? cashCmd : p['现金'];
+          // 清单字段 = 固定模块字段 ∪ AI/prev中已有的清单字段
+          const listFields = new Set();
+          for (const f of m.fields || []) if (f && f.key) listFields.add(f.key);
+          for (const k of Object.keys(a)) if (k !== '名称' && k !== '现金') listFields.add(k);
+          for (const k of Object.keys(p)) if (k !== '名称' && k !== '现金') listFields.add(k);
+          for (const f of listFields) {
+            B[f] = a[f] != null ? mmsApplyItemCommands(p[f] || '', a[f]) : p[f];
           }
+          // 输出键统一为模块名（状态里的 emoji 别名已被去重/匹配占用，不会再透传复制）
+          R[m.name] = B;
+          if (aiKey) moduleMatched.add(aiKey);
+          if (prevKey) moduleMatched.add(prevKey);
+          moduleMatched.add(m.name);
         }
 
         // 行动选项（自由全量；AI省略保留上次）
@@ -9767,51 +9956,60 @@ createCharacterEntry(text, categoryKey) {
         else if (prevRoot['行动选项']) R['行动选项'] = prevRoot['行动选项'];
 
         // 自定义模块：AI输出透传；AI省略保留上次（累积内容不丢失）
-        // 注意：用户列表是旧格式遗留键，已在 MMS_KNOWN_MODULES 中标记为已知，
-        // 此处不会作为自定义模块透传（normalizeState 负责转换为模块化结构）
+        // 已知模块集合按名册动态计算（含已注册的固定模块名，键名归一化比较以兼容emoji前缀）；
+        // 用户列表是旧格式遗留键，由 normalizeState 负责转换，此处不透传
+        const knownModules = mmsKnownModules(roster);
+        const isKnownKey = (k) =>
+          moduleMatched.has(k) ||
+          knownModules.includes(k) ||
+          knownModules.some((n) => mmsNormalizeName(n) === mmsNormalizeName(k));
         for (const k of Object.keys(aiRoot)) {
-          if (MMS_KNOWN_MODULES.includes(k)) continue;
+          if (isKnownKey(k)) continue;
           R[k] = aiRoot[k];
         }
         for (const k of Object.keys(prevRoot)) {
-          if (MMS_KNOWN_MODULES.includes(k)) continue;
+          if (isKnownKey(k)) continue;
           if (!(k in R)) R[k] = prevRoot[k];
         }
         return out;
       }
 
-      // ---------- 更新器系统提示词（v3：按玩家设置动态拼装，不硬编码模块结构） ----------
+      // ---------- 更新器系统提示词（v4：完全由名册字段/模块配置动态拼装，不硬编码角色字段与模块结构） ----------
 
-      // 依据名册（角色自由字段并集）、据点固定模块、地图开关与标签分配，动态生成发送给更新 LLM 的系统提示词
+      // 依据名册（角色字段与模式并集）、固定模块列表、地图开关与标签分配，动态生成发送给更新 LLM 的系统提示词
       function mmsBuildSystemPrompt(roster) {
         roster = roster || {};
         const maps = roster.maps || {};
         const minimapOn = maps.minimap !== false;
         // 独立大地图开启时，状态 LLM 不再维护大地图（不输出、不合并、不注入）
         const bigmapOn = !!maps.bigmap && !(roster.bigmapArt && roster.bigmapArt.enabled);
-        const base = roster.base || {};
-        const baseOn = !!base.enabled;
+        const modules = mmsRosterModules(roster).filter((m) => m.enabled && m.name);
+        const modulesOn = modules.length > 0;
         const charMode = roster.charDisplayMode === 'fixed' ? 'fixed' : 'full';
         const tagCfg = mmsGetMapTags(roster);
         const miniTags = tagCfg.mini.join('、');
         const bigTags = tagCfg.big.join('、');
 
-        // 角色自由字段：名册并集，默认穿着/内心
+        // 角色字段：名册并集，按 校验/自由 分组（字段集合完全来自名册配置，无默认值）
+        const checkSet = [];
         const freeSet = [];
         const rosterNames = [];
         for (const r of roster.characters || []) {
           if (r && r.name) rosterNames.push(mmsPlainName(r.name) || r.name);
-          for (const f of (r && r.freeFields) || []) {
-            if (f && freeSet.indexOf(f) === -1) freeSet.push(f);
+          for (const f of mmsCharFields(r)) {
+            if (!f.key) continue;
+            const bucket = f.mode === 'check' ? checkSet : freeSet;
+            if (bucket.indexOf(f.key) === -1) bucket.push(f.key);
           }
         }
-        const freeFields = freeSet.length ? freeSet : ['穿着', '内心'];
-        const charFreeList = freeFields.join('、');
-        const charFieldJson = freeFields.map((f) => '"' + f + '": "…"').join(', ');
+        const charCheckList = checkSet.join('、');
+        const charFreeList = freeSet.join('、');
+        const charFieldParts = ['"属性": "…"'];
+        for (const k of checkSet) charFieldParts.push('"' + k + '": "…"');
+        for (const k of freeSet) charFieldParts.push('"' + k + '": "…"');
+        const charFieldJson = charFieldParts.join(', ');
+        const allCharFields = checkSet.concat(freeSet);
 
-        const baseFieldKeys = (base.fields || []).map((f) => f && f.key).filter(Boolean);
-        const baseFieldList = baseFieldKeys.join('、');
-        const baseFieldJson = baseFieldKeys.map((k) => '"' + k + '": "…"').join(', ');
         const rosterList = rosterNames.length ? rosterNames.join('、') : '（名册为空）';
 
         const lines = [];
@@ -9824,19 +10022,18 @@ createCharacterEntry(text, categoryKey) {
         lines.push('    "地点": "📍 …",');
         if (minimapOn) lines.push('    "小地图": { "场景键": ["Emoji【名称】(x, y) 一句话描述"] },');
         if (bigmapOn) lines.push('    "大地图": { "场景键": ["Emoji【名称】(x, y) 一句话描述"] },');
-        lines.push(
-          '    "角色列表": [ { "角色": { "名字": "…", "属性": "…"' +
-            (charFieldJson ? ', ' + charFieldJson : '') +
-            ', "武器": "…", "物品": "…" } } ],',
-        );
+        lines.push('    "角色列表": [ { "角色": { "名字": "…"' + (charFieldJson ? ', ' + charFieldJson : '') + ' } } ],');
         lines.push('    "人物": { "盟友": ["…"], "NPC": ["…"], "敌人": ["…"] },');
-        if (baseOn) {
-          const mn = (base && base.name) || '据点';
-          lines.push(
-            '    "' + mn + '": { "名称": "…", "现金": "…"' +
-              (baseFieldJson ? ', ' + baseFieldJson : '') +
-              ' },',
-          );
+        for (const m of modules) {
+          const parts = [];
+          if (m.titleVal) parts.push('"名称": "…"');
+          if (m.cash) parts.push('"现金": "…"');
+          for (const f of m.fields || []) {
+            if (f && f.key && !parts.some((p) => p.startsWith('"' + f.key + '"'))) {
+              parts.push('"' + f.key + '": "…"');
+            }
+          }
+          lines.push('    "' + m.name + '": {' + parts.join(', ') + ' },');
         }
         lines.push('    "行动选项": { "名字": "🧑 团队行动", "选项": ["1. …", "2. …", "3. …", "4. …"] }');
         lines.push('  }');
@@ -9849,33 +10046,49 @@ createCharacterEntry(text, categoryKey) {
           lines.push('- 大地图用于更大范围的区域/全局场景（城市、荒野全图等），场景键只能从以下选择：' + (bigTags || '（无可用标签）') + '。坐标为 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数。');
         }
         lines.push('- 人物描述：描述NPC的简单动作（如"拿起一杯茶，想继续了解玛德琳的情报"）。与小地图不同，人物侧重行为意图而非位置状态。');
-        lines.push('- 角色自由字段：' + charFreeList + '（贴合剧情每轮全量输出）。');
-        if (baseOn) {
-          lines.push('- ' + ((base && base.name) || '固定模块') + '字段：名称为自由文本；现金与' + (baseFieldList || '清单字段') + '为数值/清单字段。');
+        if (allCharFields.length) {
+          lines.push('- 角色字段：' + allCharFields.join('、') + '。其中校验字段（' + (charCheckList || '无') + '）只输出命令；自由字段（' + (charFreeList || '无') + '）贴合剧情每轮全量输出。');
         }
-        lines.push('- 若当前状态中存在其他自定义模块（如线索、情报等' + (baseOn ? '' : '、据点') + '），按其原有结构全量输出，不要丢弃。');
+        for (const m of modules) {
+          const listKeys = (m.fields || []).map((f) => f && f.key).filter(Boolean);
+          const cmdParts = [];
+          if (m.cash) cmdParts.push('现金');
+          for (const k of listKeys) cmdParts.push(k);
+          const descParts = [];
+          if (m.titleVal) descParts.push('名称为自由文本');
+          if (cmdParts.length) descParts.push(cmdParts.join('、') + '为数值/清单字段');
+          lines.push('- ' + m.name + '模块：' + (descParts.length ? descParts.join('；') + '。' : '结构沿用当前状态。'));
+        }
+        lines.push('- 若当前状态中存在其他自定义模块（如线索、情报等），按其原有结构全量输出，不要丢弃。');
         lines.push('- 严禁自行发明新的顶层模块或重复已有模块的变体（如已有「情报」再输出「局势情报」「防疫指南」）。只在当前状态已有模块的键名下更新，不要另起新键名。');
         lines.push('- 各模块描述格式沿用当前状态的风格（emoji、【】名称、[ ]物品括号等）。');
         lines.push('');
         lines.push('## 校验字段：只输出命令，禁止全量重写');
-        const checkTargets = ['角色列表的「属性」「武器」「物品」'];
-        if (baseOn) {
-          checkTargets.push(((base && base.name) || '固定模块') + '的「现金」' + (baseFieldList ? '与「' + baseFieldKeys.join('」「') + '」' : ''));
+        const checkTargets = [];
+        if (allCharFields.length) {
+          checkTargets.push('角色列表的「属性」' + (charCheckList ? '与「' + charCheckList.split('、').join('」「') + '」' : ''));
         }
-        lines.push('适用于：' + checkTargets.join('，') + '。');
+        for (const m of modules) {
+          const listKeys = (m.fields || []).map((f) => f && f.key).filter(Boolean);
+          const parts = [];
+          if (m.cash) parts.push('「现金」');
+          if (listKeys.length) parts.push('「' + listKeys.join('」「') + '」');
+          if (parts.length) checkTargets.push(m.name + '的' + parts.join('与'));
+        }
+        lines.push('适用于：' + (checkTargets.length ? checkTargets.join('，') : '（当前无校验字段）') + '。');
         lines.push('- 属性命令："[键-N]"减少 / "[键+N]"增加 / "[键:值]"设值。键用裸名（不带emoji）。值为"当前/上限"格式时命令只作用于当前值。');
         lines.push('  例：`"属性": "[HP-2][SAN:55]"`');
-        lines.push('- 物品命令："[+名称]"获得 / "[+名称xN]"获得N个 / "[名称-N]"消耗 / "[名称:N]"设为数量。');
+        lines.push('- 物品命令："[+名称]"获得 / "[+名称xN]"获得N个 / "[名称-N]"消耗 / "[名称:N]"设为数量。适用于武器、物品、弹药、消耗、道具等一切清单字段。');
         lines.push('  例：`"物品": "[+.45子弹x100][绷带-1]"`。数量归零的物品会被自动移除。');
         lines.push('- 现金命令同属性语法："[团队现金-12.80]" / "[团队现金:5000]"。');
         lines.push('- 剧情没有变化的校验字段：整个字段省略不输出（程序会保持原值）。');
         if (charMode === 'fixed') {
           lines.push('- 角色列表只可显示固定成员：' + rosterList + '。其余新登场角色放入「人物」中缩略显示（格式与盟友/NPC一致），不要在角色列表中输出。');
         } else {
-          lines.push('- 角色列表可显示固定成员：' + rosterList + '。新登场的关键NPC（当前状态与固定成员中都不存在）：属性输出完整值（如 "[❤️HP:12/12][🛡️Armor:2]"），武器/物品输出完整清单。其余非重要角色放入「人物」中缩略显示。');
+          lines.push('- 角色列表可显示固定成员：' + rosterList + '。新登场的关键NPC（当前状态与固定成员中都不存在）：属性与校验字段输出完整值（如 "[❤️HP:12/12]"、"[🔪] [韦伯利左轮]"），自由字段照常撰写。其余非重要角色放入「人物」中缩略显示。');
         }
-        if (!baseOn) {
-          lines.push('- 若当前状态中存在「' + ((base && base.name) || '据点') + '」模块，其「现金」与清单字段同样适用命令协议。');
+        if (!modulesOn) {
+          lines.push('- 若当前状态中存在固定模块（如「据点」「载具」），其「现金」与清单字段同样适用命令协议。');
         }
         lines.push('');
         lines.push('## 自由字段：每轮全量输出');
@@ -9883,12 +10096,16 @@ createCharacterEntry(text, categoryKey) {
         if (minimapOn) freeListParts.push('小地图');
         if (bigmapOn) freeListParts.push('大地图');
         freeListParts.push('人物（盟友/NPC/敌人）', '行动选项');
-        if (baseOn) freeListParts.push(((base && base.name) || '固定模块') + '的名称');
-        lines.push(freeListParts.join('、') + '，角色的' + charFreeList + '，以及所有自定义模块。未提及的人物条目从对应数组移除，新登场的加入。');
+        for (const m of modules) {
+          if (m.titleVal) freeListParts.push(m.name + '的名称');
+        }
+        if (charFreeList) freeListParts.push('角色的' + charFreeList);
+        freeListParts.push('所有自定义模块');
+        lines.push(freeListParts.join('、') + '。未提及的人物条目从对应数组移除，新登场的加入。');
         lines.push('');
-        lines.push('## 固定成员规则（名单见用户消息）');
-        lines.push('- 剧情提及固定成员 → 输出其条目（校验字段用命令，自由字段全量）。');
-        lines.push('- 若固定成员附有人设说明，撰写其内心、穿着、行为描述时必须遵从该人设（性格、说话风格、着装偏好、思考方式）。');
+        lines.push('## 固定成员规则（名单与各成员字段清单见用户消息）');
+        lines.push('- 剧情提及固定成员 → 输出其条目（该成员标注为校验的字段用命令，标注为自由的字段全量）。');
+        lines.push('- 若固定成员附有人设说明，撰写其自由字段（内心、穿着、行为描述等）时必须遵从该人设（性格、说话风格、着装偏好、思考方式）。');
         lines.push('- 剧情明确显示其不在场 → 输出条目且内心字段写"不在场"，其余字段省略。');
         lines.push('- 剧情完全未提及 → 整个条目省略（程序自动保留其上次数值并标注）。');
         lines.push('');
@@ -10115,7 +10332,7 @@ createCharacterEntry(text, categoryKey) {
             presentText: '在场·本轮未详',
             absentThreshold: 3,
             charDisplayMode: 'full', // full=全显模式 / fixed=固定模式
-            base: { enabled: false, name: '', titleVal: '', cash: '', fields: [] },
+            modules: [],
             maps: { minimap: true, bigmap: false },
             mapTags: { pool: [], mini: MMS_MINI_DEFAULT_TAGS.slice(), big: [] },
             bigmapArt: { enabled: false, note: '', style: 'flat' },
@@ -10126,16 +10343,6 @@ createCharacterEntry(text, categoryKey) {
             const r = chatVars && chatVars.$mms_roster;
             if (!r || typeof r !== 'object') return fallback;
             const t = parseInt(r.absentThreshold, 10);
-            const base =
-              r.base && typeof r.base === 'object'
-                ? {
-                    enabled: !!r.base.enabled,
-                    name: r.base.name || '',
-                    titleVal: r.base.titleVal || '',
-                    cash: r.base.cash || '',
-                    fields: Array.isArray(r.base.fields) ? r.base.fields.filter(Boolean) : [],
-                  }
-                : fallback.base;
             const maps =
               r.maps && typeof r.maps === 'object'
                 ? { minimap: r.maps.minimap !== false, bigmap: !!r.maps.bigmap }
@@ -10150,12 +10357,26 @@ createCharacterEntry(text, categoryKey) {
                 : fallback.bigmapArt;
             const tagCfg = mmsGetMapTags(r);
             return {
-              characters: Array.isArray(r.characters) ? r.characters.filter(Boolean) : [],
+              characters: Array.isArray(r.characters)
+                ? r.characters.filter(Boolean).map((c) => {
+                    // 统一输出新字段模型：fields[{key,initial,mode}]（旧 weapons/items/freeFields 自动迁移）
+                    const entry = c && typeof c === 'object' ? c : {};
+                    return {
+                      name: entry.name || '',
+                      portraitTag: entry.portraitTag || '',
+                      avatar: entry.avatar || '',
+                      role: entry.role || '',
+                      attrs: Array.isArray(entry.attrs) ? entry.attrs.filter(Boolean) : [],
+                      fields: mmsCharFields(entry),
+                      personaPrompt: entry.personaPrompt || '',
+                    };
+                  })
+                : [],
               absentText: r.absentText || fallback.absentText,
               presentText: r.presentText || fallback.presentText,
               absentThreshold: isNaN(t) ? fallback.absentThreshold : t,
               charDisplayMode: r.charDisplayMode === 'fixed' ? 'fixed' : 'full',
-              base: base,
+              modules: mmsRosterModules(r),
               maps: maps,
               mapTags: tagCfg,
               bigmapArt: bigmapArt,
@@ -10371,10 +10592,98 @@ createCharacterEntry(text, categoryKey) {
           this.mmsRenderHistoryList();
         },
 
+        // ---------- 跨实例同步（同一聊天每个带状态栏的楼层各渲染一个扩展实例） ----------
+        // 名册/状态变化经 BroadcastChannel 广播，各实例刷新自身 UI，
+        // 防止旧界面把已删除的模块/字段写回（"删不掉"的根因之一）
+
+        initSyncChannel() {
+          try {
+            if (this.syncChannel || typeof BroadcastChannel === 'undefined') return;
+            if (!this.syncId) this.syncId = 'mms-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+            this.syncChannel = new BroadcastChannel('mms-sync');
+            this.syncChannel.onmessage = (ev) => {
+              const data = ev && ev.data;
+              if (!data || !data.type || data.source === this.syncId) return;
+              try {
+                if (data.type === 'roster') {
+                  // 名册变化：模块表单/名册列表立即跟随最新配置
+                  this.renderModulesForm();
+                  this.renderRosterList();
+                } else if (data.type === 'state' && data.floorId === this.floorId) {
+                  this.refreshFromVars();
+                }
+              } catch (e) { /* 面板未就绪时忽略 */ }
+            };
+          } catch (e) {
+            this.syncChannel = null; // 环境不支持时静默降级（单实例场景无影响）
+          }
+        },
+
+        broadcastSync(type, extra) {
+          try {
+            if (this.syncChannel) {
+              this.syncChannel.postMessage(Object.assign({ type, source: this.syncId }, extra || {}));
+            }
+          } catch (e) { /* 忽略 */ }
+        },
+
+        // 删除固定模块：名册 + 当前状态栏同时删除（所见即所得，含 emoji 别名键）
+        applyModuleDelete(name) {
+          if (this.floorId == null || !this.env.hasVarsApi || !name) return;
+          try {
+            const vars = this.readFloorVars(this.floorId);
+            const state = vars && vars.stat_data ? mmsNormalizeState(vars.stat_data) : null;
+            if (!state || !state['状态栏']) return;
+            const R = state['状态栏'];
+            const nk = mmsNormalizeName(name);
+            if (!nk) return;
+            let removed = false;
+            for (const k of Object.keys(R)) {
+              if (mmsNormalizeName(k) === nk) {
+                delete R[k];
+                removed = true;
+              }
+            }
+            if (removed) this.writeCurrentState(state);
+          } catch (e) {
+            console.warn('[MMS] 模块状态删除失败:', e);
+          }
+        },
+
         saveRoster(roster) {
           try {
             if (!this.env.hasVarsApi) return;
-            insertOrAssignVariables({ $mms_roster: roster }, { type: 'chat' });
+            // 落盘前规范化为新模型（fields[]/modules[]），旧结构（weapons/freeFields/base）随之迁移
+            const clean = {
+              characters: (roster.characters || []).filter(Boolean).map((c) => ({
+                name: c.name || '',
+                portraitTag: c.portraitTag || '',
+                avatar: c.avatar || '',
+                role: c.role || '',
+                attrs: (Array.isArray(c.attrs) ? c.attrs : []).filter(Boolean),
+                fields: mmsCharFields(c),
+                personaPrompt: c.personaPrompt || '',
+              })),
+              absentText: roster.absentText || '本轮未提及',
+              presentText: roster.presentText || '在场·本轮未详',
+              absentThreshold: roster.absentThreshold != null ? Number(roster.absentThreshold) || 3 : 3,
+              charDisplayMode: roster.charDisplayMode === 'fixed' ? 'fixed' : 'full',
+              modules: mmsRosterModules(roster),
+              maps: roster.maps || { minimap: true, bigmap: false },
+              mapTags: roster.mapTags || { pool: [], mini: MMS_MINI_DEFAULT_TAGS.slice(), big: [] },
+              bigmapArt: roster.bigmapArt || { enabled: false, note: '', style: 'flat' },
+            };
+            // 用 replaceVariables 整体替换 $mms_roster：insertOrAssign 的深合并无法清除旧键，
+            // 导致旧版残留的 base 字段把已删除的模块每次读取时"复活"（模块删不掉的根因）
+            if (typeof replaceVariables === 'function') {
+              const chatVars = getVariables({ type: 'chat' }) || {};
+              const next = Object.assign({}, chatVars, { $mms_roster: clean });
+              replaceVariables(next, { type: 'chat' });
+            } else {
+              insertOrAssignVariables({ $mms_roster: clean }, { type: 'chat' });
+            }
+            // 广播给同聊天其它楼层的扩展实例（旧界面立即刷新，防止把已删配置写回）
+            this.broadcastSync('roster');
           } catch (e) {
             console.error('[MMS] 保存名册失败:', e);
           }
@@ -10421,6 +10730,7 @@ createCharacterEntry(text, categoryKey) {
                 $mms_meta: { hash: this.hashStr(this.messageText), ts: Date.now() },
               });
               replaceVariables(next, { type: 'message', message_id: floorId });
+              this.broadcastSync('state', { floorId });
               return;
             }
           } catch (e) {
@@ -10431,6 +10741,7 @@ createCharacterEntry(text, categoryKey) {
             { stat_data: normalized, $mms_meta: { hash: this.hashStr(this.messageText), ts: Date.now() } },
             { type: 'message', message_id: floorId },
           );
+          this.broadcastSync('state', { floorId });
         },
 
         // 从目标楼层往前找最近一份状态：优先变量快照，其次旧式 Status_block 文本
@@ -10482,6 +10793,11 @@ createCharacterEntry(text, categoryKey) {
             const display = this.injectBigMapArt(state);
             updateYamlDataSource(this.stateToYaml(display));
             setTimeout(() => reRenderStatusBar(), 60);
+            // 实时表单同步：名册/固定模块表单显示的实时值跟随最新状态
+            try {
+              this.renderModulesForm();
+              this.renderRosterList();
+            } catch (e) { /* 设置面板未就绪时忽略 */ }
           } catch (e) {
             console.error('[MMS] 状态渲染失败:', e);
           }
@@ -11112,14 +11428,23 @@ createCharacterEntry(text, categoryKey) {
             const { latest, context } = this.collectStorySegments(targetFloorId, floorCount);
 
             let userPrompt = '<当前状态>\n' + prevYaml + '\n</当前状态>\n\n';
-            // 固定成员名册段：告知更新 AI 常驻角色及其校验属性键
+            // 固定成员名册段：告知更新 AI 常驻角色及其字段清单（校验/自由标注）
             if (roster.characters.length) {
               userPrompt +=
-                '<固定成员（剧情提及必须输出其条目：校验字段用命令、自由字段全量；剧情明确不在场时内心写"不在场"并可省略其余字段；完全未提及则整个条目省略）>\n';
+                '<固定成员（剧情提及必须输出其条目：标注(校验)的字段只输出命令、标注(自由)的字段全量；剧情明确不在场时内心写"不在场"并可省略其余字段；完全未提及则整个条目省略）>\n';
               for (const r of roster.characters) {
                 const keys = (r.attrs || []).map((a) => a.key).join('、');
-                const free = (r.freeFields && r.freeFields.length ? r.freeFields : ['穿着', '内心']).join('、');
-                userPrompt += '- ' + (mmsPlainName(r.name) || r.name) + '（属性键：' + (keys || '无') + '；自由字段：' + free + '）\n';
+                const fields = mmsCharFields(r)
+                  .map((f) => f.key + (f.mode === 'check' ? '(校验)' : '(自由)'))
+                  .join('、');
+                userPrompt +=
+                  '- ' +
+                  (mmsPlainName(r.name) || r.name) +
+                  '（属性键：' +
+                  (keys || '无') +
+                  '；字段：' +
+                  (fields || '无') +
+                  '）\n';
                 if (r.personaPrompt && String(r.personaPrompt).trim()) {
                   userPrompt += '  人设：' + String(r.personaPrompt).trim() + '\n';
                 }
@@ -11158,8 +11483,8 @@ createCharacterEntry(text, categoryKey) {
                   should_silence: true,
                   generation_id: 'mms-update-' + targetFloorId + '-' + Date.now(),
                 };
-                // 首次尝试带结构化约束；部分端点不支持时自动降级为纯提示词
-                if (attempt === 0) config.json_schema = MMS_JSON_SCHEMA;
+                // 首次尝试带结构化约束（按名册动态生成）；部分端点不支持时自动降级为纯提示词
+                if (attempt === 0) config.json_schema = mmsBuildJsonSchema(roster);
 
                 const result = await generateRaw(config);
                 const raw = typeof result === 'string' ? result : (result && result.content) || '';
@@ -11399,16 +11724,17 @@ createCharacterEntry(text, categoryKey) {
               const nf = mmsFindNameField(c);
               const name = nf ? String(c[nf] || '') : '';
               if (!name || knownNames.has(mmsNormalizeName(name))) continue;
-              // 提取属性
+              // 提取属性（数值校验）
               const attrs = mmsParseAttrList(c['属性'] || '').map((a) => ({ key: a.display, value: a.value }));
-              // 提取自由字段（非校验字段）
-              const freeFields = [];
-              const freeInitials = {};
+              // 提取字段：值被[..]包裹 → 校验字段（带入初值）；否则自由字段。键序即输出顺序
+              const fields = [];
               for (const k of Object.keys(c)) {
-                if (['名字', '属性', '武器', '物品', '立绘'].includes(k)) continue;
-                if (/弹药|消耗|道具/.test(k)) continue; // 清单字段归入物品
-                freeFields.push(k);
-                freeInitials[k] = c[k];
+                if (k === nf || k === '属性' || k === '立绘' || k === '身份') continue;
+                fields.push({
+                  key: k,
+                  initial: c[k] == null ? '' : String(c[k]),
+                  mode: mmsGuessFieldMode(k, c[k]),
+                });
               }
               newChars.push({
                 name,
@@ -11416,56 +11742,310 @@ createCharacterEntry(text, categoryKey) {
                 avatar: '',
                 role: c['身份'] || '',
                 attrs,
-                freeFields: freeFields.length ? freeFields : ['穿着', '内心'],
-                freeInitials,
-                weapons: c['武器'] || '',
-                items: c['物品'] || '',
+                fields,
                 personaPrompt: '',
               });
             }
-            // 提取固定模块（据点/载具等非已知模块的对象）
-            const moduleNames = [];
+            // 固定模块收集：所有非内建、对象值的顶层键（据点/载具/任意自定义模块均为候选）
+            // 键名归一化比较：已注册「据点」时，带 emoji 的「🏟️据点」不再被当作新模块重复导入
+            const known = mmsKnownModules(roster);
+            const isKnown = (k) =>
+              known.includes(k) || known.some((n) => mmsNormalizeName(n) === mmsNormalizeName(k));
+            const moduleCfgs = [];
             for (const k of Object.keys(root)) {
-              if (MMS_KNOWN_MODULES.includes(k) && k !== '据点') continue;
-              if (k === '据点' || k === '载具') {
-                const v = root[k];
-                if (v && typeof v === 'object' && !Array.isArray(v)) moduleNames.push(k);
-              }
-            }
-            if (!newChars.length && !moduleNames.length) return;
-            let msg = '从本楼状态中检测到以下内容，是否导入到固定配置？\\n\\n';
-            if (newChars.length) msg += '· 新角色 ' + newChars.length + ' 名：' + newChars.map((c) => mmsPlainName(c.name)).join('、') + '\\n';
-            if (moduleNames.length) msg += '· 固定模块：' + moduleNames.join('、') + '\\n';
-            if (!confirm(msg)) return;
-            // 导入角色
-            if (newChars.length) {
-              roster.characters.push(...newChars);
-            }
-            // 导入第一个模块为固定模块
-            if (moduleNames.length) {
-              const mn = moduleNames[0];
-              const mod = root[mn];
+              if (isKnown(k)) continue;
+              const v = root[k];
+              if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
               const fields = [];
-              for (const k of Object.keys(mod)) {
-                if (k === '名称' || k === '现金') continue;
-                fields.push({ key: k, value: String(mod[k] || '') });
+              for (const fk of Object.keys(v)) {
+                if (fk === '名称' || fk === '现金') continue;
+                fields.push({ key: fk, value: String(v[fk] || '') });
               }
-              roster.base = {
+              moduleCfgs.push({
                 enabled: true,
-                name: mn,
-                titleVal: mod['名称'] || '',
-                cash: mod['现金'] || '',
+                name: mmsPlainName(k) || k,
+                titleVal: v['名称'] != null ? String(v['名称']) : '',
+                cash: v['现金'] != null ? String(v['现金']) : '',
                 fields,
-              };
+              });
             }
-            this.saveRoster(roster);
-            this.renderRosterList();
-            this.renderBaseForm();
-            this.setIndicator('ok', '固定配置已导入');
-            setTimeout(() => { if (!this.updating) this.setIndicator(null); }, 3000);
+            if (!newChars.length && !moduleCfgs.length) return;
+            this.showImportSelectDialog({ newChars, moduleCfgs }, (selChars, selMods) => {
+              const rr = this.loadRoster();
+              if (selChars.length) rr.characters.push(...selChars);
+              for (const m of selMods) {
+                if (!mmsRosterModules(rr).some((x) => x.name === m.name)) rr.modules.push(m);
+              }
+              this.saveRoster(rr);
+              this.renderRosterList();
+              this.renderModulesForm();
+              this.setIndicator('ok', '固定配置已导入');
+              setTimeout(() => {
+                if (!this.updating) this.setIndicator(null);
+              }, 3000);
+            });
           } catch (e) {
             console.warn('[MMS] 自动导入固定配置失败:', e);
           }
+        },
+
+        // 勾选导入弹窗：列出检测到的新角色与固定模块，逐项勾选后导入（替代旧的 confirm 全量导入）
+        showImportSelectDialog({ newChars = [], moduleCfgs = [] }, onConfirm) {
+          const old = document.getElementById('mms-import-dialog');
+          if (old) old.remove();
+          const overlay = document.createElement('div');
+          overlay.id = 'mms-import-dialog';
+          overlay.style.cssText =
+            'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;';
+          overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.remove();
+          });
+          const card = document.createElement('div');
+          card.style.cssText =
+            'width:100%;max-width:460px;max-height:80vh;display:flex;flex-direction:column;background:#2b2d31;border:1px solid #4a4d55;border-radius:12px;color:#e0e0e0;font-size:12px;box-shadow:0 8px 30px rgba(0,0,0,.4);';
+          const header = document.createElement('div');
+          header.style.cssText = 'padding:12px 14px 6px;font-weight:bold;font-size:13px;';
+          header.textContent = '从本楼状态检测到以下内容，勾选要导入固定配置的项目';
+          card.appendChild(header);
+          const body = document.createElement('div');
+          body.style.cssText = 'padding:4px 14px;overflow:auto;flex:1;';
+          const esc = (s) => String(s == null ? '' : s).replace(/</g, '&lt;');
+          const mkRow = (type, idx, label, sub, checked) => {
+            const row = document.createElement('label');
+            row.dataset.type = type;
+            row.dataset.idx = String(idx);
+            row.style.cssText =
+              'display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border:1px solid #3f4249;border-radius:8px;margin-bottom:6px;cursor:pointer;';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = checked !== false;
+            cb.style.cssText = 'margin-top:2px;flex:0 0 auto;';
+            const txt = document.createElement('div');
+            txt.innerHTML =
+              '<div style="font-weight:600;">' + esc(label) + '</div>' +
+              (sub ? '<div style="color:#9aa0a6;font-size:11px;margin-top:2px;">' + esc(sub) + '</div>' : '');
+            row.appendChild(cb);
+            row.appendChild(txt);
+            row._checkbox = cb;
+            return row;
+          };
+          if (newChars.length) {
+            const t = document.createElement('div');
+            t.style.cssText = 'color:#9aa0a6;margin:6px 0 4px;';
+            t.textContent = '新角色（' + newChars.length + ' 名）';
+            body.appendChild(t);
+            newChars.forEach((c, i) => {
+              const sub = c.fields.length
+                ? '字段：' + c.fields.map((f) => f.key + (f.mode === 'check' ? '(校验)' : '(自由)')).join('、')
+                : '（无自定义字段）';
+              body.appendChild(mkRow('char', i, mmsPlainName(c.name) || c.name, sub));
+            });
+          }
+          if (moduleCfgs.length) {
+            const t = document.createElement('div');
+            t.style.cssText = 'color:#9aa0a6;margin:10px 0 4px;';
+            t.textContent = '固定模块（' + moduleCfgs.length + ' 个，默认不勾选——已删除过的模块不会被自动导回）';
+            body.appendChild(t);
+            moduleCfgs.forEach((m, i) => {
+              const keys = m.fields.map((f) => f.key).join('、');
+              const sub = [m.titleVal ? '名称：' + m.titleVal : '', keys ? '清单：' + keys : '']
+                .filter(Boolean)
+                .join('；');
+              body.appendChild(mkRow('module', i, m.name, sub, false));
+            });
+          }
+          card.appendChild(body);
+          const footer = document.createElement('div');
+          footer.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;padding:10px 14px 12px;';
+          const btnCancel = document.createElement('button');
+          btnCancel.type = 'button';
+          btnCancel.textContent = '取消';
+          btnCancel.style.cssText =
+            'padding:6px 14px;border-radius:8px;border:1px solid #4a4d55;background:transparent;color:#e0e0e0;cursor:pointer;';
+          btnCancel.addEventListener('click', () => overlay.remove());
+          const btnOk = document.createElement('button');
+          btnOk.type = 'button';
+          btnOk.textContent = '导入选中项';
+          btnOk.style.cssText =
+            'padding:6px 14px;border-radius:8px;border:none;background:#7c5cff;color:#fff;cursor:pointer;font-weight:600;';
+          btnOk.addEventListener('click', () => {
+            const selChars = [];
+            const selMods = [];
+            for (const row of Array.from(body.querySelectorAll('label'))) {
+              if (!row._checkbox || !row._checkbox.checked) continue;
+              const idx = parseInt(row.dataset.idx, 10);
+              if (row.dataset.type === 'char' && newChars[idx]) selChars.push(newChars[idx]);
+              if (row.dataset.type === 'module' && moduleCfgs[idx]) selMods.push(moduleCfgs[idx]);
+            }
+            overlay.remove();
+            if (onConfirm) onConfirm(selChars, selMods);
+          });
+          footer.appendChild(btnCancel);
+          footer.appendChild(btnOk);
+          card.appendChild(footer);
+          overlay.appendChild(card);
+          document.body.appendChild(overlay);
+        },
+
+        mmsSnapshotLimit: 3,
+
+        loadSnapshots() {
+          try {
+            if (!this.env.hasVarsApi) return [];
+            const chatVars = getVariables({ type: 'chat' }) || {};
+            const arr = chatVars && chatVars.$mms_snapshots;
+            return Array.isArray(arr) ? arr.filter(Boolean) : [];
+          } catch (e) {
+            return [];
+          }
+        },
+
+        saveSnapshots(list) {
+          try {
+            if (!this.env.hasVarsApi) return;
+            insertOrAssignVariables({ $mms_snapshots: list || [] }, { type: 'chat' });
+          } catch (e) {
+            console.warn('[MMS] 保存快照失败:', e);
+          }
+        },
+
+        // 保存当前楼层状态为快照（滚动上限，最旧被挤出）
+        saveSnapshotNow() {
+          const state = this.readCurrentState();
+          if (!state) {
+            alert('当前楼层没有状态数据，无法保存快照');
+            return false;
+          }
+          const snaps = this.loadSnapshots();
+          const R = state['状态栏'] || {};
+          snaps.push({
+            ts: Date.now(),
+            tsLabel: new Date().toLocaleString(),
+            floorId: this.floorId,
+            label:
+              String(R['地点'] || R['日期和时间'] || '')
+                .replace(/^[\s📍⏰]+/, '')
+                .slice(0, 24) || '（无地点）',
+            state: JSON.parse(JSON.stringify(state)),
+          });
+          const limit = this.mmsSnapshotLimit || 3;
+          while (snaps.length > limit) snaps.shift();
+          this.saveSnapshots(snaps);
+          return true;
+        },
+
+        // 恢复快照到当前楼层
+        restoreSnapshot(idx) {
+          const snaps = this.loadSnapshots();
+          const snap = snaps[idx];
+          if (!snap || !snap.state) return;
+          const state = JSON.parse(JSON.stringify(snap.state));
+          this.writeCurrentState(state);
+          this.renderModulesForm();
+          this.renderRosterList();
+          this.setIndicator('ok', '快照已恢复');
+          setTimeout(() => {
+            if (!this.updating) this.setIndicator(null);
+          }, 3000);
+        },
+
+        showSnapshotDialog() {
+          const old = document.getElementById('mms-snapshot-dialog');
+          if (old) old.remove();
+          const limit = this.mmsSnapshotLimit || 3;
+          const esc = (s) => String(s == null ? '' : s).replace(/</g, '&lt;');
+          const build = () => {
+            const snaps = this.loadSnapshots();
+            const overlay = document.createElement('div');
+            overlay.id = 'mms-snapshot-dialog';
+            overlay.style.cssText =
+              'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;';
+            overlay.addEventListener('click', (e) => {
+              if (e.target === overlay) overlay.remove();
+            });
+            const card = document.createElement('div');
+            card.style.cssText =
+              'width:100%;max-width:440px;max-height:80vh;display:flex;flex-direction:column;background:#2b2d31;border:1px solid #4a4d55;border-radius:12px;color:#e0e0e0;font-size:12px;box-shadow:0 8px 30px rgba(0,0,0,.4);';
+            const header = document.createElement('div');
+            header.style.cssText = 'padding:12px 14px 4px;font-weight:bold;font-size:13px;';
+            header.textContent = '状态快照（最多保留 ' + limit + ' 份，与修改历史独立）';
+            card.appendChild(header);
+            const body = document.createElement('div');
+            body.style.cssText = 'padding:4px 14px;overflow:auto;flex:1;';
+            const hint = document.createElement('div');
+            hint.style.cssText = 'color:#9aa0a6;font-size:11px;padding:4px 0 8px;';
+            hint.textContent = '快照保存当前状态栏的完整数据，可随时恢复到本楼层（覆盖当前状态）。';
+            body.appendChild(hint);
+            if (!snaps.length) {
+              const empty = document.createElement('div');
+              empty.style.cssText = 'color:#9aa0a6;padding:10px 0;';
+              empty.textContent = '暂无快照。点击下方「保存当前为快照」创建第一个回退点。';
+              body.appendChild(empty);
+            }
+            snaps.forEach((snap, i) => {
+              const row = document.createElement('div');
+              row.style.cssText =
+                'display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid #3f4249;border-radius:8px;margin-bottom:6px;';
+              const txt = document.createElement('div');
+              txt.style.cssText = 'flex:1;min-width:0;';
+              txt.innerHTML =
+                '<div style="font-weight:600;">' + esc(snap.tsLabel || '未知时间') + '</div>' +
+                '<div style="color:#9aa0a6;font-size:11px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+                '楼层 #' + esc(snap.floorId != null ? snap.floorId : '?') + ' · ' + esc(snap.label || '') +
+                '</div>';
+              row.appendChild(txt);
+              const btnRestore = document.createElement('button');
+              btnRestore.type = 'button';
+              btnRestore.textContent = '恢复';
+              btnRestore.style.cssText =
+                'padding:4px 10px;border-radius:7px;border:none;background:#7c5cff;color:#fff;cursor:pointer;font-weight:600;flex:0 0 auto;';
+              btnRestore.addEventListener('click', () => {
+                overlay.remove();
+                this.restoreSnapshot(i);
+              });
+              const btnDel = document.createElement('button');
+              btnDel.type = 'button';
+              btnDel.textContent = '删除';
+              btnDel.style.cssText =
+                'padding:4px 10px;border-radius:7px;border:1px solid #4a4d55;background:transparent;color:#e0e0e0;cursor:pointer;flex:0 0 auto;';
+              btnDel.addEventListener('click', () => {
+                const cur = this.loadSnapshots();
+                cur.splice(i, 1);
+                this.saveSnapshots(cur);
+                overlay.remove();
+                this.showSnapshotDialog();
+              });
+              row.appendChild(btnRestore);
+              row.appendChild(btnDel);
+              body.appendChild(row);
+            });
+            card.appendChild(body);
+            const footer = document.createElement('div');
+            footer.style.cssText = 'display:flex;justify-content:space-between;gap:8px;padding:10px 14px 12px;';
+            const btnSave = document.createElement('button');
+            btnSave.type = 'button';
+            btnSave.textContent = '📷 保存当前为快照';
+            btnSave.style.cssText =
+              'padding:6px 14px;border-radius:8px;border:none;background:#7c5cff;color:#fff;cursor:pointer;font-weight:600;';
+            btnSave.addEventListener('click', () => {
+              if (this.saveSnapshotNow()) {
+                overlay.remove();
+                this.showSnapshotDialog();
+              }
+            });
+            const btnClose = document.createElement('button');
+            btnClose.type = 'button';
+            btnClose.textContent = '关闭';
+            btnClose.style.cssText =
+              'padding:6px 14px;border-radius:8px;border:1px solid #4a4d55;background:transparent;color:#e0e0e0;cursor:pointer;';
+            btnClose.addEventListener('click', () => overlay.remove());
+            footer.appendChild(btnSave);
+            footer.appendChild(btnClose);
+            card.appendChild(footer);
+            overlay.appendChild(card);
+            document.body.appendChild(overlay);
+          };
+          build();
         },
 
         // ---------- UI ----------
@@ -11477,6 +12057,12 @@ createCharacterEntry(text, categoryKey) {
           if (editBtn) {
             editBtn.style.display = this.env.hasMessageApi ? '' : 'none';
             editBtn.addEventListener('click', () => this.openEditMode());
+          }
+          // 状态快照：保存当前状态为回退点 / 恢复（与修改历史独立，默认保留 3 份）
+          const snapshotBtn = document.getElementById('mms-snapshot-btn');
+          if (snapshotBtn) {
+            snapshotBtn.style.display = this.env.hasVarsApi ? '' : 'none';
+            snapshotBtn.addEventListener('click', () => this.showSnapshotDialog());
           }
           const editCancel = document.getElementById('mms-edit-cancel');
           if (editCancel) editCancel.addEventListener('click', () => this.closeEditMode());
@@ -12035,8 +12621,8 @@ createCharacterEntry(text, categoryKey) {
 
           const attrAdd = document.getElementById('mms-attr-add-row');
           if (attrAdd) attrAdd.addEventListener('click', () => this.appendAttrRow());
-          const freeAdd = document.getElementById('mms-free-add-row');
-          if (freeAdd) freeAdd.addEventListener('click', () => this.appendFreeRow());
+          const fieldAdd = document.getElementById('mms-field-add-row');
+          if (fieldAdd) fieldAdd.addEventListener('click', () => this.appendFieldRow());
 
           const bindRosterText = (id, key, fallback) => {
             const el = document.getElementById(id);
@@ -12115,52 +12701,23 @@ createCharacterEntry(text, categoryKey) {
           if (modeFixed) modeFixed.addEventListener('click', () => setMode('fixed'));
           syncModeUI();
 
-          // 据点固定模块（激活勾选与折叠展开解耦）
-          const baseChk = document.getElementById('mms-base-enabled');
-          const baseForm = document.getElementById('mms-base-form');
-          const baseCollapseBtn = document.getElementById('mms-base-collapse');
-          const baseCollapseIcon = document.getElementById('mms-base-collapse-icon');
-          const baseCollapseText = document.getElementById('mms-base-collapse-text');
-          // 折叠状态独立存储（不随激活变化）
-          let baseExpanded = false;
-          const syncBaseCollapse = () => {
-            if (baseForm) baseForm.style.display = baseExpanded ? 'block' : 'none';
-            if (baseCollapseIcon) baseCollapseIcon.className = baseExpanded ? 'fa fa-chevron-up' : 'fa fa-chevron-down';
-            if (baseCollapseText) baseCollapseText.textContent = baseExpanded ? '收起' : '编辑';
-          };
-          if (baseCollapseBtn) {
-            baseCollapseBtn.addEventListener('click', () => {
-              baseExpanded = !baseExpanded;
-              syncBaseCollapse();
+          // 固定自定义模块列表（据点/载具/任意，多模块共存）
+          const moduleAddBtn = document.getElementById('mms-module-add');
+          if (moduleAddBtn) {
+            moduleAddBtn.addEventListener('click', () => {
+              const rr = this.loadRoster();
+              rr.modules.push({ enabled: true, name: '', titleVal: '', cash: '', fields: [] });
+              this.saveRoster(rr);
+              this.renderModulesForm();
+              if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
+              const list = document.getElementById('mms-module-list');
+              if (list && list.lastElementChild) {
+                const nameInput = list.lastElementChild.querySelector('.module-name');
+                if (nameInput) nameInput.focus();
+              }
             });
           }
-          syncBaseCollapse();
-          // 勾选只管激活，不动折叠
-          if (baseChk) {
-            baseChk.addEventListener('change', () => {
-              const rr = this.loadRoster();
-              rr.base.enabled = baseChk.checked;
-              this.saveRoster(rr);
-              if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
-              this.applyRosterNow();
-            });
-          }
-          const bindBaseInput = (id, key) => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.addEventListener('change', () => {
-              const rr = this.loadRoster();
-              rr.base[key] = el.value.trim();
-              this.saveRoster(rr);
-              if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
-            });
-          };
-          bindBaseInput('mms-base-name', 'name');
-          bindBaseInput('mms-base-cash', 'cash');
-          bindBaseInput('mms-base-title', 'titleVal');
-          const baseAddBtn = document.getElementById('mms-base-add-row');
-          if (baseAddBtn) baseAddBtn.addEventListener('click', () => this.appendBaseRow('', ''));
-          this.renderBaseForm();
+          this.renderModulesForm();
 
           // 地图开关
           const bindMapToggle = (id, key) => {
@@ -12222,58 +12779,163 @@ createCharacterEntry(text, categoryKey) {
           syncBigArtUI();
         },
 
-        appendBaseRow(key = '', value = '') {
-          const container = document.getElementById('mms-base-rows');
+        // ---------- 固定模块列表表单（多模块共存） ----------
+
+        // 模块卡片内的清单字段行
+        appendModuleFieldRow(container, key = '', value = '') {
           if (!container) return;
           const row = document.createElement('div');
-          row.className = 'flex items-center gap-1.5 base-row';
+          row.className = 'flex items-center gap-1.5 module-field-row';
+          const esc = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;');
           row.innerHTML =
-            '<input type="text" class="form-input w-28 base-key" placeholder="字段名 (如 载具)" value="' +
-            String(key).replace(/"/g, '&quot;') +
-            '" />' +
-            '<input type="text" class="form-input flex-1 base-val" placeholder="初始值 (如 [🚙][轿车])" value="' +
-            String(value).replace(/"/g, '&quot;') +
-            '" />' +
+            '<input type="text" class="form-input w-28 module-field-key" placeholder="字段名 (如 武器)" value="' + esc(key) + '" />' +
+            '<input type="text" class="form-input flex-1 module-field-val" placeholder="初始值 (如 [💣] [无])" value="' + esc(value) + '" />' +
             '<button type="button" class="attr-row-del" title="移除此行"><i class="fa fa-trash-o"></i></button>';
+          const save = () => this.saveModuleFromCard(row.closest('.mms-module-card'));
           row.querySelector('.attr-row-del').addEventListener('click', () => {
             row.remove();
-            this.saveBaseFromForm();
+            save();
           });
-          row.querySelector('.base-key').addEventListener('change', () => this.saveBaseFromForm());
-          row.querySelector('.base-val').addEventListener('change', () => this.saveBaseFromForm());
+          row.querySelector('.module-field-key').addEventListener('change', save);
+          row.querySelector('.module-field-val').addEventListener('change', save);
           container.appendChild(row);
         },
 
-        renderBaseForm() {
-          const container = document.getElementById('mms-base-rows');
-          const base = this.loadRoster().base;
-          const nameEl = document.getElementById('mms-base-name');
-          const titleEl = document.getElementById('mms-base-title');
-          const cashEl = document.getElementById('mms-base-cash');
-          const baseChk = document.getElementById('mms-base-enabled');
-          if (baseChk) baseChk.checked = !!base.enabled;
-          if (nameEl) nameEl.value = base.name || '';
-          if (titleEl) titleEl.value = base.titleVal || '';
-          if (cashEl) cashEl.value = base.cash || '';
-          if (container) {
-            container.innerHTML = '';
-            for (const f of base.fields || []) {
-              this.appendBaseRow(f.key || '', f.value || '');
-            }
-          }
+        // 从卡片 DOM 收集模块配置并写回名册 + 实时应用到当前状态栏
+        saveModuleFromCard(card) {
+          if (!card) return;
+          const idx = parseInt(card.dataset.idx, 10);
+          const rr = this.loadRoster();
+          if (isNaN(idx) || !rr.modules[idx]) return;
+          const oldName = rr.modules[idx].name;
+          rr.modules[idx] = {
+            enabled: !!(card.querySelector('.module-enabled') && card.querySelector('.module-enabled').checked),
+            name: (card.querySelector('.module-name') || {}).value || '',
+            titleVal: (card.querySelector('.module-title') || {}).value || '',
+            cash: (card.querySelector('.module-cash') || {}).value || '',
+            fields: Array.from(card.querySelectorAll('.module-field-row')).map((row) => ({
+              key: (row.querySelector('.module-field-key') || {}).value || '',
+              value: (row.querySelector('.module-field-val') || {}).value || '',
+            })).filter((f) => f.key),
+          };
+          this.saveRoster(rr);
+          // 实时编辑：卡片值直接写入当前状态（所见即所得）
+          if (rr.modules[idx].name) this.applyModuleEdit(rr.modules[idx], oldName);
+          if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
         },
 
-        saveBaseFromForm() {
-          const rr = this.loadRoster();
-          const fields = [];
-          document.querySelectorAll('#mms-base-rows .base-row').forEach((row) => {
-            const key = row.querySelector('.base-key').value.trim();
-            const val = row.querySelector('.base-val').value.trim();
-            if (key) fields.push({ key, value: val });
+        // 渲染全部模块卡片：显示当前状态栏的实时值（基线仅兜底），支持折叠
+        renderModulesForm() {
+          const list = document.getElementById('mms-module-list');
+          if (!list) return;
+          const roster = this.loadRoster();
+          // 当前状态实时值（浅拷贝去重，不修改原状态）
+          const { R: stateR } = this.readCurrentRoot();
+          const liveRoot = Object.assign({}, stateR);
+          mmsDedupeModuleKeys(liveRoot, roster.modules.map((m) => m && m.name).filter(Boolean));
+          list.innerHTML = '';
+          if (!roster.modules.length) {
+            list.innerHTML =
+              '<div class="text-xs text-gray-500 py-1">暂无固定模块。点击「添加模块」创建据点、载具等常驻模块（支持多个共存）。</div>';
+            return;
+          }
+          if (!this.moduleExpanded) this.moduleExpanded = new Set();
+          roster.modules.forEach((m, idx) => {
+            const liveKey = mmsMatchModuleKey(liveRoot, m.name);
+            const live = liveKey && liveRoot[liveKey] && typeof liveRoot[liveKey] === 'object' ? liveRoot[liveKey] : null;
+            // 实时值优先，名册基线兜底
+            const titleVal = live && live['名称'] != null ? String(live['名称']) : m.titleVal || '';
+            const cash = live && live['现金'] != null ? String(live['现金']) : m.cash || '';
+            // 字段并集：名册配置 ∪ 状态模块现有字段（含 AI 新增的清单字段），值取实时
+            const fields = [];
+            const seen = new Set();
+            const pushField = (key, value) => {
+              if (!key || seen.has(key)) return;
+              seen.add(key);
+              fields.push({ key, value: value == null ? '' : String(value) });
+            };
+            for (const f of m.fields || []) {
+              pushField(f.key, live && live[f.key] != null ? live[f.key] : f.value || '');
+            }
+            if (live) {
+              for (const k of Object.keys(live)) {
+                if (k === '名称' || k === '现金') continue;
+                pushField(k, live[k]);
+              }
+            }
+            const expanded = this.moduleExpanded.has(m.name || String(idx));
+            const card = document.createElement('div');
+            card.className = 'mms-module-card roster-surface rounded-xl border border-gray-700/15 p-2.5 space-y-2';
+            card.dataset.idx = String(idx);
+            const esc = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;');
+            card.innerHTML =
+              '<div class="flex justify-between items-center gap-2">' +
+              '<div class="flex items-center gap-2 min-w-0 flex-1">' +
+              '<input type="checkbox" class="module-enabled"' + (m.enabled ? ' checked' : '') + ' title="启用（常驻显示，缺失字段用基线补齐）" />' +
+              '<input type="text" class="form-input module-name" style="flex: 0 0 150px" placeholder="模块名（据点/载具）" value="' + esc(m.name) + '" />' +
+              '</div>' +
+              '<button type="button" class="mms-btn module-toggle" style="padding: 2px 10px" title="' + (expanded ? '收起' : '展开编辑') + '">' +
+              '<i class="fa ' + (expanded ? 'fa-chevron-up' : 'fa-chevron-down') + ' module-toggle-icon"></i></button>' +
+              '<button type="button" class="attr-row-del module-del" title="删除此模块"><i class="fa fa-trash-o"></i></button>' +
+              '</div>' +
+              '<div class="module-body space-y-2" style="' + (expanded ? '' : 'display:none') + '">' +
+              '<div class="grid grid-cols-2 gap-2">' +
+              '<input type="text" class="form-input module-title" placeholder="标题字段（名称，实时）" value="' + esc(titleVal) + '" />' +
+              '<input type="text" class="form-input module-cash" placeholder="现金（实时，留空不输出）" value="' + esc(cash) + '" />' +
+              '</div>' +
+              '<div>' +
+              '<div class="flex justify-between items-center mb-1">' +
+              '<span class="text-[11px] font-semibold text-gray-300">清单字段（实时值 · 命令协议校验）</span>' +
+              '<button type="button" class="text-[11px] text-primary hover:underline module-field-add"><i class="fa fa-plus-circle"></i> 增加字段</button>' +
+              '</div>' +
+              '<div class="module-field-rows space-y-1.5"></div>' +
+              '</div>' +
+              '</div>';
+            // 事件绑定
+            const save = () => this.saveModuleFromCard(card);
+            const body = card.querySelector('.module-body');
+            const toggleIcon = card.querySelector('.module-toggle-icon');
+            const toggleBtn = card.querySelector('.module-toggle');
+            const syncToggle = (on) => {
+              body.style.display = on ? '' : 'none';
+              toggleIcon.className = 'fa ' + (on ? 'fa-chevron-up' : 'fa-chevron-down');
+            };
+            if (toggleBtn) {
+              toggleBtn.addEventListener('click', () => {
+                const key = m.name || String(idx);
+                if (this.moduleExpanded.has(key)) this.moduleExpanded.delete(key);
+                else this.moduleExpanded.add(key);
+                syncToggle(this.moduleExpanded.has(key));
+              });
+            }
+            card.querySelector('.module-enabled').addEventListener('change', () => {
+              save();
+              this.applyRosterNow();
+            });
+            card.querySelector('.module-name').addEventListener('change', save);
+            card.querySelector('.module-title').addEventListener('change', save);
+            card.querySelector('.module-cash').addEventListener('change', save);
+            card.querySelector('.module-del').addEventListener('click', () => {
+              const name = (card.querySelector('.module-name') || {}).value || '未命名模块';
+              if (!confirm('确定删除固定模块「' + name + '」吗？将同时从当前状态栏移除该模块卡片。')) return;
+              const rr = this.loadRoster();
+              const i = parseInt(card.dataset.idx, 10);
+              const delName = (rr.modules[i] || {}).name || '';
+              if (!isNaN(i)) rr.modules.splice(i, 1);
+              this.saveRoster(rr); // 广播同步其它楼层的扩展实例
+              if (delName) this.applyModuleDelete(delName);
+              this.renderModulesForm();
+              if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
+            });
+            card.querySelector('.module-field-add').addEventListener('click', () => {
+              this.appendModuleFieldRow(card.querySelector('.module-field-rows'));
+            });
+            const rows = card.querySelector('.module-field-rows');
+            for (const f of fields) {
+              this.appendModuleFieldRow(rows, f.key, f.value);
+            }
+            list.appendChild(card);
           });
-          rr.base.fields = fields;
-          this.saveRoster(rr);
-          if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
         },
 
         // ---------- 地图标签管理（三栏：池/小地图/大地图，互斥，多选迁移） ----------
@@ -12418,19 +13080,18 @@ createCharacterEntry(text, categoryKey) {
           container.appendChild(row);
         },
 
-        // 表单动态行：自由属性键值对
-        appendFreeRow(key = '', val = '') {
-          const container = document.getElementById('mms-free-rows');
+        // 表单动态行：角色字段（键名 + 初始值 + 校验/自由模式开关）
+        appendFieldRow(key = '', initial = '', mode = 'free') {
+          const container = document.getElementById('mms-field-rows');
           if (!container) return;
           const row = document.createElement('div');
-          row.className = 'flex items-center gap-1.5 free-row';
+          row.className = 'flex items-center gap-1.5 field-row';
+          const esc = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;');
           row.innerHTML =
-            '<input type="text" class="form-input w-24 free-key" placeholder="键名 (如 内心)" value="' +
-            String(key).replace(/"/g, '&quot;') +
-            '" />' +
-            '<input type="text" class="form-input flex-1 free-val" placeholder="属性内容 / 初始值" value="' +
-            String(val).replace(/"/g, '&quot;') +
-            '" />' +
+            '<input type="text" class="form-input w-24 field-key" placeholder="键名 (如 弹药)" value="' + esc(key) + '" />' +
+            '<input type="text" class="form-input flex-1 field-val" placeholder="初始值 / 清单基线 (如 [🔩] [.45子弹：42])" value="' + esc(initial) + '" />' +
+            '<label class="flex items-center gap-1 text-[10px] text-gray-400 whitespace-nowrap" title="勾选=校验字段（走命令协议，只输出增量命令）；不勾=自由字段（每轮全量输出）">' +
+            '<input type="checkbox" class="field-check"' + (mode === 'check' ? ' checked' : '') + ' />校验</label>' +
             '<button type="button" class="attr-row-del" title="移除此行"><i class="fa fa-trash-o"></i></button>';
           row.querySelector('.attr-row-del').addEventListener('click', () => row.remove());
           container.appendChild(row);
@@ -12439,14 +13100,16 @@ createCharacterEntry(text, categoryKey) {
         // 打开表单时填充默认行（首次或清空后）
         seedRosterForm() {
           const attrRows = document.getElementById('mms-attr-rows');
-          const freeRows = document.getElementById('mms-free-rows');
-          if (!attrRows || !freeRows) return;
+          const fieldRows = document.getElementById('mms-field-rows');
+          if (!attrRows || !fieldRows) return;
           if (attrRows.children.length === 0) {
             this.appendAttrRow('气血', '100', '100');
           }
-          if (freeRows.children.length === 0) {
-            this.appendFreeRow('内心', '');
-            this.appendFreeRow('穿着', '');
+          if (fieldRows.children.length === 0) {
+            this.appendFieldRow('武器', '', 'check');
+            this.appendFieldRow('物品', '', 'check');
+            this.appendFieldRow('穿着', '', 'free');
+            this.appendFieldRow('内心', '', 'free');
           }
         },
 
@@ -12475,9 +13138,14 @@ createCharacterEntry(text, categoryKey) {
               '<div class="text-xs text-gray-500 py-1">名册为空。添加后角色将常驻角色列表，且其量化属性受命令协议保护。</div>';
             return;
           }
+          // 实时值源：当前状态栏的角色数据（一次读取，名册基线兜底）
+          const { R: liveR } = this.readCurrentRoot();
+          const liveList = Array.isArray(liveR['角色列表']) ? liveR['角色列表'] : [];
+          const liveMap = mmsIndexChars(liveList);
           roster.characters.forEach((r, idx) => {
             const plain = mmsPlainName(r.name) || r.name || '?';
             const avatarInitial = String(plain).slice(0, 1);
+            const live = liveMap.get(mmsNormalizeName(r.name)) || null;
 
             // 头像：立绘标签 → PORTRAIT_MAP 匹配；否则按名字匹配
             let avatarUrl = '';
@@ -12492,22 +13160,23 @@ createCharacterEntry(text, categoryKey) {
               }
             }
 
-            const metricChips = (r.attrs || [])
+            const metricChips = (live && live['属性'] ? mmsParseAttrList(String(live['属性'])) : r.attrs || [])
               .map((a) => {
                 const v = a.value == null ? '' : String(a.value);
-                return '<span class="metric-chip">' + (a.key + ': ' + v).replace(/</g, '&lt;') + '</span>';
+                return '<span class="metric-chip">' + ((a.key || a.display) + ': ' + v).replace(/</g, '&lt;') + '</span>';
               })
               .join(' ');
 
-            const freeSnippet = (r.freeInitials ? Object.keys(r.freeInitials) : (r.freeFields || []))
-              .slice(0, 2)
-              .map((k) => {
-                const v = (r.freeInitials && r.freeInitials[k]) || '';
+            const freeSnippet = mmsCharFields(r)
+              .slice(0, 4)
+              .map((f) => {
+                const v = (live && live[f.key] != null ? String(live[f.key]) : f.initial) || '—';
                 return (
                   '<span class="text-gray-400 mr-2">' +
-                  String(k).replace(/</g, '&lt;') +
+                  String(f.key).replace(/</g, '&lt;') +
+                  (f.mode === 'check' ? '<b class="text-primary/70">✓</b>' : '') +
                   ': <span class="text-gray-300">' +
-                  String(v || '—').replace(/</g, '&lt;').slice(0, 20) +
+                  v.replace(/</g, '&lt;').slice(0, 20) +
                   '</span></span>'
                 );
               })
@@ -12576,19 +13245,15 @@ createCharacterEntry(text, categoryKey) {
             attrs.push({ key, value });
           });
 
-          // 自由属性行：键值对 → freeFields + freeInitials
-          const freeFields = [];
-          const freeInitials = {};
-          document.querySelectorAll('#mms-free-rows .free-row').forEach((row) => {
-            const key = row.querySelector('.free-key').value.trim();
-            const val = row.querySelector('.free-val').value.trim();
+          // 角色字段行：键名 + 初始值 + 校验开关 → fields [{key, initial, mode}]
+          const fields = [];
+          document.querySelectorAll('#mms-field-rows .field-row').forEach((row) => {
+            const key = row.querySelector('.field-key').value.trim();
             if (!key) return;
-            freeFields.push(key);
-            freeInitials[key] = val;
+            const initial = row.querySelector('.field-val').value.trim();
+            const mode = row.querySelector('.field-check').checked ? 'check' : 'free';
+            fields.push({ key, initial, mode });
           });
-          if (!freeFields.length) {
-            freeFields.push('内心', '穿着');
-          }
 
           const entry = {
             name: name,
@@ -12596,10 +13261,7 @@ createCharacterEntry(text, categoryKey) {
             avatar: get('mms-roster-avatar'),
             role: get('mms-roster-role'),
             attrs: attrs,
-            freeFields: freeFields,
-            freeInitials: freeInitials,
-            weapons: get('mms-roster-weapons'),
-            items: get('mms-roster-items'),
+            fields: fields,
             personaPrompt: get('mms-roster-persona'),
           };
 
@@ -12610,6 +13272,7 @@ createCharacterEntry(text, categoryKey) {
             alert('名册中已存在同名角色');
             return;
           }
+          const prevEntry = isEdit ? roster.characters[this.rosterEditIndex] : null;
           if (isEdit) {
             roster.characters[this.rosterEditIndex] = entry;
           } else {
@@ -12624,8 +13287,12 @@ createCharacterEntry(text, categoryKey) {
           const form = document.getElementById('mms-roster-form');
           if (form) form.style.display = 'none';
 
-          // 立即应用到当前状态：新角色当场出现在角色列表（无需等待下次AI更新）
-          this.applyRosterNow();
+          // 实时应用：编辑已有角色 → 表单值直接写入当前状态；新角色 → 名册增量插入
+          if (isEdit) {
+            this.applyCharEdit(entry, prevEntry);
+          } else {
+            this.applyRosterNow();
+          }
         },
 
         // 名册头像覆盖到 AVATAR_MAP（小地图按名字取头像）
@@ -12661,6 +13328,105 @@ createCharacterEntry(text, categoryKey) {
             }, 3000);
           } catch (e) {
             console.warn('[MMS] 应用名册失败:', e);
+          }
+        },
+
+        // ---------- 实时配置（名册/固定模块表单 = 当前状态栏的实时编辑器） ----------
+
+        // 读当前楼层的规范化状态（无状态时返回 null）
+        readCurrentState() {
+          if (this.floorId == null || !this.env.hasVarsApi) return null;
+          try {
+            const vars = this.readFloorVars(this.floorId);
+            return vars && vars.stat_data ? mmsNormalizeState(vars.stat_data) : null;
+          } catch (e) {
+            return null;
+          }
+        },
+
+        // 当前状态的 状态栏 根对象（无则空对象；不修改原状态）
+        readCurrentRoot() {
+          const state = this.readCurrentState();
+          const R = state && state['状态栏'] && typeof state['状态栏'] === 'object' ? state['状态栏'] : {};
+          return { state, R };
+        },
+
+        // 写回状态并刷新渲染/注入
+        writeCurrentState(state) {
+          if (!state) return;
+          this.writeState(this.floorId, state);
+          this.renderFromState(state);
+          if (this.checkLastAssistantFloor(this.floorId)) this.ensureInjection(state, this.floorId);
+        },
+
+        // 模块实时编辑落地：把模块卡片值直接写入当前状态（所见即所得，改名时迁移旧键/emoji别名键）
+        applyModuleEdit(cfg, oldName) {
+          if (this.floorId == null || !this.env.hasVarsApi) return;
+          try {
+            const vars = this.readFloorVars(this.floorId);
+            let state = vars && vars.stat_data ? mmsNormalizeState(vars.stat_data) : null;
+            if (!state) state = { 状态栏: {} };
+            const R =
+              state['状态栏'] && typeof state['状态栏'] === 'object'
+                ? state['状态栏']
+                : (state['状态栏'] = {});
+            // 清理归一化同名键（含 emoji 别名），统一为配置模块名
+            mmsDedupeModuleKeys(R, [cfg.name]);
+            const oldKey = mmsMatchModuleKey(R, oldName || cfg.name);
+            // 卡片渲染时已并集显示状态字段 → 直接覆盖为卡片值（删行=删字段）
+            const B = {};
+            if (cfg.titleVal) B['名称'] = cfg.titleVal;
+            if (cfg.cash) B['现金'] = cfg.cash;
+            for (const f of cfg.fields || []) {
+              if (f && f.key) B[f.key] = f.value || '';
+            }
+            if (oldKey && oldKey !== cfg.name) delete R[oldKey];
+            R[cfg.name] = B;
+            this.writeCurrentState(state);
+          } catch (e) {
+            console.warn('[MMS] 模块实时应用失败:', e);
+          }
+        },
+
+        // 角色实时编辑落地：表单值直接写入当前状态的同名角色（新角色走名册增量插入）
+        applyCharEdit(entry, prevEntry) {
+          if (this.floorId == null || !this.env.hasVarsApi) return;
+          try {
+            const vars = this.readFloorVars(this.floorId);
+            let state = vars && vars.stat_data ? mmsNormalizeState(vars.stat_data) : null;
+            if (!state) state = { 状态栏: {} };
+            const R =
+              state['状态栏'] && typeof state['状态栏'] === 'object'
+                ? state['状态栏']
+                : (state['状态栏'] = {});
+            if (!Array.isArray(R['角色列表'])) R['角色列表'] = [];
+            const map = mmsIndexChars(R['角色列表']);
+            const cur = map.get(mmsNormalizeName(entry.name));
+            if (!cur) {
+              this.applyRosterNow(); // 状态中尚无此角色：名册增量插入模板
+              return;
+            }
+            // 属性：表单构造串覆盖
+            const attrStr = mmsAttrsToString(entry.attrs);
+            if (attrStr) cur['属性'] = attrStr;
+            else delete cur['属性'];
+            // 删除"旧配置有、新表单已删行"的字段
+            if (prevEntry) {
+              for (const f of mmsCharFields(prevEntry)) {
+                const still = (entry.fields || []).some((x) => x.key === f.key);
+                if (!still) delete cur[f.key];
+              }
+            }
+            // 字段值覆盖（表单即实时值）
+            for (const f of entry.fields || []) {
+              if (!f.key || ['名字', '属性', '立绘'].includes(f.key)) continue;
+              cur[f.key] = f.initial;
+            }
+            if (entry.portraitTag) cur['立绘'] = entry.portraitTag;
+            else delete cur['立绘'];
+            this.writeCurrentState(state);
+          } catch (e) {
+            console.warn('[MMS] 角色实时应用失败:', e);
           }
         },
 
@@ -12887,13 +13653,13 @@ createCharacterEntry(text, categoryKey) {
           // 清空动态行
           const attrRows = document.getElementById('mms-attr-rows');
           if (attrRows) attrRows.innerHTML = '';
-          const freeRows = document.getElementById('mms-free-rows');
-          if (freeRows) freeRows.innerHTML = '';
+          const fieldRows = document.getElementById('mms-field-rows');
+          if (fieldRows) fieldRows.innerHTML = '';
 
           if (idx == null) {
             if (titleEl) titleEl.textContent = '添加新角色至常驻名册';
             if (iconEl) iconEl.className = 'fa fa-user-plus';
-            for (const id of ['mms-roster-name', 'mms-roster-portrait', 'mms-roster-avatar', 'mms-roster-role', 'mms-roster-weapons', 'mms-roster-items', 'mms-roster-persona']) {
+            for (const id of ['mms-roster-name', 'mms-roster-portrait', 'mms-roster-avatar', 'mms-roster-role', 'mms-roster-persona']) {
               const el = document.getElementById(id);
               if (el) el.value = '';
             }
@@ -12912,16 +13678,44 @@ createCharacterEntry(text, categoryKey) {
             set('mms-roster-portrait', r.portraitTag);
             set('mms-roster-avatar', r.avatar);
             set('mms-roster-role', r.role);
-            set('mms-roster-weapons', r.weapons);
-            set('mms-roster-items', r.items);
             set('mms-roster-persona', r.personaPrompt);
-            for (const a of r.attrs || []) {
-              const m = String(a.value || '').match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/);
-              this.appendAttrRow(a.key || '', m ? m[1] : a.value || '', m ? m[2] : '');
+            // 实时值：优先读当前状态栏里该角色的实际数据，名册基线兜底
+            const { R: liveR } = this.readCurrentRoot();
+            const liveList = Array.isArray(liveR['角色列表']) ? liveR['角色列表'] : [];
+            const live = mmsIndexChars(liveList).get(mmsNormalizeName(r.name)) || null;
+            const liveAttrStr = live && live['属性'] != null ? String(live['属性']) : '';
+            const liveAttrs = liveAttrStr ? mmsParseAttrList(liveAttrStr) : (r.attrs || []);
+            if (liveAttrs.length) {
+              for (const a of liveAttrs) {
+                // mmsParseAttrList 返回 {display,value}；名册 attrs 为 {key,value}——两者都兼容
+                const attrKey = a.display || a.key || '';
+                const m = String(a.value || '').match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/);
+                this.appendAttrRow(attrKey, m ? m[1] : a.value || '', m ? m[2] : '');
+              }
+            } else {
+              this.appendAttrRow('', '', '');
             }
-            const freeFields = r.freeFields && r.freeFields.length ? r.freeFields : ['内心', '穿着'];
-            for (const f of freeFields) {
-              this.appendFreeRow(f, (r.freeInitials && r.freeInitials[f]) || '');
+            // 字段并集：名册字段 ∪ 状态角色现有字段（含 AI 新增），值取实时
+            const fieldRows = [];
+            const seen = new Set();
+            for (const f of mmsCharFields(r)) {
+              if (seen.has(f.key)) continue;
+              seen.add(f.key);
+              fieldRows.push({
+                key: f.key,
+                initial: live && live[f.key] != null ? String(live[f.key]) : f.initial,
+                mode: f.mode,
+              });
+            }
+            if (live) {
+              for (const k of Object.keys(live)) {
+                if (['名字', '属性', '立绘', '身份'].includes(k) || seen.has(k)) continue;
+                seen.add(k);
+                fieldRows.push({ key: k, initial: String(live[k]), mode: mmsGuessFieldMode(k, live[k]) });
+              }
+            }
+            for (const f of fieldRows) {
+              this.appendFieldRow(f.key, f.initial, f.mode);
             }
           }
           form.style.display = 'block';
@@ -12993,6 +13787,9 @@ createCharacterEntry(text, categoryKey) {
           }
           if (floorId == null) return;
           this.floorId = floorId;
+
+          // 跨楼层实例同步（名册/状态变化广播）
+          this.initSyncChannel();
 
           let msg = null;
           try {
