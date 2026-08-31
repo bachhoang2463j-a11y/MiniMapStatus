@@ -9468,13 +9468,47 @@ createCharacterEntry(text, categoryKey) {
         return n;
       }
 
+      // 设值保护：cur/max 型属性只允许改当前值——当前值夹到 [0, 基底上限]，上限锁定基底值
+      // （AI 输出 "[HP:99/12]" 会超上限、"[HP:8/99]" 会篡改上限，两者都必须挡住）
+      function mmsAttrSetValue(baseVal, newVal) {
+        const nv = String(newVal == null ? '' : newVal).trim();
+        if (baseVal && mmsIsCurMax(baseVal)) {
+          const max = parseFloat(String(baseVal).split('/')[1]);
+          const nvIsCurMax = mmsIsCurMax(nv);
+          const curRaw = nvIsCurMax ? parseFloat(String(nv).split('/')[0]) : parseFloat(nv);
+          if (!isFinite(curRaw)) {
+            console.warn('[MMS] 属性设值非数字，保留原值:', baseVal, '←', nv);
+            return baseVal;
+          }
+          if (nvIsCurMax) {
+            const newMax = parseFloat(String(nv).split('/')[1]);
+            if (isFinite(newMax) && newMax !== max) {
+              console.warn('[MMS] 忽略属性上限改写:', nv, '→ 上限沿用', max);
+            }
+          }
+          return `${mmsClampNum(curRaw, 0, max)}/${max}`;
+        }
+        // 非 cur/max：数值型属性禁止负值，其余原样写入（自由文本属性如"中毒"照常）
+        const nn = mmsAttrToNumber(nv);
+        if (mmsAttrToNumber(baseVal) != null && nn != null && nn < 0) {
+          console.warn('[MMS] 属性设值为负，夹取到 0:', nv);
+          return '0';
+        }
+        return nv;
+      }
+
       // 应用属性命令。templateAttrs：名册模板 [{key, value}]，用于无历史时的基准
       function mmsApplyAttrCommands(prevStr, cmdStr, templateAttrs) {
         const cmdText = String(cmdStr == null ? '' : cmdStr).trim();
         if (!cmdText) return prevStr || '';
         const cmds = mmsParseAttrCommands(cmdText);
         const hasOp = cmds.some((c) => c.op !== 'raw');
-        if (!hasOp) return String(cmdStr); // 全量替换
+        // 垃圾输出（"[]"、纯文本、只有裸键名）：有历史值时保留原值，不让无值内容覆盖属性串
+        if (!cmds.length || !hasOp) {
+          if (!String(prevStr || '').trim()) return cmdText; // 无历史可保护：原样写入（新条目兜底）
+          console.warn('[MMS] 属性命令无有效条目，保留原值:', cmdStr);
+          return prevStr;
+        }
 
         const attrs = mmsParseAttrList(prevStr);
         const tmpl = (templateAttrs || []).filter(Boolean);
@@ -9493,25 +9527,13 @@ createCharacterEntry(text, categoryKey) {
           const baseVal = target ? target.value : (findTmpl(c.key) || {}).value;
 
           if (c.op === 'set') {
-            const newv = String(c.value);
             if (target) {
-              // "18/18" 型：设当前值保上限；其余整体替换
-              if (mmsIsCurMax(target.value) && !mmsIsCurMax(newv)) {
-                const max = parseFloat(String(target.value).split('/')[1]);
-                const cur = mmsClampNum(parseFloat(newv) || 0, 0, max);
-                target.value = `${cur}/${max}`;
-              } else {
-                target.value = newv;
-              }
+              target.value = mmsAttrSetValue(target.value, c.value);
+            } else if (baseVal) {
+              attrs.push({ display: c.key, value: mmsAttrSetValue(baseVal, c.value) });
             } else {
-              const tv = baseVal;
-              if (tv && mmsIsCurMax(tv) && !mmsIsCurMax(newv)) {
-                const max = parseFloat(String(tv).split('/')[1]);
-                const cur = mmsClampNum(parseFloat(newv) || 0, 0, max);
-                attrs.push({ display: c.key, value: `${cur}/${max}` });
-              } else {
-                attrs.push({ display: c.key, value: newv });
-              }
+              // 基底与模板都没有该属性：作为新属性原样写入
+              attrs.push({ display: c.key, value: String(c.value) });
             }
           } else {
             // delta / add
@@ -9594,7 +9616,10 @@ createCharacterEntry(text, categoryKey) {
         return a === b || a.includes(b) || b.includes(a);
       }
 
-      // 应用物品清单命令：add/delta/set；归零移除；全量识别
+      // 应用物品清单命令：add/delta/set；归零移除
+      // 裸段（无 +/-/: 运算符）语义按是否已在清单中区分：
+      //   整串皆裸段且命中已有物品 → 判定为"全量重述"，按全量替换处理（否则会把重述当增量累加，静默翻倍）
+      //   单个裸段命中已有物品 → 视为对齐数量而非累加；未命中 → 视为新获得
       function mmsApplyItemCommands(prevStr, cmdStr) {
         const cmdText = String(cmdStr == null ? '' : cmdStr).trim();
         if (!cmdText) return prevStr || '';
@@ -9614,18 +9639,36 @@ createCharacterEntry(text, categoryKey) {
           if (m) { cmds.push({ name: m[1].trim(), op: 'add', count: parseInt(m[2], 10) }); continue; }
           m = content.match(/^(.+?)\s*[:：]\s*(\d+)$/);
           if (m) { cmds.push({ name: m[1].trim(), op: 'set', count: parseInt(m[2], 10) }); continue; }
-          // 裸段（带xN视为获得N个，否则获得1个）
+          // 裸段：带 xN 记下数量，否则数量未指定
           m = content.match(/^(.+?)\s*x\s*(\d+)$/);
-          if (m) { cmds.push({ name: m[1].trim(), op: 'add', count: parseInt(m[2], 10) }); continue; }
-          cmds.push({ name: content, op: 'add', count: 1 });
+          if (m) { cmds.push({ name: m[1].trim(), op: 'bare', count: parseInt(m[2], 10) }); continue; }
+          cmds.push({ name: content, op: 'bare', count: null });
         }
-        const hasOp = cmds.some((c) => c.op !== 'raw');
-        if (!cmds.length || !hasOp) return String(cmdStr); // 全量替换
+        // 垃圾输出（"[]"、纯文本、只有装饰段）：有历史值时保留原值，不让无效内容覆盖清单
+        if (!cmds.length) {
+          if (!String(prevStr || '').trim()) return cmdText; // 无历史可保护：原样写入
+          console.warn('[MMS] 清单命令无有效条目，保留原值:', cmdStr);
+          return prevStr;
+        }
 
         const list = mmsParseItemList(prevStr);
+        const findIdx = (name) => list.items.findIndex((it) => mmsNameMatch(it.name, name));
+        // 全量重述 / 首次全量写入：直接采用 AI 输出（保留其 emoji 前缀与书写格式）
+        const allBare = cmds.every((c) => c.op === 'bare');
+        if (allBare && (!list.items.length || cmds.some((c) => findIdx(c.name) >= 0))) {
+          return cmdText;
+        }
+
         for (const c of cmds) {
-          const idx = list.items.findIndex((it) => mmsNameMatch(it.name, c.name));
-          if (c.op === 'add') {
+          const idx = findIdx(c.name);
+          if (c.op === 'bare') {
+            if (idx >= 0) {
+              // 已在清单中：视为重述，只在给出数量时对齐，不累加
+              if (c.count != null) list.items[idx].count = c.count;
+            } else {
+              list.items.push({ display: c.name, name: c.name, count: c.count != null && c.count > 1 ? c.count : null });
+            }
+          } else if (c.op === 'add') {
             if (idx >= 0) {
               const it = list.items[idx];
               it.count = (it.count == null ? 1 : it.count) + c.count;
@@ -9669,13 +9712,25 @@ createCharacterEntry(text, categoryKey) {
       function mmsApplyCashCommand(prevStr, cmdStr) {
         const cmdText = String(cmdStr == null ? '' : cmdStr).trim();
         if (!cmdText) return prevStr || '';
+        const hasDigit = /\d/.test(cmdText);
+        const hasPrev = !!String(prevStr || '').trim();
         if (!cmdText.includes('[')) {
           // 裸值：带符号=增量，否则绝对值
           const m = cmdText.match(/^([+-])\s*(\d+(?:\.\d+)?)\s*(.*)$/);
           if (m && m[1]) return mmsCashCompute(prevStr, m[1] === '-' ? -parseFloat(m[2]) : parseFloat(m[2]));
+          if (!hasDigit && hasPrev) {
+            console.warn('[MMS] 现金输出无数值，保留原值:', cmdStr);
+            return prevStr;
+          }
           return cmdText;
         }
         const cmds = mmsParseAttrCommands(cmdText);
+        // 垃圾输出（"[]"、只有装饰段、无数值）：有历史值时保留原值
+        if (!cmds.length || !hasDigit) {
+          if (!hasPrev) return cmdText;
+          console.warn('[MMS] 现金命令无有效条目，保留原值:', cmdStr);
+          return prevStr;
+        }
         const cmd = cmds.find((c) => /现金|资金|金钱/.test(c.key));
         if (!cmd) {
           const any = cmds.find((c) => c.op === 'delta' || c.op === 'add' || c.op === 'set');
@@ -10186,17 +10241,16 @@ createCharacterEntry(text, categoryKey) {
         freeListParts.push('所有自定义模块');
 
         // 示例条目的字段值：校验字段示范增量命令，自由字段示范全量句
-        const fieldExample = (key, mode) => {
-          if (mode === 'check') {
-            if (key === '属性') return '"[HP-2]"';
-            if (key === '武器') return '"[.45左轮+1]"';
-            if (key === '弹药') return '"[.45子弹:30]"';
-            if (key === '物品') return '"[绷带-2]"';
-            return '"[名称+N]"';
-          }
-          if (key === '穿着') return '"👔 略显凌乱的三件套西装，沾有灰尘"';
-          if (key === '内心') return '"💭 必须在天黑前搞清楚仪式的真正目的"';
-          return '"…"';
+        // 不认识的字段直接从示例中省略——占位符字面量（如"[名称+N]"）会被模型照抄
+        const CHAR_FIELD_EXAMPLES = {
+          属性: '"[HP-2]"',
+          武器: '"[.45左轮+1]"',
+          弹药: '"[.45子弹:30]"',
+          道具: '"[手电筒+1]"',
+          消耗: '"[止痛药-1]"',
+          物品: '"[绷带-2]"',
+          穿着: '"👔 略显凌乱的三件套西装，沾有灰尘"',
+          内心: '"💭 必须在天黑前搞清楚仪式的真正目的"',
         };
 
         const lines = [];
@@ -10207,12 +10261,12 @@ createCharacterEntry(text, categoryKey) {
         lines.push('2. 保持当前状态的字段命名、层级结构与 Emoji 风格。不得自创顶层模块或已有模块的变体（如已有「情报」再输出「局势情报」），只在已有键名下更新。');
         lines.push('3. 字段输出策略：');
         lines.push('   - 【校验字段】：有变化的仅输出增量指令；无变化的整项省略。');
-        lines.push('   - 【自由字段】' + freeListParts.join('、') + '：贴合剧情每轮全量输出。未提及的人物条目从数组移除，新登场的加入。');
+        lines.push('   - 【自由字段】' + freeListParts.join('、') + '：贴合剧情每轮全量输出。「人物」模块中本轮未再出现的条目从数组移除，新登场的加入；角色列表的条目取舍见下文角色列表条款。');
         lines.push('   - 自定义模块按原有结构全量输出，不要丢弃。');
         lines.push('');
         lines.push('## 二、校验字段：增量指令规范（仅在有变动时输出，属性值如 8/10 不可超出其上限）');
         lines.push('- 校验指令：`[键+N]` 增加、`[键-N]` 减少、`[键:值]` 覆盖设值（键名不带 Emoji）。');
-        lines.push('  例：`"属性": "[HP-2][SAN-5]"`、`"[团队现金:5000]"`、`"武器": "[.45左轮+1]"`、`"物品": "[绷带-2][.45子弹:30]"`');
+        lines.push('  例：`"属性": "[HP-2][SAN-5]"`、`"现金": "[团队现金:5000]"`、`"武器": "[.45左轮+1]"`、`"物品": "[绷带-2][.45子弹:30]"`');
         lines.push('- 当前校验字段：' + (checkParts.length ? checkParts.join('；') : '（当前无校验字段）') + '（其值在当前状态中被 [ ] 包裹，如 `[❤️HP:12/12]`、`[.45子弹x30][绷带]`）');
         if (!modulesOn) {
           lines.push('- 若当前状态中存在固定模块（如「据点」「载具」），其「现金」与清单字段同样适用命令协议。');
@@ -10259,7 +10313,8 @@ createCharacterEntry(text, categoryKey) {
           lines.push('- 新登场的关键NPC（当前状态与固定成员中都不存在）：属性与校验字段输出完整值（如 `"[❤️HP:12/12]"`、`"[韦伯利左轮]"`），自由字段照常撰写。其余非重要角色放入「人物」。');
         }
         if (allCharFields.length) {
-          lines.push('- 字段：' + allCharFields.join('、') + '。校验字段（' + (charCheckList || '无') + '）只输出命令；自由字段（' + (charFreeList || '无') + '）全量输出。');
+          const charCheckDisplay = ['属性'].concat(checkSet.filter((k) => k !== '属性')).join('、');
+          lines.push('- 字段：属性、' + allCharFields.join('、') + '。校验字段（' + charCheckDisplay + '）只输出命令；自由字段（' + (charFreeList || '无') + '）全量输出。');
         }
         lines.push('- 剧情提及 → 输出其条目。');
         lines.push('- 明确不在场 → 输出条目且内心字段写"不在场"，其余字段省略。');
@@ -10273,16 +10328,13 @@ createCharacterEntry(text, categoryKey) {
         lines.push('    "地点": "📍 …",');
         if (minimapOn) lines.push('    "小地图": { "场景键": ["Emoji【名称】(x, y) 10字内描述"] },');
         if (bigmapOn) lines.push('    "大地图": { "场景键": ["Emoji【名称】(x, y) 10字内描述"] },');
-        // 示例角色条目：字段全集来自名册并集（校验字段给命令示例、自由字段给全量示例）
+        // 示例角色条目：字段取自名册并集，只列有具体示例的字段（避免占位符字面量被照抄）
         const exFields = [];
         exFields.push('          "名字": "🔮埃利奥特"');
-        exFields.push('          "属性": "[HP-2]"');
-        for (const k of checkSet) {
-          if (k === '属性') continue;
-          exFields.push('          "' + k + '": ' + fieldExample(k, 'check'));
-        }
-        for (const k of freeSet) {
-          exFields.push('          "' + k + '": ' + fieldExample(k, 'free'));
+        exFields.push('          "属性": ' + CHAR_FIELD_EXAMPLES['属性']);
+        for (const k of checkSet.concat(freeSet)) {
+          if (k === '属性' || !CHAR_FIELD_EXAMPLES[k]) continue;
+          exFields.push('          "' + k + '": ' + CHAR_FIELD_EXAMPLES[k]);
         }
         lines.push('    "角色列表": [');
         lines.push('      {');
