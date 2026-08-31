@@ -63,7 +63,7 @@ function makeRegexScript({ id, scriptName, findRegex, replaceString, markdownOnl
 
 // 显示正则：标记点 或 最后一个 <Status_block>（连同其后所有内容一并吞掉，
 // 避免正文 AI 在标记后追加的杂项文本残留在小部件之外）
-const displayRegex = `/(?:${MARKER}|<Status_block>(?![\\s\\S]*?<Status_block>)[\\s\\S]*?<\\/Status_block>)[\\s\\S]*$/i`;
+const displayRegex = `/(?:${MARKER}(?![\\s\\S]*${MARKER})|<Status_block>(?![\\s\\S]*?<Status_block>)[\\s\\S]*?<\\/Status_block>)[\\s\\S]*$/i`;
 
 const displayScript = makeRegexScript({
   id: DISPLAY_ID,
