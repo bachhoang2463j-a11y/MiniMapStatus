@@ -532,7 +532,8 @@ function buildPortraitHTML(roleName, portraitUrl) {
   overflow-x: visible;
   max-width: none;
 }
-.item-badge-container.collapsed .item-badge:nth-child(n+6) {
+/* 宽度自适应折叠：超出可视宽度的徽章逐个标记隐藏（foldBadgeContainerByWidth 测量决定） */
+.item-badge-folded {
   display: none;
 }
 .item-expand-btn {
@@ -3510,19 +3511,15 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </div>
           </div>
 
-          <!-- 徽章收纳阈值 -->
+          <!-- 徽章收纳说明（自动按宽度折叠） -->
           <div class="flex items-center justify-between py-1">
             <div>
-              <span class="text-xs font-bold text-gray-300 block">徽章折叠阈值</span>
-              <span class="text-[10px] text-gray-400">单行超出数量向右折叠</span>
+              <span class="text-xs font-bold text-gray-300 block">徽章折叠（自动）</span>
+              <span class="text-[10px] text-gray-400">按单行实际宽度自动检测溢出</span>
             </div>
-            <div class="flex items-center gap-1.5">
-              <button id="threshold-minus" class="w-6 h-6 rounded bg-black/10 text-gray-300 font-bold text-xs flex items-center justify-center hover:bg-primary/20" type="button" aria-label="减少阈值">−</button>
-              <span id="threshold-value" class="text-xs font-bold px-1.5 text-primary">5</span>
-              <button id="threshold-plus" class="w-6 h-6 rounded bg-black/10 text-gray-300 font-bold text-xs flex items-center justify-center hover:bg-primary/20" type="button" aria-label="增加阈值">+</button>
-            </div>
+            <span class="text-[10px] text-primary font-semibold">AUTO</span>
           </div>
-          <p class="settings-hint">超过此数量才显示"+N"展开按钮；未展开时徽章保持单行，超出向右侧隐藏，可横向拖动查看</p>
+          <p class="settings-hint">放得下就全显示（短徽章一排可放多个）；超出单行宽度才折叠为"+N"，点开可展开/收起</p>
 
           <!-- 行动选项点击处理（原行为交互tab合并） -->
           <div class="settings-group">
@@ -4010,70 +4007,95 @@ const AVATAR_MAP = {
         }
       };
 
-      function getBadgeCollapseThreshold() {
-        const v = parseInt(localStorage.getItem('badgeCollapseThreshold'), 10);
-        return Number.isFinite(v) && v >= 1 && v <= 20 ? v : 5;
-      }
+      // ---------- 徽章宽度自适应折叠 ----------
+      // 不再按固定数量折叠：渲染后测量实际溢出，只隐藏真正放不下的徽章。
+      // 短徽章一排能放 5+ 个全显示，长徽章 2 个就超宽则折叠超出部分。
 
-      function applyBadgeCollapseStyle() {
-        const t = getBadgeCollapseThreshold();
-        let el = document.getElementById('badge-collapse-style');
-        if (!el) {
-          el = document.createElement('style');
-          el.id = 'badge-collapse-style';
-          document.head.appendChild(el);
-        }
-        el.textContent = `.item-badge-container.collapsed .item-badge:nth-child(n+${t + 1}){display:none}`;
-      }
+      // 展开按钮宽度预留（点击切换展开/收起）
+      const MMS_BADGE_BTN_RESERVE = 52;
 
-      function createBadgeExpandButton(badgeContainer, totalCount) {
+      function createBadgeExpandButton(badgeContainer) {
         const btn = document.createElement('button');
         btn.className = 'item-expand-btn';
         btn.title = '点击展开全部';
-        const threshold = getBadgeCollapseThreshold();
-        btn.textContent = `+${totalCount - threshold}`;
-        btn.addEventListener('click', e => {
+        btn.textContent = '+N';
+        btn.addEventListener('click', (e) => {
           e.stopPropagation();
-          const t = getBadgeCollapseThreshold();
-          const isExpanded = badgeContainer.classList.contains('expanded');
-          if (isExpanded) {
+          if (badgeContainer.classList.contains('expanded')) {
+            // 收起：重新按宽度折叠
             badgeContainer.classList.remove('expanded');
-            badgeContainer.classList.add('collapsed');
-            btn.textContent = `+${totalCount - t}`;
+            foldBadgeContainerByWidth(badgeContainer);
           } else {
             badgeContainer.classList.add('expanded');
             badgeContainer.classList.remove('collapsed');
+            badgeContainer.querySelectorAll('.item-badge-folded').forEach((b) => b.classList.remove('item-badge-folded'));
             btn.textContent = '收起';
           }
         });
         return btn;
       }
 
-      function refreshExistingBadgeContainers() {
-        const t = getBadgeCollapseThreshold();
-        document.querySelectorAll('.item-badge-container').forEach(container => {
-          const wrapper = container.parentElement;
-          if (!wrapper || !wrapper.classList.contains('item-badge-wrapper')) return;
-          const count = container.querySelectorAll('.item-badge').length;
-          let btn = wrapper.querySelector('.item-expand-btn');
-          const isExpanded = container.classList.contains('expanded');
-          if (count > t) {
-            if (!isExpanded) container.classList.add('collapsed');
-            if (!btn) {
-              btn = createBadgeExpandButton(container, count);
-              wrapper.appendChild(btn);
-            }
-            btn.textContent = isExpanded ? '收起' : `+${count - t}`;
-            btn.style.display = '';
-          } else {
-            container.classList.remove('collapsed', 'expanded');
-            if (btn) btn.style.display = 'none';
+      // 按实际宽度折叠单个徽章容器：找出第一个超出可视宽度的徽章，其后全部隐藏
+      function foldBadgeContainerByWidth(container) {
+        const wrapper = container.parentElement;
+        if (!wrapper || !wrapper.classList.contains('item-badge-wrapper')) return;
+        if (container.classList.contains('expanded')) return; // 用户已展开，保持展开
+        if (container.clientWidth === 0) return; // 面板隐藏时无法测量，等切换面板后重测
+        const badges = Array.from(container.querySelectorAll('.item-badge'));
+        // 先全部显示，建立测量基线
+        container.classList.remove('collapsed');
+        badges.forEach((b) => b.classList.remove('item-badge-folded'));
+        let btn = wrapper.querySelector('.item-expand-btn');
+        if (badges.length <= 1) {
+          if (btn) btn.style.display = 'none';
+          return;
+        }
+        const availWidth = container.clientWidth;
+        // 未溢出：全部显示，无需折叠
+        if (container.scrollWidth <= availWidth) {
+          if (btn) btn.style.display = 'none';
+          return;
+        }
+        // 逐徽章定位溢出点（预留展开按钮位置；至少保留第 1 个，超出部分横向滚动兜底）
+        const limit = availWidth - MMS_BADGE_BTN_RESERVE;
+        let foldFrom = badges.length;
+        for (let i = 0; i < badges.length; i++) {
+          if (badges[i].offsetLeft + badges[i].offsetWidth > limit) {
+            foldFrom = Math.max(1, i);
+            break;
           }
+        }
+        const hiddenCount = badges.length - foldFrom;
+        if (hiddenCount <= 0) {
+          if (btn) btn.style.display = 'none';
+          return;
+        }
+        for (let i = foldFrom; i < badges.length; i++) badges[i].classList.add('item-badge-folded');
+        container.classList.add('collapsed');
+        if (!btn) {
+          btn = createBadgeExpandButton(container);
+          wrapper.appendChild(btn);
+        }
+        btn.style.display = '';
+        btn.textContent = `+${hiddenCount}`;
+        btn.title = '点击展开全部';
+      }
+
+      // 重新测量全部徽章容器（渲染后/窗口尺寸变化时调用）
+      function refreshExistingBadgeContainers() {
+        document.querySelectorAll('.item-badge-container').forEach((container) => {
+          foldBadgeContainerByWidth(container);
         });
       }
 
+      // 窗口尺寸变化时重新按宽度折叠（防抖）
+      let mmsBadgeResizeTimer = null;
+      window.addEventListener('resize', () => {
+        clearTimeout(mmsBadgeResizeTimer);
+        mmsBadgeResizeTimer = setTimeout(refreshExistingBadgeContainers, 150);
+      });
+
       document.addEventListener('DOMContentLoaded', () => {
-        applyBadgeCollapseStyle();
         initSettingsPanel();
         initErrorModal();
         initThemeToggle();
@@ -4081,6 +4103,10 @@ const AVATAR_MAP = {
 
         const storyRenderer = new StoryRenderer('yaml-data-source');
         storyRenderer.init();
+        // 徽章宽度自适应折叠：首次渲染后测量
+        setTimeout(() => {
+          try { refreshExistingBadgeContainers(); } catch (e) { /* 忽略 */ }
+        }, 80);
 
         console.log('设置为美化状态栏模式...');
         updateDisplayMode('status-only');
@@ -4297,36 +4323,7 @@ const AVATAR_MAP = {
           });
         });
 
-        const thresholdValueEl = document.getElementById('threshold-value');
-        const minusBtn = document.getElementById('threshold-minus');
-        const plusBtn = document.getElementById('threshold-plus');
-        const syncThresholdUI = () => {
-          const t = getBadgeCollapseThreshold();
-          if (thresholdValueEl) thresholdValueEl.textContent = String(t);
-          if (minusBtn) minusBtn.disabled = t <= 1;
-          if (plusBtn) plusBtn.disabled = t >= 20;
-        };
-        if (minusBtn) {
-          minusBtn.addEventListener('click', () => {
-            let t = getBadgeCollapseThreshold();
-            t = Math.max(1, t - 1);
-            localStorage.setItem('badgeCollapseThreshold', String(t));
-            syncThresholdUI();
-            applyBadgeCollapseStyle();
-            refreshExistingBadgeContainers();
-          });
-        }
-        if (plusBtn) {
-          plusBtn.addEventListener('click', () => {
-            let t = getBadgeCollapseThreshold();
-            t = Math.min(20, t + 1);
-            localStorage.setItem('badgeCollapseThreshold', String(t));
-            syncThresholdUI();
-            applyBadgeCollapseStyle();
-            refreshExistingBadgeContainers();
-          });
-        }
-        syncThresholdUI();
+        // 徽章折叠已改为按实际宽度自动检测（foldBadgeContainerByWidth），无阈值设置
       }
 
       function updateDisplayMode(mode) {
@@ -8010,18 +8007,21 @@ const AVATAR_MAP = {
             }
             if (nk) seenModuleNorm.add(nk);
             if (v['名称'] == null && v['现金'] == null) continue;
-            const e = Object.assign({}, v);
-            const plain = mmsPlainName(k) || k;
             const emoji = /载具|车|船|舰|飞行/.test(k) ? '🚙' : '🏟️';
             const parts = ['[' + emoji + ']'];
-            if (e['名称'] != null) parts.push('[名称: ' + e['名称'] + ']');
-            parts.push('[💰]');
-            if (e['现金'] != null) parts.push('[团队现金: ' + e['现金'] + ']');
-            e['总览'] = parts.join('');
-            delete e['名称'];
-            delete e['现金'];
+            if (v['名称'] != null) parts.push('[名称: ' + v['名称'] + ']');
+            if (v['现金'] != null) {
+              parts.push('[💰]');
+              parts.push('[团队现金: ' + v['现金'] + ']');
+            }
+            // 总览置于模块字段第一条，其余字段按原序跟随
+            const e = { 总览: parts.join('') };
+            for (const fk of Object.keys(v)) {
+              if (fk !== '名称' && fk !== '现金') e[fk] = v[fk];
+            }
+            const plain = mmsPlainName(k) || k;
             // 键名已带 emoji 则沿用原键名，纯名键补模块图标
-            e['名字'] = e['名字'] != null ? e['名字'] : k !== plain ? ' ' + k : ' ' + emoji + plain;
+            e['名字'] = v['名字'] != null ? v['名字'] : k !== plain ? ' ' + k : ' ' + emoji + plain;
             entries.push(e);
             handledModuleKeys.add(k);
           }
@@ -8132,6 +8132,15 @@ const AVATAR_MAP = {
           });
 
           this.activeCharacterIndex = index;
+          // 徽章宽度折叠依赖布局测量：面板 display:none 时无法测宽，切换后需对激活面板重新折叠
+          try {
+            const panel = allPanels[index];
+            if (panel) {
+              setTimeout(() => {
+                panel.querySelectorAll('.item-badge-container').forEach((c) => foldBadgeContainerByWidth(c));
+              }, 30);
+            }
+          } catch (e) { /* 忽略 */ }
         }
 
         createCharacterCard(userData, index) {
@@ -8323,11 +8332,7 @@ createAttributeItem(key, value) {
 
       const badgeContainer = document.createElement('span');
       badgeContainer.className = 'item-badge-container';
-
-      const badgeThreshold = getBadgeCollapseThreshold();
-      if (itemMatches.length > badgeThreshold) {
-        badgeContainer.classList.add('collapsed');
-      }
+      // 折叠延后到渲染完成后统一按实际宽度测量（refreshExistingBadgeContainers）
 
       itemMatches.forEach(match => {
         const itemName = match.slice(1, -1);
@@ -8338,11 +8343,6 @@ createAttributeItem(key, value) {
       });
 
       wrapper.appendChild(badgeContainer);
-
-      if (itemMatches.length > badgeThreshold) {
-        const expandBtn = createBadgeExpandButton(badgeContainer, itemMatches.length);
-        wrapper.appendChild(expandBtn);
-      }
 
       item.appendChild(wrapper);
     } else {
@@ -8816,6 +8816,10 @@ createCharacterEntry(text, categoryKey) {
 
           const storyRenderer = new StoryRenderer('yaml-data-source');
           storyRenderer.init();
+          // 徽章宽度自适应折叠：渲染挂载后统一测量（需等布局完成）
+          setTimeout(() => {
+            try { refreshExistingBadgeContainers(); } catch (e) { /* 忽略 */ }
+          }, 80);
         } catch (error) {
           console.error('重新渲染状态栏失败:', error);
         }
