@@ -3727,7 +3727,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
                 <input id="mms-api-preset" type="text" placeholder="预设名称，优先于地址/密钥" spellcheck="false" />
               </div>
               <div class="mms-field">
-                <label for="mms-context-floors">剧情回溯楼层数（AI楼与用户楼都算）</label>
+                <label for="mms-context-floors">剧情回溯楼层数（≥3 才附前情提要）</label>
                 <input id="mms-context-floors" type="number" min="1" max="10" step="1" />
               </div>
             </div>
@@ -10124,6 +10124,42 @@ createCharacterEntry(text, categoryKey) {
         return out;
       }
 
+      // 「人物」模块去重：固定成员一律只在角色列表显示（提示词已声明，但 LLM 反复违规），
+      // 这里按名字兜底剔除。匹配口径保守：同名，或"名册名 + 分隔符 + 姓氏"（爱德华·卡莱尔），
+      // 避免把「索恩的助手」这类另一个人误删
+      function mmsStripRosterFromPeople(people, rosterChars) {
+        if (!people || typeof people !== 'object' || Array.isArray(people)) return people;
+        const rosterPlain = (rosterChars || [])
+          .map((r) => mmsPlainName(r && r.name))
+          .filter(Boolean);
+        if (!rosterPlain.length) return people;
+        const isRosterMember = (line) => {
+          const m = String(line == null ? '' : line).match(/【([^】]+)】/);
+          if (!m) return false;
+          const plain = mmsPlainName(m[1]);
+          if (!plain) return false;
+          return rosterPlain.some((rn) => {
+            if (plain === rn) return true;
+            if (plain.startsWith(rn)) return /^[·•・.\-—]/.test(plain.slice(rn.length));
+            return false;
+          });
+        };
+        const out = {};
+        for (const cat of Object.keys(people)) {
+          const arr = people[cat];
+          if (!Array.isArray(arr)) {
+            out[cat] = arr;
+            continue;
+          }
+          const kept = arr.filter((line) => !isRosterMember(line));
+          if (kept.length !== arr.length) {
+            console.info('[MMS] 人物模块剔除固定成员重复条目:', cat, arr.length - kept.length, '条');
+          }
+          out[cat] = kept;
+        }
+        return out;
+      }
+
       // 总合并：prev=上次状态(已规范化)，aiOut=AI输出(已规范化)，roster=名册，storyText=本轮正文
       // absenceMap：缺席轮数表（对象，会被原地更新：AI输出该角色→清零，漏输出→+1），null=不计数
       function mmsMergeState(prev, aiOut, roster, storyText, absenceMap) {
@@ -10217,6 +10253,8 @@ createCharacterEntry(text, categoryKey) {
             if (aiPeople) console.warn('[MMS] 人物模块形状异常，保留上次:', aiPeople);
             if (prevRoot['人物']) R['人物'] = prevRoot['人物'];
           }
+          // 固定成员只在角色列表显示：从人物模块剔除其重复条目
+          if (R['人物']) R['人物'] = mmsStripRosterFromPeople(R['人物'], rosterChars);
         }
 
         // 通用固定模块（据点/载具/任意名称）：逐模块合并，
@@ -10436,7 +10474,7 @@ createCharacterEntry(text, categoryKey) {
           lines.push('- 字段：属性、' + allCharFields.join('、') + '。校验字段（' + charCheckDisplay + '）只输出命令；自由字段（' + (charFreeList || '无') + '）全量输出。');
         }
         lines.push('- 剧情提及 → 输出其条目。');
-        lines.push('- 明确不在场 → 输出条目且内心字段写"不在场"，其余字段省略。');
+        lines.push('- 明确不在场 → 输出条目，内心字段写"不在场"并简述去向与约定（如 "不在场·车库取车，两点半牛津街接应"），其余字段省略。');
         lines.push('- 完全未提及 → 整个条目省略。');
         lines.push('- 名字沿用当前状态的原样输出（含 Emoji 与空格），不要改写。');
         lines.push('- 附有人设说明的成员（见用户消息），自由字段必须遵从该人设。');
@@ -11673,16 +11711,51 @@ createCharacterEntry(text, categoryKey) {
 
         // 收集最近 N 层 AI 剧情正文：最新一层（据此更新）+ 前情（仅参考）
         // n = 戏回溯楼层数（AI楼+用户楼都算，如 n=2 = AI本层 + 上一用户回复 + 上一AI楼正文）
+        // 收集剧情片段。
+        // latest：本轮完整对话 = 目标AI楼正文 + 紧邻其前的用户楼原始输入（成对，按时间顺序）。
+        //   成对的原因：用户指令里可能带正文未转述的数值（"消耗5MP释放法术"），
+        //   只喂AI正文会让这类变化在状态里丢失。
+        // context：更早的楼层（每层算一层），仅当回溯楼层数 n >= 3 时才产出，
+        //   条数为 n - 2（把 latest 占掉的两层扣除）。
         collectStorySegments(targetFloorId, n = 2) {
-          const latest = this.readFloorMaintext(targetFloorId);
+          const aiText = this.readFloorMaintext(targetFloorId);
+          const latestParts = [];
+          let pairedUserId = null;
+          try {
+            if (typeof getChatMessages === 'function') {
+              // 向前找紧邻的用户楼（跳过连续的AI楼/空楼）
+              let id = targetFloorId - 1;
+              while (id >= 0 && id >= targetFloorId - 5) {
+                const arr = getChatMessages(id);
+                const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+                if (m) {
+                  const isUser = m.role === 'user' || m.is_user;
+                  if (isUser) {
+                    const raw = this.readFloorUserInput(m);
+                    if (raw) {
+                      latestParts.push('【用户输入】' + raw);
+                      pairedUserId = id;
+                    }
+                    break;
+                  }
+                }
+                id--;
+              }
+            }
+          } catch (e) {
+            /* 取不到用户楼时只喂AI正文 */
+          }
+          if (aiText) latestParts.push('【AI回复】' + aiText);
+          const latest = latestParts.join('\n\n') || aiText;
+
           let context = '';
           try {
-            if (typeof getLastMessageId !== 'function' || n <= 1) return { latest, context };
+            if (typeof getLastMessageId !== 'function' || n < 3) return { latest, context };
             const parts = [];
-            // 从目标楼往前收集，每一层都算（AI楼取正文，用户楼取原始输入），共 n-1 层
-            let id = targetFloorId - 1;
+            // 从 latest 已占用的最早一层再往前收集，共 n-2 层
+            let id = (pairedUserId != null ? pairedUserId : targetFloorId) - 1;
             let collected = 0;
-            const maxCollect = n - 1;
+            const maxCollect = n - 2;
             while (id >= 0 && collected < maxCollect) {
               const arr = getChatMessages(id);
               const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
@@ -11692,17 +11765,12 @@ createCharacterEntry(text, categoryKey) {
               }
               const isUser = m.role === 'user' || m.is_user;
               if (isUser) {
-                // 用户楼：取原始输入（不含IMG_GEN等标记）
-                const raw = String(m.message || '')
-                  .replace(/\[IMG_GEN\][\s\S]*?\[\/IMG_GEN\]/gi, '')
-                  .replace(/【状态栏标记点】/g, '')
-                  .trim();
+                const raw = this.readFloorUserInput(m);
                 if (raw) {
                   parts.unshift('【用户输入】' + raw);
                   collected++;
                 }
               } else {
-                // AI楼：取maintext正文
                 const t = this.readFloorMaintext(id);
                 if (t) {
                   parts.unshift('【AI回复】' + t);
@@ -11716,6 +11784,14 @@ createCharacterEntry(text, categoryKey) {
             context = '';
           }
           return { latest, context };
+        },
+
+        // 用户楼原始输入（剥离 IMG_GEN 与状态栏标记点）
+        readFloorUserInput(m) {
+          return String((m && m.message) || '')
+            .replace(/\[IMG_GEN\][\s\S]*?\[\/IMG_GEN\]/gi, '')
+            .replace(/【状态栏标记点】/g, '')
+            .trim();
         },
 
         // ---------- 独立 LLM 更新 ----------
@@ -11849,7 +11925,7 @@ createCharacterEntry(text, categoryKey) {
                 '\n</前情提要>\n\n';
             }
             userPrompt +=
-              '<最新剧情（请依据这段剧情更新状态）>\n' +
+              '<最新剧情（本轮的用户指令与AI正文，请依据这段更新状态；用户指令里明示的数值变化即使正文未转述也要计入）>\n' +
               (latest || '（无剧情正文，请保持当前状态并完善行动选项）') +
               '\n</最新剧情>\n\n';
             // 成员人设：只注入配了人设的成员（字段约束由系统提示词与程序白名单承担），
