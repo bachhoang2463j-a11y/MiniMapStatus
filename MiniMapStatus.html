@@ -9366,9 +9366,9 @@ createCharacterEntry(text, categoryKey) {
           this.env.hasVarsApi =
             typeof getVariables === 'function' && typeof insertOrAssignVariables === 'function';
           this.env.hasGenApi = typeof generateRaw === 'function' || typeof generate === 'function';
-          // 注入通道：聊天绑定世界书条目（位置/深度/排序用户可在世界书编辑器自由调整）
+          // 注入通道：角色卡绑定世界书条目（蚀心模式——同角色共享世界书，换聊天内容自动切换）
           this.env.hasWorldbookApi =
-            typeof getOrCreateChatWorldbook === 'function' &&
+            typeof getCharWorldbookNames === 'function' &&
             typeof getWorldbook === 'function' &&
             typeof createWorldbookEntries === 'function' &&
             typeof updateWorldbookWith === 'function';
@@ -9929,7 +9929,9 @@ createCharacterEntry(text, categoryKey) {
 
         // ---------- 深度 0 系统注入 ----------
 
-        // 状态注入：写入聊天绑定世界书的「MMS-状态栏数据」蓝灯条目（与蚀心数据库同模式）。
+        // 状态注入：写入当前角色卡主世界书的「MMS-状态栏数据」蓝灯条目（与蚀心数据库同模式）。
+        // 同一角色卡所有聊天共用一本世界书（不新建聊天世界书，避免列表臃肿）；
+        // 换聊天时条目内容随当前聊天的最新状态自动重写。
         // 位置/深度/排序默认 at_depth/0/10/system，用户可在世界书编辑器自由调整，脚本更新只改内容不动位置。
         async ensureInjection(state, floorId) {
           if (!this.env.hasWorldbookApi || !state) return;
@@ -9947,9 +9949,18 @@ createCharacterEntry(text, categoryKey) {
               yaml +
               '\n</当前状态数据>';
 
-            // 获取/创建聊天专属世界书
-            const wbName = await getOrCreateChatWorldbook('current');
-            if (!wbName) throw new Error('无法创建聊天世界书');
+            // 定位角色卡世界书：主世界书优先，其次附加列表第一本；都没有则降级为角色卡名同名世界书（不存在则失败）
+            const charWb = await Promise.resolve(getCharWorldbookNames('current'));
+            let wbName = charWb && charWb.primary ? charWb.primary : (charWb && charWb.additional && charWb.additional[0]) || null;
+            if (!wbName) {
+              // 角色卡未绑定任何世界书：创建以角色卡名命名的世界书并绑定为 primary
+              const charName = typeof getCurrentCharacterName === 'function' ? getCurrentCharacterName() : '';
+              if (!charName) throw new Error('无法获取当前角色卡名');
+              const created = await createWorldbook(charName);
+              if (!created) throw new Error('创建角色卡世界书失败');
+              await rebindCharWorldbooks('current', { primary: charName, additional: [] });
+              wbName = charName;
+            }
 
             // 查找已有条目
             const entries = await getWorldbook(wbName);
