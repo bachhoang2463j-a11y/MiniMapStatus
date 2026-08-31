@@ -9352,6 +9352,7 @@ createCharacterEntry(text, categoryKey) {
           hasMessageApi: false,
           hasVarsApi: false,
           hasGenApi: false,
+          hasExtPromptApi: false,
           hasInjectApi: false,
           hasEventApi: false,
           hasSetChatApi: false,
@@ -9363,8 +9364,15 @@ createCharacterEntry(text, categoryKey) {
           this.env.hasVarsApi =
             typeof getVariables === 'function' && typeof insertOrAssignVariables === 'function';
           this.env.hasGenApi = typeof generateRaw === 'function' || typeof generate === 'function';
+          // 注入通道：优先酒馆原生 setExtensionPrompt（同深度排序更靠顶部），
+          // 降级酒馆助手 injectPrompts
+          this.env.hasExtPromptApi =
+            typeof SillyTavern !== 'undefined' &&
+            SillyTavern &&
+            typeof SillyTavern.setExtensionPrompt === 'function';
           this.env.hasInjectApi =
-            typeof injectPrompts === 'function' && typeof uninjectPrompts === 'function';
+            (typeof injectPrompts === 'function' && typeof uninjectPrompts === 'function') ||
+            this.env.hasExtPromptApi;
           this.env.hasEventApi = typeof eventOn === 'function' && typeof eventEmit === 'function';
           this.env.hasSetChatApi = typeof setChatMessages === 'function';
         },
@@ -9936,17 +9944,32 @@ createCharacterEntry(text, categoryKey) {
               '<当前状态数据（系统自动维护，反映最新楼层结束时的状态）>\n' +
               yaml +
               '\n</当前状态数据>';
-            uninjectPrompts([MMS_INJECT_ID]);
-            injectPrompts([
-              {
-                id: MMS_INJECT_ID,
-                position: 'in_chat',
-                depth: 0,
-                role: 'system',
+            // 优先酒馆原生 setExtensionPrompt：同深度下排序在世界书/其他注入之前（更靠顶部）
+            if (this.env.hasExtPromptApi) {
+              SillyTavern.setExtensionPrompt(
+                MMS_INJECT_ID,
                 content,
-                should_scan: true,
-              },
-            ]);
+                1, // 1=插入聊天中
+                0, // 深度0
+                true, // 世界书扫描
+                0, // 0=system
+              );
+              return;
+            }
+            // 降级：酒馆助手 injectPrompts
+            if (typeof injectPrompts === 'function' && typeof uninjectPrompts === 'function') {
+              uninjectPrompts([MMS_INJECT_ID]);
+              injectPrompts([
+                {
+                  id: MMS_INJECT_ID,
+                  position: 'in_chat',
+                  depth: 0,
+                  role: 'system',
+                  content,
+                  should_scan: true,
+                },
+              ]);
+            }
           } catch (e) {
             console.warn('[MMS] 状态注入失败:', e);
           }

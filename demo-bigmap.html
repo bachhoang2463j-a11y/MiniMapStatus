@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>大地图 · AI 底图效果预览 — MiniMapStatus</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: radial-gradient(1200px 600px at 50% -10%, #1a2130 0%, #0f1216 55%) fixed, #0f1216;
+    color: #c9d4e3;
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    padding: 28px 16px 60px;
+  }
+  .page { max-width: 980px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 18px; }
+  header h1 {
+    font-size: 26px; font-weight: 700; letter-spacing: 1px;
+    background: linear-gradient(90deg, #7cb8ff, #b48cff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  header .sub { font-size: 13px; color: #7d8ca1; margin-top: 6px; }
+
+  .panel {
+    background: #171c23; border: 1px solid #262d38; border-radius: 14px;
+    overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  }
+  .toolbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 10px 14px; background: #1b212a; border-bottom: 1px solid #262d38;
+  }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tab {
+    border: 1px solid #2c3542; background: #232a35; color: #aeb9c9;
+    padding: 6px 12px; border-radius: 999px; font-size: 13px; cursor: pointer;
+    transition: all .15s; user-select: none; white-space: nowrap;
+  }
+  .tab:hover { border-color: #3d4a5c; color: #dbe4f0; }
+  .tab.active { background: #3568d4; border-color: #3568d4; color: #fff; }
+  .tab.active.ai { background: #6d4fd4; border-color: #6d4fd4; }
+  .tab .chip {
+    display: inline-block; font-size: 10px; padding: 0 5px; border-radius: 6px;
+    background: rgba(139,108,240,.25); color: #c9b8ff; margin-left: 5px; vertical-align: 1px;
+  }
+  .tab.active .chip { background: rgba(255,255,255,.22); color: #fff; }
+  .spacer { flex: 1; }
+  .zoom-ctrl { display: flex; align-items: center; gap: 5px; }
+  .zoom-ctrl button, .regen {
+    border: 1px solid #2c3542; background: #232a35; color: #c9d4e3;
+    width: 30px; height: 30px; border-radius: 8px; font-size: 15px; cursor: pointer;
+    line-height: 1; transition: all .15s;
+  }
+  .zoom-ctrl button:hover, .regen:hover { border-color: #3d4a5c; color: #fff; }
+  #zVal { font-size: 12px; color: #8b98ab; min-width: 44px; text-align: center; }
+  .regen {
+    width: auto; padding: 0 12px; font-size: 13px; height: 30px;
+    background: linear-gradient(135deg, #5a3fb8, #7c4fd4); border-color: #6d4fd4; color: #fff;
+  }
+  .regen.hidden, .hidden { display: none !important; }
+
+  .viewport {
+    position: relative; width: min(100%, calc(100vh - 250px)); min-width: 300px;
+    aspect-ratio: 1 / 1; margin: 0 auto; background: #0b0e12;
+    overflow: hidden; touch-action: none; user-select: none; cursor: grab;
+  }
+  .viewport.dragging { cursor: grabbing; }
+  .map-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; will-change: transform; }
+  .base-holder, .base-holder svg { width: 100%; height: 100%; display: block; }
+  .markers { position: absolute; inset: 0; }
+
+  .map-marker {
+    position: absolute; width: 38px; height: 38px; transform: translate(-50%, -50%);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.55));
+  }
+  .map-marker .emoji { font-size: 21px; z-index: 2; transition: transform .15s; line-height: 1; }
+  .map-marker:hover .emoji { transform: scale(1.28); }
+  .map-marker .pulse {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: radial-gradient(circle, rgba(96,190,255,.38) 0%, rgba(96,190,255,0) 68%);
+    animation: pulse 2.2s ease-out infinite;
+  }
+  @keyframes pulse { 0% { transform: scale(.55); opacity: 1; } 70% { transform: scale(1.65); opacity: 0; } 100% { transform: scale(1.65); opacity: 0; } }
+  .map-marker .tip {
+    position: absolute; bottom: 118%; left: 50%; transform: translateX(-50%) translateY(4px);
+    background: rgba(13,17,23,.94); border: 1px solid #3b4657; border-radius: 8px;
+    padding: 6px 10px; font-size: 12px; color: #c9d4e3; max-width: 250px; width: max-content;
+    text-align: center; line-height: 1.5; pointer-events: none; opacity: 0;
+    transition: opacity .15s, transform .15s; z-index: 30;
+  }
+  .map-marker .tip b { color: #fff; display: block; margin-bottom: 2px; }
+  .map-marker:hover .tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .gen-overlay {
+    position: absolute; inset: 0; background: rgba(10,12,16,.74);
+    backdrop-filter: blur(2px); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; z-index: 50;
+  }
+  .spinner {
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 3px solid #2c3644; border-top-color: #8b6cf0;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .gen-overlay .t1 { font-size: 14px; color: #d5def0; }
+  .gen-overlay .t2 { font-size: 12px; color: #8794a6; }
+
+  .info-bar {
+    padding: 10px 14px; font-size: 13px; color: #9fb0c4; background: #141920;
+    border-top: 1px solid #262d38; min-height: 42px; display: flex; align-items: center;
+  }
+  .info-bar b { color: #e8eef7; margin-right: 8px; }
+
+  footer { margin-top: 20px; font-size: 13px; color: #8fa0b5; line-height: 2; }
+  footer .card { background: #141920; border: 1px solid #232b37; border-radius: 12px; padding: 14px 18px; }
+  footer b { color: #cfe0ff; font-weight: 600; }
+  footer details { margin-top: 10px; }
+  footer summary { cursor: pointer; color: #aeb9c9; font-size: 12px; }
+  footer pre {
+    margin-top: 8px; background: #0d1117; border: 1px solid #232b37; border-radius: 8px;
+    padding: 12px 14px; font-size: 12px; line-height: 1.7; overflow-x: auto;
+    font-family: Consolas, "Courier New", monospace; color: #a8c7e8;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>🌍 大地图 · AI 底图效果预览</h1>
+    <p class="sub">模拟「LLM 单段式生成」的底图输出风格 · 地标数据格式与 MiniMapStatus 完全一致 · 交互机制复刻 TacticalMapEngine</p>
+  </header>
+
+  <div class="panel">
+    <div class="toolbar">
+      <div class="tabs" id="sceneTabs"></div>
+      <span style="color:#3d4a5c">｜</span>
+      <div class="tabs" id="baseTabs"></div>
+      <div class="spacer"></div>
+      <button class="regen hidden" id="regenBtn">🎲 AI 重绘</button>
+      <div class="zoom-ctrl">
+        <button id="zOut" title="缩小">−</button>
+        <span id="zVal">100%</span>
+        <button id="zIn" title="放大">＋</button>
+        <button id="zReset" title="复位">⤢</button>
+      </div>
+    </div>
+    <div class="viewport" id="viewport">
+      <div class="map-layer" id="mapLayer">
+        <div class="base-holder" id="baseHolder"></div>
+        <div class="markers" id="markerHolder"></div>
+      </div>
+      <div class="gen-overlay hidden" id="genOverlay">
+        <div class="spinner"></div>
+        <div class="t1" id="genText">正在调用 LLM 生成底图…</div>
+        <div class="t2">模拟演示：实际约 15~40 秒，期间沿用当前底图，完成后原地替换</div>
+      </div>
+    </div>
+    <div class="info-bar" id="infoBar">点击地标查看详情 · 拖拽平移 · 滚轮缩放</div>
+  </div>
+
+  <footer>
+    <div class="card">
+      <b>💡 说明（对应集成方案）</b><br>
+      💰 <b>成本</b>：单段式一次调用，输入约 1K tokens（场景 + 地标 + 风格规范），输出约 4~8K tokens（一张图）<br>
+      ⏱ <b>时长</b>：约 15~40 秒 / 张（本页以 ~1.5 秒模拟），生成期间沿用当前底图不白屏<br>
+      💾 <b>缓存</b>：每个场景键只生成一次，持久化到聊天变量；换楼层 / 重开面板零开销，「AI 重绘」按钮手动强制刷新<br>
+      🧭 <b>对齐</b>：底图地物按地标坐标绘制 → emoji 落点视觉合理；对比左侧「现有预设」可看出差异（预设底图不感知地标位置）<br>
+      🛟 <b>兜底</b>：生成失败自动回退现有预设底图，地图卡片永不挂掉；集成后默认关闭，在设置面板手动开启<br>
+      📌 <b>注意</b>：本页三张 AI 底图为手工按提示词规范模拟（模拟 LLM 单段式输出的预期风格），非真实 LLM 输出
+      <details>
+        <summary>查看驱动本页地图的真实数据格式</summary>
+        <pre>状态栏:
+  大地图:
+    城市:                      ← 场景键 = 缓存键，首次出现时触发 AI 生成
+      - "🏰【领主城堡】(50, 25) 城市北端的高耸城堡"
+      - "⛪【圣光教堂】(30, 40) 白色尖顶的祈祷之地"
+      - "🏛️【中央广场】(48, 52) 集市与公告栏所在"
+      - ...
+
+  坐标 (x, y) 为 10~90 的整数，渲染时作为百分比叠加在底图上；
+  底图只负责地形/地物，地标 emoji 由状态 LLM 每楼独立维护。</pre>
+      </details>
+    </div>
+  </footer>
+</div>
+
+<script>
+/* ================= 底图素材（模拟 LLM 单段式输出的 SVG） ================= */
+
+/* 通用「现有预设」示意：固定抽象底图，不感知地标位置 */
+const SVG_LEGACY = `<svg viewBox="0 0 1000 1000" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1000" height="1000" fill="#262c36"/>
+  <defs>
+    <pattern id="lg" width="50" height="50" patternUnits="userSpaceOnUse">
+      <path d="M50 0H0V50" fill="none" stroke="#ffffff" stroke-opacity="0.05"/>
+    </pattern>
+  </defs>
+  <rect width="1000" height="1000" fill="url(#lg)"/>
+  <rect x="120" y="150" width="760" height="700" rx="16" fill="#2f3642" stroke="#49536a" stroke-width="4"/>
+  <rect x="180" y="220" width="240" height="180" rx="8" fill="#38414f"/>
+  <rect x="470" y="220" width="340" height="120" rx="8" fill="#38414f"/>
+  <rect x="180" y="450" width="160" height="340" rx="8" fill="#38414f"/>
+  <circle cx="560" cy="560" r="120" fill="#3a4453"/>
+  <rect x="700" y="400" width="110" height="390" rx="8" fill="#38414f"/>
+  <circle cx="250" cy="310" r="26" fill="#46536a"/>
+  <rect x="530" y="270" width="70" height="30" rx="6" fill="#46536a"/>
+  <rect x="560" y="530" width="80" height="46" rx="8" fill="#46536a"/>
+  <circle cx="560" cy="560" r="34" fill="#4d5b74"/>
+  <rect x="220" y="520" width="80" height="18" rx="6" fill="#46536a"/>
+  <text x="500" y="975" text-anchor="middle" fill="#6d7a92" font-size="20" font-family="'PingFang SC','Microsoft YaHei',sans-serif" letter-spacing="4">示意：现有预设为固定抽象底图（实际为外链图片/预设 SVG）</text>
+</svg>`;
+
+/* ── AI 底图 1：城市 · 简约平面风 ── */
+const SVG_CITY_FLAT = `<svg viewBox="0 0 1000 1000" xmlns="http://www.w3.org/2000/svg" font-family="'PingFang SC','Microsoft YaHei',sans-serif">
+  <defs><rect id="b" width="26" height="18" rx="2"/></defs>
+  <!-- 郊野地面 -->
+  <rect width="1000" height="1000" fill="#ece4c9"/>
+  <ellipse cx="90" cy="120" rx="120" ry="80" fill="#d9e3b6"/>
+  <ellipse cx="925" cy="120" rx="110" ry="85" fill="#d3e0ae"/>
+  <ellipse cx="110" cy="860" rx="115" ry="95" fill="#d3e0ae"/>
+  <ellipse cx="915" cy="880" rx="130" ry="95" fill="#d9e3b6"/>
+  <!-- 城内地面 -->
+  <rect x="150" y="170" width="690" height="770" rx="36" fill="#f0e8d0"/>
+  <!-- 河（穿城而过） -->
+  <path d="M 645 150 C 615 300, 598 390, 608 480 C 618 575, 562 700, 566 800 C 569 872, 556 908, 548 950" fill="none" stroke="#8fbcd8" stroke-width="48" stroke-linecap="round"/>
+  <path d="M 645 150 C 615 300, 598 390, 608 480 C 618 575, 562 700, 566 800 C 569 872, 556 908, 548 950" fill="none" stroke="#a9d2e8" stroke-width="38" stroke-linecap="round"/>
+  <!-- 道路 -->
+  <path d="M 500 940 C 496 820, 490 640, 487 575" fill="none" stroke="#d9cba6" stroke-width="28"/>
+  <path d="M 490 492 C 494 420, 497 340, 499 300" fill="none" stroke="#d9cba6" stroke-width="28"/>
+  <path d="M 500 940 C 496 820, 490 640, 487 575" fill="none" stroke="#faf5e6" stroke-width="20"/>
+  <path d="M 490 492 C 494 420, 497 340, 499 300" fill="none" stroke="#faf5e6" stroke-width="20"/>
+  <path d="M 165 430 C 250 425, 320 415, 380 420 C 470 428, 540 435, 600 432 C 650 430, 680 445, 705 452" fill="none" stroke="#d9cba6" stroke-width="24"/>
+  <path d="M 165 430 C 250 425, 320 415, 380 420 C 470 428, 540 435, 600 432 C 650 430, 680 445, 705 452" fill="none" stroke="#faf5e6" stroke-width="16"/>
+  <path d="M 340 655 C 390 645, 430 620, 470 585" fill="none" stroke="#d9cba6" stroke-width="16"/>
+  <path d="M 340 655 C 390 645, 430 620, 470 585" fill="none" stroke="#faf5e6" stroke-width="10"/>
+  <path d="M 496 790 C 520 792, 536 790, 552 786" fill="none" stroke="#d9cba6" stroke-width="14"/>
+  <path d="M 496 790 C 520 792, 536 790, 552 786" fill="none" stroke="#faf5e6" stroke-width="9"/>
+  <!-- 跨河桥 -->
+  <rect x="578" y="418" width="52" height="26" rx="4" fill="#b28a58" stroke="#8a6a42" stroke-width="2"/>
+  <path d="M 590 419 v24 M 602 419 v24 M 614 419 v24" stroke="#8a6a42" stroke-width="1.4"/>
+  <!-- 中央广场 -->
+  <rect x="425" y="492" width="115" height="78" rx="12" fill="#f2ead3" stroke="#d8c8a4" stroke-width="2"/>
+  <circle cx="482" cy="530" r="15" fill="#a9d2e8" stroke="#82b3cf" stroke-width="2"/>
+  <rect x="445" y="585" width="20" height="12" rx="2" fill="#c9a97a" stroke="#a8865a"/>
+  <rect x="505" y="585" width="20" height="12" rx="2" fill="#c9a97a" stroke="#a8865a"/>
+  <!-- 王城区（城堡，地标 50,25） -->
+  <ellipse cx="500" cy="258" rx="118" ry="80" fill="#cfe0ae" opacity="0.75"/>
+  <polygon points="436,190 449,166 462,190" fill="#a2705a"/>
+  <polygon points="538,190 551,166 564,190" fill="#a2705a"/>
+  <polygon points="482,176 500,148 518,176" fill="#a2705a"/>
+  <rect x="436" y="188" width="26" height="66" fill="#c6a97e" stroke="#a68c60" stroke-width="2"/>
+  <rect x="538" y="188" width="26" height="66" fill="#c6a97e" stroke="#a68c60" stroke-width="2"/>
+  <rect x="482" y="172" width="36" height="46" fill="#cdb187" stroke="#a68c60" stroke-width="2"/>
+  <polygon points="455,215 545,215 558,288 442,288" fill="#d2b78d" stroke="#a68c60" stroke-width="2"/>
+  <!-- 圣光教堂（地标 30,40） -->
+  <circle cx="300" cy="405" r="58" fill="#f2ead3" stroke="#d8c8a4" stroke-width="2"/>
+  <rect x="284" y="372" width="32" height="66" fill="#f4efe2" stroke="#b0a687" stroke-width="2"/>
+  <rect x="268" y="388" width="64" height="26" fill="#f4efe2" stroke="#b0a687" stroke-width="2"/>
+  <polygon points="284,372 300,342 316,372" fill="#d9c9a4" stroke="#b0a687" stroke-width="2"/>
+  <path d="M 300 348 v-12 M 295 341 h10" stroke="#b0a687" stroke-width="2"/>
+  <!-- 工匠区（地标 70,45） -->
+  <ellipse cx="700" cy="455" rx="98" ry="72" fill="#e0cfa8" opacity="0.55"/>
+  <rect x="655" y="415" width="52" height="34" rx="3" fill="#d9c6a4" stroke="#bfa87e" stroke-width="2"/>
+  <rect x="715" y="430" width="46" height="30" rx="3" fill="#d9c6a4" stroke="#bfa87e" stroke-width="2"/>
+  <rect x="668" y="468" width="44" height="26" rx="3" fill="#d9c6a4" stroke="#bfa87e" stroke-width="2"/>
+  <rect x="724" y="468" width="36" height="24" rx="3" fill="#d9c6a4" stroke="#bfa87e" stroke-width="2"/>
+  <rect x="662" y="404" width="8" height="16" fill="#bfa87e"/>
+  <rect x="742" y="418" width="8" height="16" fill="#bfa87e"/>
+  <!-- 河港码头（地标 55,80） -->
+  <rect x="500" y="786" width="64" height="86" fill="#cfae7d" stroke="#a8865a" stroke-width="2"/>
+  <path d="M 500 806 h64 M 500 826 h64 M 500 846 h64" stroke="#a8865a" stroke-width="1.4"/>
+  <rect x="452" y="758" width="52" height="34" rx="3" fill="#c9a97a" stroke="#a8865a" stroke-width="2"/>
+  <ellipse cx="600" cy="730" rx="24" ry="9" fill="#b05a4a" stroke="#8a4238" stroke-width="1.5"/>
+  <ellipse cx="580" cy="880" rx="20" ry="8" fill="#b05a4a" stroke="#8a4238" stroke-width="1.5"/>
+  <!-- 贵族花园（地标 25,65） -->
+  <ellipse cx="250" cy="655" rx="88" ry="66" fill="#b9d09c" stroke="#9ab87e" stroke-width="2"/>
+  <circle cx="240" cy="660" r="22" fill="#a9d2e8" stroke="#82b3cf" stroke-width="2"/>
+  <polygon points="268,610 292,610 298,628 280,638 262,628" fill="#e3d5b2" stroke="#b0a687" stroke-width="1.6"/>
+  <!-- 民居 -->
+  <g fill="#e3d5b2" stroke="#c8b790" stroke-width="1.5">
+    <use href="#b" x="200" y="230"/><use href="#b" x="240" y="225"/><use href="#b" x="280" y="232"/><use href="#b" x="320" y="226"/><use href="#b" x="360" y="230"/>
+    <use href="#b" x="200" y="280"/><use href="#b" x="240" y="276"/><use href="#b" x="280" y="282"/><use href="#b" x="330" y="278"/>
+    <use href="#b" x="200" y="500"/><use href="#b" x="240" y="505"/><use href="#b" x="280" y="498"/><use href="#b" x="320" y="502"/>
+    <use href="#b" x="200" y="560"/><use href="#b" x="240" y="565"/><use href="#b" x="280" y="560"/><use href="#b" x="330" y="570"/>
+    <use href="#b" x="680" y="222"/><use href="#b" x="720" y="215"/><use href="#b" x="760" y="222"/><use href="#b" x="795" y="218"/>
+    <use href="#b" x="680" y="270"/><use href="#b" x="720" y="275"/><use href="#b" x="760" y="268"/><use href="#b" x="695" y="320" transform="rotate(6 708 329)"/>
+    <use href="#b" x="735" y="325"/><use href="#b" x="770" y="318" transform="rotate(-5 783 327)"/>
+    <use href="#b" x="660" y="500"/><use href="#b" x="700" y="505"/><use href="#b" x="740" y="500"/><use href="#b" x="778" y="505"/>
+    <use href="#b" x="660" y="560"/><use href="#b" x="700" y="565" transform="rotate(4 713 574)"/><use href="#b" x="740" y="560"/><use href="#b" x="772" y="568"/>
+    <use href="#b" x="390" y="620"/><use href="#b" x="428" y="615"/><use href="#b" x="392" y="670"/><use href="#b" x="428" y="676"/>
+    <use href="#b" x="650" y="660"/><use href="#b" x="690" y="665"/><use href="#b" x="730" y="660"/><use href="#b" x="768" y="665"/>
+    <use href="#b" x="668" y="710"/><use href="#b" x="708" y="715"/>
+    <use href="#b" x="420" y="840"/><use href="#b" x="455" y="846"/><use href="#b" x="360" y="842"/><use href="#b" x="395" y="848"/>
+    <use href="#b" x="450" y="720"/>
+  </g>
+  <!-- 城墙 -->
+  <rect x="150" y="170" width="690" height="770" rx="36" fill="none" stroke="#a08e66" stroke-width="15"/>
+  <rect x="163" y="183" width="664" height="744" rx="28" fill="none" stroke="#c9b992" stroke-width="3"/>
+  <circle cx="186" cy="206" r="12" fill="#b3a179" stroke="#8f7d5c" stroke-width="2"/>
+  <circle cx="804" cy="206" r="12" fill="#b3a179" stroke="#8f7d5c" stroke-width="2"/>
+  <circle cx="186" cy="904" r="12" fill="#b3a179" stroke="#8f7d5c" stroke-width="2"/>
+  <circle cx="804" cy="904" r="12" fill="#b3a179" stroke="#8f7d5c" stroke-width="2"/>
+  <!-- 南城门（地标 50,92） -->
+  <rect x="478" y="912" width="44" height="36" fill="#f0e8d0"/>
+  <rect x="460" y="906" width="16" height="34" rx="3" fill="#8f7d5c"/>
+  <rect x="524" y="906" width="16" height="34" rx="3" fill="#8f7d5c"/>
+  <path d="M 484 940 Q 500 918 516 940" fill="none" stroke="#6b5a3e" stroke-width="3"/>
+  <!-- 郊野农田与树 -->
+  <rect x="330" y="956" width="80" height="16" fill="#d9c98f" stroke="#b8a86f" stroke-width="1.4"/>
+  <rect x="330" y="978" width="80" height="16" fill="#d9c98f" stroke="#b8a86f" stroke-width="1.4"/>
+  <rect x="590" y="956" width="80" height="16" fill="#d9c98f" stroke="#b8a86f" stroke-width="1.4"/>
+  <g fill="#a8c489" stroke="#8ba76e" stroke-width="1.5">
+    <circle cx="70" cy="240" r="13"/><circle cx="105" cy="335" r="11"/><circle cx="60" cy="480" r="12"/><circle cx="95" cy="600" r="14"/>
+    <circle cx="130" cy="80" r="11"/><circle cx="880" cy="110" r="12"/><circle cx="930" cy="235" r="13"/><circle cx="905" cy="420" r="11"/>
+    <circle cx="935" cy="640" r="12"/><circle cx="880" cy="762" r="11"/>
+    <circle cx="215" cy="622" r="9"/><circle cx="268" cy="600" r="8"/><circle cx="288" cy="662" r="9"/><circle cx="228" cy="692" r="8"/><circle cx="190" cy="660" r="9"/>
+  </g>
+  <!-- 城区标注 -->
+  <g fill="#8a7a58" font-size="17" opacity="0.85" text-anchor="middle">
+    <text x="500" y="330">王城区</text>
+    <text x="300" y="330">圣光坊</text>
+    <text x="700" y="545">工匠区</text>
+    <text x="640" y="775">河港</text>
+    <text x="250" y="740">御苑</text>
+    <text x="455" y="875">南市</text>
+  </g>
+</svg>`;
+
+/* ── AI 底图 2：大陆 · 简约地形风 ── */
+const SVG_WORLD_FLAT = `<svg viewBox="0 0 1000 1000" xmlns="http://www.w3.org/2000/svg" font-family="'PingFang SC','Microsoft YaHei',sans-serif">
+  <!-- 海洋 -->
+  <rect width="1000" height="1000" fill="#9cc4dc"/>
+  <g fill="none" stroke="#cfe4ef" stroke-width="3" opacity="0.8" stroke-linecap="round">
+    <path d="M 90 180 q 18 -10 36 0 q 18 10 36 0"/>
+    <path d="M 850 900 q 18 -10 36 0 q 18 10 36 0"/>
+    <path d="M 80 780 q 18 -10 36 0"/>
+    <path d="M 905 430 q 18 -10 36 0"/>
+    <path d="M 880 760 q 18 -10 36 0 q 18 10 36 0"/>
+    <path d="M 60 420 q 18 -10 36 0"/>
+  </g>
+  <!-- 大陆 -->
+  <path d="M 150 230 C 190 150, 320 120, 450 140 C 560 118, 680 132, 770 175 C 860 210, 905 290, 885 380 C 925 465, 905 570, 855 650 C 875 735, 810 825, 705 845 C 610 885, 490 885, 385 855 C 300 875, 195 825, 160 730 C 115 645, 100 525, 130 435 C 100 345, 115 280, 150 230 Z" fill="#ddd0a9" stroke="#bfb086" stroke-width="4"/>
+  <!-- 自由港海湾 -->
+  <path d="M 355 900 C 330 820, 305 780, 312 738 C 318 706, 352 698, 376 720 C 398 742, 396 800, 415 862 C 420 880, 380 898, 355 900 Z" fill="#9cc4dc"/>
+  <path d="M 312 738 C 318 706, 352 698, 376 720" fill="none" stroke="#bfb086" stroke-width="3"/>
+  <!-- 北方雪原 -->
+  <path d="M 300 195 C 400 150, 540 148, 640 190 C 680 212, 655 262, 570 282 C 465 302, 345 292, 285 252 C 270 235, 278 212, 300 195 Z" fill="#edf2f5" stroke="#d3dde2" stroke-width="2"/>
+  <!-- 森林 -->
+  <g fill="#b6cc97" stroke="#9cb57e" stroke-width="2">
+    <ellipse cx="255" cy="455" rx="75" ry="48"/>
+    <ellipse cx="610" cy="690" rx="85" ry="52"/>
+    <ellipse cx="205" cy="315" rx="55" ry="36"/>
+    <ellipse cx="655" cy="385" rx="58" ry="36"/>
+    <ellipse cx="480" cy="760" rx="60" ry="38"/>
+  </g>
+  <!-- 金色平原（地标 40,60） -->
+  <ellipse cx="400" cy="600" rx="92" ry="56" fill="#e6d49a" stroke="#c9b46a" stroke-width="2"/>
+  <g stroke="#c9a852" stroke-width="2" stroke-linecap="round">
+    <path d="M 348 580 v12 M 362 594 v12 M 330 600 v12 M 442 578 v12 M 458 592 v12 M 425 570 v12 M 465 610 v12 M 340 622 v12 M 448 632 v12"/>
+  </g>
+  <!-- 东部沙漠 -->
+  <path d="M 715 505 C 795 480, 868 520, 878 600 C 888 678, 838 738, 758 728 C 698 718, 675 655, 688 588 C 695 545, 700 520, 715 505 Z" fill="#ecd9a4" stroke="#d3ba7a" stroke-width="2"/>
+  <!-- 焚火火山（地标 80,60） -->
+  <polygon points="768,645 800,558 832,645" fill="#c07a5a" stroke="#9a5a40" stroke-width="2"/>
+  <ellipse cx="800" cy="558" rx="17" ry="6" fill="#6e3a28"/>
+  <path d="M 796 570 L 802 600 L 794 628" fill="none" stroke="#a34a30" stroke-width="3" stroke-linecap="round"/>
+  <!-- 龙脊山脉（地标 55,55） -->
+  <g>
+    <polygon points="400,620 430,565 460,620" fill="#bfae8e" stroke="#99875f" stroke-width="2"/>
+    <polygon points="440,600 470,545 500,600" fill="#bfae8e" stroke="#99875f" stroke-width="2"/>
+    <polygon points="480,580 510,525 540,580" fill="#bfae8e" stroke="#99875f" stroke-width="2"/>
+    <polygon points="520,558 550,503 580,558" fill="#bfae8e" stroke="#99875f" stroke-width="2"/>
+    <polygon points="560,540 590,485 620,540" fill="#bfae8e" stroke="#99875f" stroke-width="2"/>
+    <polygon points="600,520 630,465 660,520" fill="#bfae8e" stroke="#99875f" stroke-width="2"/>
+    <polygon points="640,500 670,445 700,500" fill="#bfae8e" stroke="#99875f" stroke-width="2"/>
+    <polygon points="420,582 430,565 440,582" fill="#f6f6f0"/>
+    <polygon points="500,562 510,545 520,562" fill="#f6f6f0"/>
+    <polygon points="540,540 550,522 560,540" fill="#f6f6f0"/>
+    <polygon points="620,502 630,484 640,502" fill="#f6f6f0"/>
+  </g>
+  <!-- 湖泊与河流 -->
+  <ellipse cx="520" cy="425" rx="42" ry="26" fill="#a9d2e8" stroke="#82b3cf" stroke-width="2"/>
+  <path d="M 470 585 C 435 640, 400 660, 372 695 C 352 720, 336 736, 326 752" fill="none" stroke="#a3cbe2" stroke-width="10" stroke-linecap="round"/>
+  <!-- 道路 -->
+  <g fill="none" stroke="#f7f1de" stroke-width="7" stroke-linecap="round">
+    <path d="M 468 372 C 540 350, 620 328, 686 305"/>
+    <path d="M 462 362 C 470 300, 488 225, 497 172"/>
+    <path d="M 448 402 C 436 465, 418 530, 404 582"/>
+    <path d="M 372 618 C 345 652, 322 672, 306 690"/>
+    <path d="M 492 608 C 575 622, 690 615, 762 608"/>
+  </g>
+  <g fill="none" stroke="#8a7a58" stroke-width="2.4" stroke-dasharray="12 9" stroke-linecap="round">
+    <path d="M 468 372 C 540 350, 620 328, 686 305"/>
+    <path d="M 462 362 C 470 300, 488 225, 497 172"/>
+    <path d="M 448 402 C 436 465, 418 530, 404 582"/>
+    <path d="M 372 618 C 345 652, 322 672, 306 690"/>
+    <path d="M 492 608 C 575 622, 690 615, 762 608"/>
+  </g>
+  <!-- 王都维兰（地标 45,38） -->
+  <circle cx="450" cy="380" r="34" fill="#d8c8a0" stroke="#8f7d5c" stroke-width="3"/>
+  <rect x="436" y="366" width="28" height="28" fill="#c9b287" stroke="#8f7d5c" stroke-width="2"/>
+  <rect x="412" y="396" width="16" height="12" fill="#d2b78d" stroke="#8f7d5c"/>
+  <rect x="470" y="396" width="16" height="12" fill="#d2b78d" stroke="#8f7d5c"/>
+  <rect x="440" y="410" width="16" height="12" fill="#d2b78d" stroke="#8f7d5c"/>
+  <!-- 边境要塞（地标 70,30） -->
+  <rect x="682" y="282" width="36" height="36" fill="#cbb68c" stroke="#6b5a3e" stroke-width="3"/>
+  <circle cx="682" cy="282" r="4.5" fill="#6b5a3e"/><circle cx="718" cy="282" r="4.5" fill="#6b5a3e"/>
+  <circle cx="682" cy="318" r="4.5" fill="#6b5a3e"/><circle cx="718" cy="318" r="4.5" fill="#6b5a3e"/>
+  <path d="M 700 282 v-14 h12" fill="none" stroke="#6b5a3e" stroke-width="2.4"/>
+  <!-- 霜风隘口（地标 50,15） -->
+  <rect x="478" y="136" width="14" height="32" fill="#c9b68c" stroke="#8a7a58" stroke-width="2"/>
+  <rect x="528" y="136" width="14" height="32" fill="#c9b68c" stroke="#8a7a58" stroke-width="2"/>
+  <!-- 自由港（地标 30,70） -->
+  <rect x="288" y="712" width="16" height="40" fill="#c9a97a" stroke="#8a6a42" stroke-width="2" transform="rotate(-14 296 732)"/>
+  <rect x="284" y="688" width="20" height="14" fill="#cfae7d" stroke="#8a6a42" stroke-width="2"/>
+  <rect x="308" y="684" width="20" height="14" fill="#cfae7d" stroke="#8a6a42" stroke-width="2"/>
+  <ellipse cx="342" cy="772" rx="22" ry="8" fill="#b05a4a" stroke="#8a4238" stroke-width="1.5"/>
+  <ellipse cx="368" cy="750" rx="15" ry="6" fill="#7a94a8" stroke="#5d788c" stroke-width="1.5"/>
+  <!-- 罗盘 -->
+  <circle cx="912" cy="112" r="26" fill="#f4f7f9" stroke="#7a8ea0" stroke-width="2"/>
+  <polygon points="912,90 918,112 906,112" fill="#b05a4a"/>
+  <polygon points="912,134 918,112 906,112" fill="#7a8ea0"/>
+  <text x="912" y="84" text-anchor="middle" font-size="15" fill="#5d788c">N</text>
+  <!-- 地名 -->
+  <text x="500" y="868" text-anchor="middle" font-size="30" fill="#a5946e" opacity="0.65" letter-spacing="10">维兰大陆</text>
+  <text x="115" y="942" text-anchor="middle" font-size="24" fill="#7fa5bd" opacity="0.85" letter-spacing="6">碎星海</text>
+</svg>`;
+
+/* ── AI 底图 3：城市 · 手绘羊皮纸风（DND 版风格对照） ── */
+const SVG_CITY_PARCH = `<svg viewBox="0 0 1000 1000" xmlns="http://www.w3.org/2000/svg" font-family="'KaiTi','STKaiti','PingFang SC',serif">
+  <defs>
+    <filter id="pnoise">
+      <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="7" result="n"/>
+      <feColorMatrix in="n" type="matrix" values="0 0 0 0 0.38  0 0 0 0 0.27  0 0 0 0 0.13  0 0 0 0.55 0"/>
+      <feComposite operator="in" in2="SourceGraphic"/>
+    </filter>
+    <radialGradient id="pvig" cx="50%" cy="50%" r="74%">
+      <stop offset="58%" stop-color="rgba(0,0,0,0)"/>
+      <stop offset="100%" stop-color="rgba(90,60,30,0.32)"/>
+    </radialGradient>
+    <pattern id="phatch" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="9" height="9" fill="#e8d5ab"/>
+      <line x1="0" y1="0" x2="0" y2="9" stroke="#c9ae7c" stroke-width="1.1"/>
+    </pattern>
+    <pattern id="pgreen" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)">
+      <rect width="10" height="10" fill="#c6d3a0"/>
+      <line x1="0" y1="0" x2="0" y2="10" stroke="#93a878" stroke-width="1.2"/>
+    </pattern>
+    <rect id="pb" width="24" height="16" rx="2"/>
+  </defs>
+  <!-- 羊皮纸底 -->
+  <rect width="1000" height="1000" fill="#efe0bb"/>
+  <rect width="1000" height="1000" fill="#efe0bb" filter="url(#pnoise)" opacity="0.5"/>
+  <rect width="1000" height="1000" fill="url(#pvig)"/>
+  <!-- 装饰边框 -->
+  <rect x="28" y="28" width="944" height="944" fill="none" stroke="#6b4f30" stroke-width="4"/>
+  <rect x="42" y="42" width="916" height="916" fill="none" stroke="#6b4f30" stroke-width="1.5"/>
+  <!-- 标题 -->
+  <text x="500" y="104" text-anchor="middle" font-size="46" fill="#5b3a24" letter-spacing="14">維 蘭 城</text>
+  <path d="M 380 122 C 440 132, 560 132, 620 122" stroke="#8a6a42" stroke-width="2" fill="none"/>
+  <!-- 城内（不规则轮廓） -->
+  <path d="M 148 215 C 152 168, 205 148, 268 152 C 370 144, 520 150, 655 154 C 738 150, 806 172, 824 222 C 842 305, 834 425, 840 522 C 846 642, 848 758, 818 848 C 788 898, 700 916, 598 910 C 478 920, 338 916, 240 898 C 172 884, 152 818, 154 718 C 144 598, 146 350, 148 215 Z" fill="#ecd9ae" stroke="#3f3020" stroke-width="5"/>
+  <path d="M 148 215 C 152 168, 205 148, 268 152 C 370 144, 520 150, 655 154 C 738 150, 806 172, 824 222 C 842 305, 834 425, 840 522 C 846 642, 848 758, 818 848 C 788 898, 700 916, 598 910 C 478 920, 338 916, 240 898 C 172 884, 152 818, 154 718 C 144 598, 146 350, 148 215 Z" fill="none" stroke="#6b533a" stroke-width="1.3"/>
+  <!-- 河 -->
+  <path d="M 645 165 C 615 300, 598 390, 608 480 C 618 575, 562 700, 566 800 C 569 872, 556 908, 550 925" fill="none" stroke="#8fb5c9" stroke-width="36" opacity="0.85" stroke-linecap="round"/>
+  <path d="M 645 165 C 615 300, 598 390, 608 480 C 618 575, 562 700, 566 800 C 569 872, 556 908, 550 925" fill="none" stroke="#6e93a6" stroke-width="2" stroke-dasharray="18 14"/>
+  <g stroke="#6e93a6" stroke-width="1.5" fill="none" opacity="0.8">
+    <path d="M 606 300 q 14 8 2 20"/><path d="M 592 430 q 14 8 2 20"/><path d="M 572 640 q 14 8 2 20"/><path d="M 560 780 q 14 8 2 20"/>
+  </g>
+  <!-- 道路（双虚线，手绘风） -->
+  <g fill="none" stroke="#5f4a30" stroke-width="1.6" stroke-dasharray="11 9">
+    <path d="M 494 930 C 490 820, 484 640, 481 578"/><path d="M 506 930 C 502 820, 496 640, 493 578"/>
+    <path d="M 492 488 C 495 420, 497 345, 499 305"/><path d="M 504 490 C 502 420, 502 348, 505 308"/>
+    <path d="M 168 428 C 250 422, 330 412, 400 418 C 480 426, 545 432, 600 430 C 650 428, 678 442, 702 450"/>
+    <path d="M 170 440 C 250 434, 330 424, 400 430 C 480 438, 545 443, 600 441 C 650 439, 680 452, 706 462"/>
+    <path d="M 342 656 C 392 646, 432 622, 470 588"/>
+    <path d="M 496 792 C 520 794, 536 792, 552 788"/>
+  </g>
+  <!-- 桥 -->
+  <rect x="580" y="418" width="50" height="28" rx="4" fill="#c9a06a" stroke="#5f4630" stroke-width="2"/>
+  <path d="M 592 419 v26 M 604 419 v26 M 616 419 v26" stroke="#5f4630" stroke-width="1.3"/>
+  <!-- 街区（排线填充） -->
+  <ellipse cx="500" cy="258" rx="118" ry="78" fill="url(#pgreen)" stroke="#5f4a30" stroke-width="1.8"/>
+  <ellipse cx="700" cy="455" rx="100" ry="72" fill="url(#phatch)" stroke="#5f4a30" stroke-width="1.8"/>
+  <ellipse cx="250" cy="655" rx="88" ry="66" fill="url(#pgreen)" stroke="#5f4a30" stroke-width="1.8"/>
+  <rect x="425" y="492" width="115" height="78" rx="12" fill="#eee0b8" stroke="#5f4a30" stroke-width="1.8"/>
+  <circle cx="482" cy="530" r="15" fill="#a9c9dd" stroke="#5f7a88" stroke-width="2"/>
+  <path d="M 470 530 h24 M 482 518 v24" stroke="#5f7a88" stroke-width="1.4"/>
+  <!-- 城堡（地标 50,25） -->
+  <polygon points="436,190 449,166 462,190" fill="#a2705a" stroke="#3f3020" stroke-width="2"/>
+  <polygon points="538,190 551,166 564,190" fill="#a2705a" stroke="#3f3020" stroke-width="2"/>
+  <polygon points="482,176 500,148 518,176" fill="#a2705a" stroke="#3f3020" stroke-width="2"/>
+  <rect x="436" y="188" width="26" height="66" fill="#d9c294" stroke="#3f3020" stroke-width="2.5"/>
+  <rect x="538" y="188" width="26" height="66" fill="#d9c294" stroke="#3f3020" stroke-width="2.5"/>
+  <rect x="482" y="172" width="36" height="46" fill="#d9c294" stroke="#3f3020" stroke-width="2.5"/>
+  <polygon points="455,215 545,215 558,288 442,288" fill="#d9c294" stroke="#3f3020" stroke-width="2.5"/>
+  <!-- 教堂（地标 30,40） -->
+  <circle cx="300" cy="405" r="58" fill="#eee0b8" stroke="#5f4a30" stroke-width="1.8"/>
+  <rect x="284" y="372" width="32" height="66" fill="#f2ead2" stroke="#4a3826" stroke-width="2"/>
+  <rect x="268" y="388" width="64" height="26" fill="#f2ead2" stroke="#4a3826" stroke-width="2"/>
+  <polygon points="284,372 300,342 316,372" fill="#d9c9a4" stroke="#4a3826" stroke-width="2"/>
+  <path d="M 300 348 v-12 M 295 341 h10" stroke="#4a3826" stroke-width="2"/>
+  <!-- 工匠区建筑 -->
+  <rect x="655" y="415" width="52" height="34" rx="3" fill="#e2cda0" stroke="#4a3826" stroke-width="2"/>
+  <rect x="715" y="430" width="46" height="30" rx="3" fill="#e2cda0" stroke="#4a3826" stroke-width="2"/>
+  <rect x="668" y="468" width="44" height="26" rx="3" fill="#e2cda0" stroke="#4a3826" stroke-width="2"/>
+  <rect x="724" y="468" width="36" height="24" rx="3" fill="#e2cda0" stroke="#4a3826" stroke-width="2"/>
+  <rect x="662" y="404" width="8" height="16" fill="#4a3826"/>
+  <rect x="742" y="418" width="8" height="16" fill="#4a3826"/>
+  <!-- 河港（地标 55,80） -->
+  <rect x="500" y="786" width="64" height="86" fill="#cfae7d" stroke="#5f4630" stroke-width="2"/>
+  <path d="M 500 806 h64 M 500 826 h64 M 500 846 h64" stroke="#5f4630" stroke-width="1.3"/>
+  <rect x="452" y="758" width="52" height="34" rx="3" fill="#c9a97a" stroke="#5f4630" stroke-width="2"/>
+  <ellipse cx="600" cy="730" rx="24" ry="9" fill="#8a4238" stroke="#3f3020" stroke-width="1.5"/>
+  <!-- 民居 -->
+  <g fill="#e2cda0" stroke="#4a3826" stroke-width="1.5">
+    <use href="#pb" x="200" y="230"/><use href="#pb" x="240" y="225"/><use href="#pb" x="280" y="232"/><use href="#pb" x="320" y="226"/><use href="#pb" x="360" y="230"/>
+    <use href="#pb" x="200" y="280"/><use href="#pb" x="240" y="276"/><use href="#pb" x="280" y="282"/><use href="#pb" x="330" y="278"/>
+    <use href="#pb" x="200" y="500"/><use href="#pb" x="240" y="505"/><use href="#pb" x="280" y="498"/><use href="#pb" x="320" y="502"/>
+    <use href="#pb" x="200" y="560"/><use href="#pb" x="240" y="565"/><use href="#pb" x="280" y="560"/><use href="#pb" x="330" y="570"/>
+    <use href="#pb" x="680" y="222"/><use href="#pb" x="720" y="215"/><use href="#pb" x="760" y="222"/><use href="#pb" x="795" y="218"/>
+    <use href="#pb" x="680" y="270"/><use href="#pb" x="720" y="275"/><use href="#pb" x="760" y="268"/>
+    <use href="#pb" x="660" y="500"/><use href="#pb" x="700" y="505"/><use href="#pb" x="740" y="500"/><use href="#pb" x="778" y="505"/>
+    <use href="#pb" x="660" y="560"/><use href="#pb" x="700" y="565"/><use href="#pb" x="740" y="560"/><use href="#pb" x="772" y="568"/>
+    <use href="#pb" x="390" y="620"/><use href="#pb" x="428" y="615"/><use href="#pb" x="392" y="670"/><use href="#pb" x="428" y="676"/>
+    <use href="#pb" x="650" y="660"/><use href="#pb" x="690" y="665"/><use href="#pb" x="730" y="660"/><use href="#pb" x="768" y="665"/>
+    <use href="#pb" x="668" y="710"/><use href="#pb" x="708" y="715"/>
+    <use href="#pb" x="420" y="840"/><use href="#pb" x="455" y="846"/><use href="#pb" x="360" y="842"/><use href="#pb" x="395" y="848"/>
+  </g>
+  <!-- 树 -->
+  <g>
+    <circle cx="215" cy="622" r="9" fill="#9db07a" stroke="#5f7a4a" stroke-width="1.5"/>
+    <circle cx="268" cy="600" r="8" fill="#9db07a" stroke="#5f7a4a" stroke-width="1.5"/>
+    <circle cx="288" cy="662" r="9" fill="#9db07a" stroke="#5f7a4a" stroke-width="1.5"/>
+    <circle cx="228" cy="692" r="8" fill="#9db07a" stroke="#5f7a4a" stroke-width="1.5"/>
+    <circle cx="190" cy="660" r="9" fill="#9db07a" stroke="#5f7a4a" stroke-width="1.5"/>
+    <circle cx="120" cy="300" r="10" fill="#9db07a" stroke="#5f7a4a" stroke-width="1.5"/>
+    <circle cx="890" cy="620" r="10" fill="#9db07a" stroke="#5f7a4a" stroke-width="1.5"/>
+  </g>
+  <!-- 城墙塔楼与城门 -->
+  <g fill="#d8c298" stroke="#4a3826" stroke-width="2">
+    <circle cx="160" cy="222" r="9"/><circle cx="270" cy="155" r="9"/><circle cx="660" cy="157" r="9"/><circle cx="824" cy="228" r="9"/>
+    <circle cx="838" cy="520" r="9"/><circle cx="816" cy="845" r="9"/><circle cx="598" cy="910" r="9"/><circle cx="242" cy="896" r="9"/><circle cx="155" cy="718" r="9"/>
+    <rect x="460" y="898" width="16" height="26" rx="2"/><rect x="524" y="898" width="16" height="26" rx="2"/>
+  </g>
+  <path d="M 486 918 Q 500 898 514 918" fill="none" stroke="#3f3020" stroke-width="3"/>
+  <!-- 墨渍 -->
+  <ellipse cx="150" cy="540" rx="30" ry="20" fill="#4a2c14" opacity="0.07" transform="rotate(-18 150 540)"/>
+  <ellipse cx="830" cy="700" rx="24" ry="16" fill="#4a2c14" opacity="0.06" transform="rotate(12 830 700)"/>
+  <!-- 罗盘 -->
+  <g transform="translate(858,146)">
+    <circle r="24" fill="#f2e6c4" stroke="#6b4f30" stroke-width="2"/>
+    <polygon points="0,-18 6,4 0,0 -6,4" fill="#8a3a2a"/>
+    <polygon points="0,18 6,-4 0,0 -6,-4" fill="#6b4f30"/>
+    <text y="-28" text-anchor="middle" font-size="14" fill="#5b3a24">N</text>
+  </g>
+  <!-- 比例尺 -->
+  <g stroke="#5b3a24" stroke-width="2">
+    <path d="M 110 942 h150 M 110 936 v12 M 185 938 v8 M 260 936 v12"/>
+  </g>
+  <text x="110" y="930" font-size="13" fill="#5b3a24">0</text>
+  <text x="248" y="930" font-size="13" fill="#5b3a24">500步</text>
+  <!-- 街坊标注 -->
+  <g fill="#6b4326" font-size="20" opacity="0.8" text-anchor="middle">
+    <text x="500" y="332">城堡坊</text>
+    <text x="300" y="330">圣光坊</text>
+    <text x="700" y="548">工匠坊</text>
+    <text x="640" y="775">河港市</text>
+    <text x="250" y="742">御苑</text>
+    <text x="420" y="872">南市</text>
+  </g>
+</svg>`;
+
+/* ================= 场景与地标数据（真实格式） ================= */
+
+const MARKER_RE = /^(.*?)\s*【(.*?)】\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)\s*(.*)$/;
+
+const SCENES = {
+  city: {
+    label: '🏙️ 城市',
+    maps: {
+      legacy: { label: '现有预设（示意）', svg: SVG_LEGACY },
+      ai_flat: { label: 'AI·简约平面', svg: SVG_CITY_FLAT, ai: true },
+      ai_parch: { label: 'AI·手绘羊皮纸', svg: SVG_CITY_PARCH, ai: true },
+    },
+    markers: [
+      '🏰【领主城堡】(50, 25) 城市北端的高耸城堡，领主与卫队的驻地',
+      '⛪【圣光教堂】(30, 40) 白色尖顶的祈祷之地，清晨钟声传遍全城',
+      '🏛️【中央广场】(48, 52) 集市与公告栏所在，商人云集之处',
+      '⚒️【工匠区】(70, 45) 铁匠铺与工坊林立，锤声昼夜不停',
+      '⚓【河港码头】(55, 80) 商船往来的码头，仓库与酒馆比邻',
+      '🌳【贵族花园】(25, 65) 绿意盎然的园林，贵族散步之地',
+      '🚪【南城门】(50, 92) 通往外界的正门，商队入城之处',
+    ],
+  },
+  world: {
+    label: '🗺️ 大陆',
+    maps: {
+      legacy: { label: '现有预设（示意）', svg: SVG_LEGACY },
+      ai_flat: { label: 'AI·简约地形', svg: SVG_WORLD_FLAT, ai: true },
+    },
+    markers: [
+      '👑【王都维兰】(45, 38) 大陆中部的王权中心，金顶宫殿所在',
+      '⚔️【边境要塞】(70, 30) 抵御北方威胁的军事前哨',
+      '🏔️【龙脊山脉】(55, 55) 绵延百里的天然屏障，传说有龙栖息',
+      '🏴‍☠️【自由港】(30, 70) 海盗与商人共处的无王之法之地',
+      '🌋【焚火火山】(80, 60) 终年喷发的活火山，龙巢的传闻之地',
+      '🌾【金色平原】(40, 60) 大陆的粮仓，麦浪千里',
+      '❄️【霜风隘口】(50, 15) 通往北方雪原的必经山口',
+    ],
+  },
+};
+
+/* ================= 渲染与交互（复刻 TacticalMapEngine 机制） ================= */
+
+const $ = (id) => document.getElementById(id);
+const sceneTabs = $('sceneTabs'), baseTabs = $('baseTabs');
+const viewport = $('viewport'), mapLayer = $('mapLayer');
+const baseHolder = $('baseHolder'), markerHolder = $('markerHolder');
+const genOverlay = $('genOverlay'), genText = $('genText');
+const infoBar = $('infoBar'), regenBtn = $('regenBtn'), zVal = $('zVal');
+
+const cur = { scene: 'city', map: 'ai_flat' };
+const generated = {}; // 'scene:map' -> true（模拟聊天变量缓存）
+let scale = 1, tx = 0, ty = 0;
+
+function applyTransform() {
+  mapLayer.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  zVal.textContent = Math.round(scale * 100) + '%';
+}
+function resetView() { scale = 1; tx = 0; ty = 0; applyTransform(); }
+
+function zoomAt(px, py, factor) {
+  const ns = Math.min(4, Math.max(0.5, scale * factor));
+  tx = px - ((px - tx) * ns) / scale;
+  ty = py - ((py - ty) * ns) / scale;
+  scale = ns; applyTransform();
+}
+
+viewport.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const r = viewport.getBoundingClientRect();
+  zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+}, { passive: false });
+
+$('zIn').addEventListener('click', () => {
+  const r = viewport.getBoundingClientRect();
+  zoomAt(r.width / 2, r.height / 2, 1.25);
+});
+$('zOut').addEventListener('click', () => {
+  const r = viewport.getBoundingClientRect();
+  zoomAt(r.width / 2, r.height / 2, 0.8);
+});
+$('zReset').addEventListener('click', resetView);
+
+let drag = null;
+viewport.addEventListener('pointerdown', (e) => {
+  if (e.target.closest('.map-marker')) return;
+  drag = { x: e.clientX, y: e.clientY, tx, ty, moved: false };
+  viewport.setPointerCapture(e.pointerId);
+  viewport.classList.add('dragging');
+});
+viewport.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+  tx = drag.tx + dx; ty = drag.ty + dy; applyTransform();
+});
+const endDrag = () => { drag = null; viewport.classList.remove('dragging'); };
+viewport.addEventListener('pointerup', endDrag);
+viewport.addEventListener('pointercancel', endDrag);
+
+function parseMarkers(lines) {
+  return lines.map((s) => {
+    const m = String(s).match(MARKER_RE);
+    return m ? { emoji: m[1] || '📍', name: m[2], x: +m[3], y: +m[4], desc: m[5] } : null;
+  }).filter(Boolean);
+}
+
+function renderMarkers(lines) {
+  const data = parseMarkers(lines);
+  markerHolder.innerHTML = data.map((mk, i) => `
+    <div class="map-marker" data-i="${i}" style="left:${mk.x}%;top:${mk.y}%">
+      <span class="pulse"></span>
+      <span class="emoji">${mk.emoji}</span>
+      <span class="tip"><b>${mk.emoji} ${mk.name}</b>(${mk.x}, ${mk.y}) · ${mk.desc}</span>
+    </div>`).join('');
+  return data;
+}
+
+let markerData = [];
+markerHolder.addEventListener('click', (e) => {
+  const el = e.target.closest('.map-marker');
+  if (!el) return;
+  const mk = markerData[+el.dataset.i];
+  if (mk) infoBar.innerHTML = `<b>${mk.emoji} ${mk.name}</b><span>(${mk.x}, ${mk.y}) · ${mk.desc}</span>`;
+});
+
+function renderMap() {
+  const scene = SCENES[cur.scene], map = scene.maps[cur.map];
+  baseHolder.innerHTML = map.svg;
+  markerData = renderMarkers(scene.markers);
+  resetView();
+  infoBar.innerHTML = '<span style="color:#6b7a90">点击地标查看详情 · 拖拽平移 · 滚轮缩放</span>';
+}
+
+function updateTabs() {
+  sceneTabs.innerHTML = Object.keys(SCENES).map((k) =>
+    `<button class="tab ${k === cur.scene ? 'active' : ''}" data-scene="${k}">${SCENES[k].label}</button>`).join('');
+  const maps = SCENES[cur.scene].maps;
+  baseTabs.innerHTML = Object.keys(maps).map((k) =>
+    `<button class="tab ${k === cur.map ? 'active' : ''} ${maps[k].ai ? 'ai' : ''}" data-map="${k}">${maps[k].label}${maps[k].ai ? '<span class="chip">AI</span>' : ''}</button>`).join('');
+  regenBtn.classList.toggle('hidden', !maps[cur.map].ai);
+}
+
+function loadMap(mapKey, force = false) {
+  cur.map = mapKey;
+  const map = SCENES[cur.scene].maps[mapKey];
+  const cacheKey = cur.scene + ':' + mapKey;
+  updateTabs();
+  if (!map.ai || (generated[cacheKey] && !force)) { renderMap(); return; }
+  // 模拟 LLM 生成：期间沿用当前底图，完成后原地替换
+  genText.textContent = force ? '正在重新生成底图（模拟 LLM 调用）…' : '正在调用 LLM 生成底图…';
+  genOverlay.classList.remove('hidden');
+  setTimeout(() => {
+    generated[cacheKey] = true;
+    genOverlay.classList.add('hidden');
+    renderMap();
+  }, 1200 + Math.random() * 900);
+}
+
+sceneTabs.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-scene]');
+  if (!btn || btn.dataset.scene === cur.scene) return;
+  cur.scene = btn.dataset.scene;
+  loadMap(cur.scene === 'world' ? 'legacy' : 'ai_flat');
+});
+baseTabs.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-map]');
+  if (!btn || btn.dataset.map === cur.map) return;
+  loadMap(btn.dataset.map);
+});
+regenBtn.addEventListener('click', () => loadMap(cur.map, true));
+
+updateTabs();
+loadMap('ai_flat'); // 首次进入即演示「AI 生成」流程
+
+// 供浏览器调试切换：demoApi.show('city','ai_parch')
+window.demoApi = { show: (s, m) => { if (SCENES[s]) { cur.scene = s; generated[s + ':' + m] = true; loadMap(m); } } };
+</script>
+</body>
+</html>
