@@ -8156,6 +8156,8 @@ createCharacterEntry(text, categoryKey) {
       const MMS_EVENT_UPDATED = 'mms:status-updated';
       const MMS_EVENT_FAILED = 'mms:status-update-failed';
       const MMS_INJECT_ID = 'mms-status-inject';
+      // 世界书注入条目名（聊天绑定世界书内）
+      const MMS_WB_ENTRY_NAME = 'MMS-状态栏数据';
 
       function getCurrentMessage() {
         try {
@@ -9352,7 +9354,7 @@ createCharacterEntry(text, categoryKey) {
           hasMessageApi: false,
           hasVarsApi: false,
           hasGenApi: false,
-          hasExtPromptApi: false,
+          hasWorldbookApi: false,
           hasInjectApi: false,
           hasEventApi: false,
           hasSetChatApi: false,
@@ -9364,15 +9366,13 @@ createCharacterEntry(text, categoryKey) {
           this.env.hasVarsApi =
             typeof getVariables === 'function' && typeof insertOrAssignVariables === 'function';
           this.env.hasGenApi = typeof generateRaw === 'function' || typeof generate === 'function';
-          // 注入通道：优先酒馆原生 setExtensionPrompt（同深度排序更靠顶部），
-          // 降级酒馆助手 injectPrompts
-          this.env.hasExtPromptApi =
-            typeof SillyTavern !== 'undefined' &&
-            SillyTavern &&
-            typeof SillyTavern.setExtensionPrompt === 'function';
-          this.env.hasInjectApi =
-            (typeof injectPrompts === 'function' && typeof uninjectPrompts === 'function') ||
-            this.env.hasExtPromptApi;
+          // 注入通道：聊天绑定世界书条目（位置/深度/排序用户可在世界书编辑器自由调整）
+          this.env.hasWorldbookApi =
+            typeof getOrCreateChatWorldbook === 'function' &&
+            typeof getWorldbook === 'function' &&
+            typeof createWorldbookEntries === 'function' &&
+            typeof updateWorldbookWith === 'function';
+          this.env.hasInjectApi = this.env.hasWorldbookApi;
           this.env.hasEventApi = typeof eventOn === 'function' && typeof eventEmit === 'function';
           this.env.hasSetChatApi = typeof setChatMessages === 'function';
         },
@@ -9929,8 +9929,10 @@ createCharacterEntry(text, categoryKey) {
 
         // ---------- 深度 0 系统注入 ----------
 
-        ensureInjection(state, floorId) {
-          if (!this.env.hasInjectApi || !state) return;
+        // 状态注入：写入聊天绑定世界书的「MMS-状态栏数据」蓝灯条目（与蚀心数据库同模式）。
+        // 位置/深度/排序默认 at_depth/0/10/system，用户可在世界书编辑器自由调整，脚本更新只改内容不动位置。
+        async ensureInjection(state, floorId) {
+          if (!this.env.hasWorldbookApi || !state) return;
           try {
             const rootKey = Object.keys(state)[0];
             if (!rootKey) return;
@@ -9944,34 +9946,38 @@ createCharacterEntry(text, categoryKey) {
               '<当前状态数据（系统自动维护，反映最新楼层结束时的状态）>\n' +
               yaml +
               '\n</当前状态数据>';
-            // 优先酒馆原生 setExtensionPrompt：同深度下排序在世界书/其他注入之前（更靠顶部）
-            if (this.env.hasExtPromptApi) {
-              SillyTavern.setExtensionPrompt(
-                MMS_INJECT_ID,
-                content,
-                1, // 1=插入聊天中
-                0, // 深度0
-                true, // 世界书扫描
-                0, // 0=system
+
+            // 获取/创建聊天专属世界书
+            const wbName = await getOrCreateChatWorldbook('current');
+            if (!wbName) throw new Error('无法创建聊天世界书');
+
+            // 查找已有条目
+            const entries = await getWorldbook(wbName);
+            const existing = (entries || []).find((e) => e && e.name === MMS_WB_ENTRY_NAME);
+
+            if (existing) {
+              // 内容相同则跳过（避免频繁重写世界书）
+              if (existing.content === content) return;
+              // 只更新内容，保留用户自定义的位置/深度/排序/角色
+              await updateWorldbookWith(wbName, (list) =>
+                list.map((e) => (e && e.name === MMS_WB_ENTRY_NAME ? { ...e, content } : e)),
               );
-              return;
-            }
-            // 降级：酒馆助手 injectPrompts
-            if (typeof injectPrompts === 'function' && typeof uninjectPrompts === 'function') {
-              uninjectPrompts([MMS_INJECT_ID]);
-              injectPrompts([
+            } else {
+              // 首次创建：蓝灯条目 at_depth/深度0/排序10/system身份
+              await createWorldbookEntries(wbName, [
                 {
-                  id: MMS_INJECT_ID,
-                  position: 'in_chat',
-                  depth: 0,
-                  role: 'system',
-                  content,
-                  should_scan: true,
+                  name: MMS_WB_ENTRY_NAME,
+                  enabled: true,
+                  strategy: { type: 'constant', keys: [], keys_secondary: { logic: 'and_any', keys: [] }, scan_depth: 'same_as_global' },
+                  position: { type: 'at_depth', role: 'system', depth: 0, order: 10 },
+                  content: content,
+                  probability: 100,
                 },
               ]);
+              console.info('[MMS] 已创建世界书条目「' + MMS_WB_ENTRY_NAME + '」于 ' + wbName);
             }
           } catch (e) {
-            console.warn('[MMS] 状态注入失败:', e);
+            console.warn('[MMS] 世界书注入失败:', e);
           }
         },
 
