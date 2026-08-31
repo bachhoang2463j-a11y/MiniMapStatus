@@ -4554,6 +4554,14 @@ const AVATAR_MAP = {
         );
       }
 
+      // 渲染器支持的地物类型白名单（同时用于提示词与 sanitize 校验，避免 LLM 编造类型导致静默空绘）
+      const MMS_MAPART_FEATURE_TYPES = [
+        'castle', 'church', 'opera', 'house', 'boathouse', 'boat', 'fountain', 'stall',
+        'farm', 'pavilion', 'city', 'fortress', 'gate', 'port', 'volcano',
+      ];
+      const MMS_MAPART_TERRAIN_TYPES = ['grass', 'snow', 'forest', 'desert', 'field', 'lake'];
+      const MMS_MAPART_DISTRICT_TYPES = ['royal', 'craft', 'garden', 'plaza', 'harbor'];
+
       function mmsMapArtFeature(f, S, style) {
         const x = f.at[0], y = f.at[1];
         const w = f.size ? f.size[0] : 0, h = f.size ? f.size[1] : 0;
@@ -8587,6 +8595,17 @@ createBigMapArtItem(key, markersData, bma) {
   bar.appendChild(styleBtn);
   bar.appendChild(mergeBtn);
   bar.appendChild(regenBtn);
+  // 撤销：仅在存在上一版备份时出现（防止一次退化的合并/重绘永久销毁累积地图）
+  if (bma.canUndo) {
+    const undoBtn = document.createElement('button');
+    undoBtn.className = 'mms-bm-btn';
+    undoBtn.type = 'button';
+    undoBtn.textContent = '↩︎ 撤销上次';
+    undoBtn.title = '回到上一版地图（可再次点击来回切换）';
+    undoBtn.disabled = busy;
+    undoBtn.addEventListener('click', () => window.MMS && window.MMS.undoMapArt());
+    bar.appendChild(undoBtn);
+  }
   if (busy) {
     const spin = document.createElement('span');
     spin.className = 'mms-bm-busy';
@@ -11226,28 +11245,59 @@ createCharacterEntry(text, categoryKey) {
 
         // ---------- 独立大地图（AI 绘制：语义 JSON + 本地渲染器） ----------
 
-        // 聊天变量 $mms_map_art = { json, ts }：每个聊天一张演化中的地图，缓存后零 LLM 开销
+        // 聊天变量 $mms_map_art = { json, prev, ts }：每个聊天一张演化中的地图，缓存后零 LLM 开销
+        // prev 为上一版单步备份，供「撤销」使用（防止一次退化的合并/重绘永久销毁累积地图）
         loadMapArt() {
           this.mapArt = null;
+          this.mapArtPrev = null;
           try {
             if (!this.env.hasVarsApi) return;
             const chatVars = getVariables({ type: 'chat' }) || {};
             const a = chatVars && chatVars.$mms_map_art;
-            if (a && typeof a === 'object' && a.json && Array.isArray(a.json.markers) && a.json.markers.length) {
+            const valid = (j) => j && typeof j === 'object' && Array.isArray(j.markers) && j.markers.length;
+            if (a && typeof a === 'object' && valid(a.json)) {
               this.mapArt = this.sanitizeMapArt(a.json);
+              if (valid(a.prev)) this.mapArtPrev = this.sanitizeMapArt(a.prev);
             }
           } catch (e) {
             this.mapArt = null;
+            this.mapArtPrev = null;
           }
         },
 
-        saveMapArt(json) {
+        // keepPrev=false 时把当前 json 存为备份（正常保存）；true 时沿用传入的 prev（撤销场景）
+        saveMapArt(json, prevOverride) {
           try {
             if (!this.env.hasVarsApi) return;
-            insertOrAssignVariables({ $mms_map_art: { json: json, ts: Date.now() } }, { type: 'chat' });
+            const prev = prevOverride !== undefined ? prevOverride : this.mapArt || null;
+            const payload = { json: json, ts: Date.now() };
+            if (prev && prev !== json) payload.prev = prev;
+            insertOrAssignVariables({ $mms_map_art: payload }, { type: 'chat' });
+            this.mapArtPrev = payload.prev || null;
           } catch (e) {
             console.error('[MMS] 保存大地图失败:', e);
           }
+        },
+
+        // 撤销上一次地图更新：与备份互换（可再次点击回到新版，形成单步来回）
+        undoMapArt() {
+          if (!this.mapArtPrev) {
+            alert('没有可撤销的上一版地图');
+            return false;
+          }
+          const cur = this.mapArt;
+          const prev = this.mapArtPrev;
+          this.mapArt = prev;
+          this.saveMapArt(prev, cur || null);
+          this.refreshBigMapCard();
+          if (this.env.hasEventApi) {
+            try { eventEmit(MMS_EVENT_MAPART, {}); } catch (e) { /* 忽略 */ }
+          }
+          this.setIndicator('ok', '已撤销到上一版地图');
+          setTimeout(() => {
+            if (!this.updating && !this.mapArtBusy) this.setIndicator(null);
+          }, 3000);
+          return true;
         },
 
         // 解析正文地点行（形如【📍悉尼·澳大利亚酒店-总督套房】），取候选地名与地标匹配
@@ -11310,6 +11360,7 @@ createCharacterEntry(text, categoryKey) {
               hereMatched: !!here,
               empty: false,
               generating: !!this.mapArtBusy,
+              canUndo: !!this.mapArtPrev,
             };
           } else {
             display[rootKey]['大地图'] = {};
@@ -11326,6 +11377,7 @@ createCharacterEntry(text, categoryKey) {
               hereMatched: false,
               empty: true,
               generating: !!this.mapArtBusy,
+              canUndo: !!this.mapArtPrev,
             };
           }
           return display;
@@ -11389,38 +11441,83 @@ createCharacterEntry(text, categoryKey) {
           return lines;
         },
 
-        buildMapArtSystemPrompt() {
+        buildMapArtSystemPrompt(mode) {
+          const isPatch = mode === 'merge';
           const lines = [];
-          lines.push('你是跑团大地图绘制师。根据剧情信息规划一张区域大地图，输出「语义 JSON」——本地渲染器会把它绘制成图，你只负责地理布局与地标，不要输出 SVG，不要解释。');
+          lines.push('你是跑团大地图绘制师。根据剧情信息规划区域大地图，输出「语义 JSON」——本地渲染器会把它绘制成图，你只负责地理布局与地标，不要输出 SVG，不要解释。');
           lines.push('');
-          lines.push('## JSON 结构（顶层对象，只输出它）');
-          lines.push('{');
-          lines.push('  "name": "地图名",');
-          lines.push('  "ground": "field",  // 陆地底色；海岛/大陆图用 "sea"');
-          lines.push('  "terrain": [ {"type":"grass|snow|forest|desert|field|lake","shape":"ellipse","at":[x,y],"r":[rx,ry]} ],  // path 形态: {"shape":"path","d":"M...C..."}');
-          lines.push('  "outline": {"shape":"roundRect","at":[x,y],"size":[w,h],"r":36,"wall":true},  // 城市围墙；大陆轮廓: {"shape":"path","d":"M...C...","land":true}');
-          lines.push('  "towers": [[x,y]], "gates": [[x,y]],');
-          lines.push('  "river": "M x y C ...", "bridges": [{"at":[x,y],"size":[w,h]}],');
-          lines.push('  "roads": ["M x y C ..."],');
-          lines.push('  "districts": [ {"type":"royal|craft|garden|plaza|harbor","shape":"ellipse|rect","at":[x,y],"r":[rx,ry],"label":"区名"} ],');
-          lines.push('  "ridge": {"from":[x,y],"to":[x,y],"peaks":7},  // 山脉（可选）');
-          lines.push('  "features": [ {"type":"castle|church|house|opera|boathouse|boat|fountain|stall|farm|pavilion|city|fortress|gate|port|volcano","at":[x,y]} ],');
-          lines.push('  "houses": [[x,y]], "trees": [[x,y]],');
-          lines.push('  "labels": [ {"at":[x,y],"text":"地名"} ],');
-          lines.push('  "markers": [ {"emoji":"🏰","name":"地标名","x":50,"y":25,"desc":"一句话描述"} ]');
-          lines.push('}');
+          lines.push('## 输出格式硬性要求');
+          lines.push('- 只输出一个 JSON 对象，前后不得有任何文字，不要 markdown 围栏。');
+          lines.push('- 必须是严格合法 JSON：禁止 // 与 /* */ 注释、禁止尾随逗号、数组与对象的元素之间必须有英文逗号、标点一律英文半角。');
+          lines.push('- 输出紧凑单行 JSON（不缩进、不换行）。');
           lines.push('');
-          lines.push('## 规则');
-          lines.push('1. 画布 1000×1000：terrain/outline/river/roads/features/houses/trees/labels/districts 用 0~1000 画布坐标；markers 用 10~90 的整数（百分比）。');
-          lines.push('2. markers 是玩家可见地标（5~12 个），每个地标必须在对应位置有 features 地物：marker(x,y) 对应画布坐标 (x*10, y*10)，确保 emoji 落在地物上；河流、道路不得压住地标落点。');
-          lines.push('3. 城市图：outline(wall)+towers+gates 为城墙，districts 分区，roads 主干道，river 可穿城并配 bridges，houses 15~40 个民居坐标，trees 郊野点缀。');
+          if (isPatch) {
+            lines.push('## 增量模式：只输出新增内容');
+            lines.push('用户会给出「当前地图 JSON」，其中的内容已经画好了，绝对不要重复输出它们。你的输出结构：');
+            lines.push('{"add":{"markers":[…],"features":[…],"houses":[…],"trees":[…],"terrain":[…],"roads":[…],"districts":[…],"labels":[…],"bridges":[…]},"name":"可选的新图名"}');
+            lines.push('- add 里只放本次新出现地点所需的新元素，各数组均可省略；旧元素一律不要重复。');
+            lines.push('- 不要输出 outline/towers/gates/river/ridge/ground/bays——这些是已定型的地图骨架，增量模式不可改动。');
+            lines.push('- name 仅在图名确实需要更新时给出，否则省略。');
+            lines.push('- 若剧情中没有出现地图上尚不存在的地点，输出 {"add":{}} 即可。');
+            lines.push('');
+            lines.push('## 各数组的元素结构');
+            lines.push('- markers: {"emoji":"🏰","name":"地标名","x":50,"y":25,"desc":"一句话描述"}');
+            lines.push('- features: {"type":"castle","at":[500,258]}');
+            lines.push('- terrain: {"type":"grass","shape":"ellipse","at":[150,850],"r":[110,90]}');
+            lines.push('- districts: {"type":"royal","shape":"ellipse","at":[500,258],"r":[118,80],"label":"区名"}');
+            lines.push('- labels: {"at":[500,345],"text":"地名"}');
+            lines.push('- bridges: {"at":[578,418],"size":[52,26]}');
+            lines.push('- roads: "M 500 940 C 496 820, 490 640, 487 575"（SVG 路径字符串）');
+            lines.push('- houses / trees: [x,y] 坐标对');
+          } else {
+            lines.push('## 完整 JSON 结构');
+            lines.push('{');
+            lines.push('  "name": "地图名",');
+            lines.push('  "ground": "field",');
+            lines.push('  "terrain": [ {"type":"grass","shape":"ellipse","at":[150,850],"r":[110,90]} ],');
+            lines.push('  "outline": {"shape":"roundRect","at":[120,160],"size":[760,780],"r":36,"wall":true},');
+            lines.push('  "bays": ["M 355 900 C 330 820, 305 780, 312 738 Z"],');
+            lines.push('  "towers": [[150,190],[850,190]],');
+            lines.push('  "gates": [[500,930]],');
+            lines.push('  "river": "M 645 150 C 615 300, 598 390, 608 480",');
+            lines.push('  "bridges": [ {"at":[578,418],"size":[52,26]} ],');
+            lines.push('  "roads": ["M 500 940 C 496 820, 490 640, 487 575"],');
+            lines.push('  "districts": [ {"type":"royal","shape":"ellipse","at":[500,258],"r":[118,80],"label":"王城区"} ],');
+            lines.push('  "ridge": {"from":[400,620],"to":[700,500],"peaks":7},');
+            lines.push('  "features": [ {"type":"castle","at":[500,258]} ],');
+            lines.push('  "houses": [[200,230],[240,225]],');
+            lines.push('  "trees": [[70,240],[105,335]],');
+            lines.push('  "labels": [ {"at":[500,345],"text":"王城区"} ],');
+            lines.push('  "markers": [ {"emoji":"🏰","name":"领主城堡","x":50,"y":25,"desc":"一句话描述"} ]');
+            lines.push('}');
+          }
+          lines.push('');
+          lines.push('## 字段说明');
+          lines.push('- ground：陆地底色，城市与内陆图用 "field"，海岛与大陆图用 "sea"。');
+          lines.push('- terrain：地形色块，type 取 grass|snow|forest|desert|field|lake；shape 取 ellipse（配 at+r）、rect（配 at+size）或 path（配 d，SVG 路径字符串）。');
+          lines.push('- outline：城市围墙用 {"shape":"roundRect","at":[x,y],"size":[w,h],"r":36,"wall":true}；大陆海岸线用 {"shape":"path","d":"M…Z","land":true}。');
+          lines.push('- bays：海湾，SVG 闭合路径字符串数组，把大陆轮廓内的区域挖成水面（仅大陆图需要）。');
+          lines.push('- river：单条 SVG 路径字符串；跨河处用 bridges 架桥。');
+          lines.push('- districts：城区色块，type 取 royal|craft|garden|plaza|harbor。');
+          lines.push('- ridge：山脉，自动在 from 与 to 之间排布 peaks 个山峰。');
+          lines.push('- features：特色地物，type 只能取 ' + MMS_MAPART_FEATURE_TYPES.join('|') + '。');
+          lines.push('- houses / trees：批量民居与树木的坐标对数组。');
+          lines.push('- labels：图上的文字地名标注。');
+          lines.push('- markers：玩家可见的交互地标（emoji + 名称 + 描述）。');
+          lines.push('');
+          lines.push('## 布局规则');
+          lines.push('1. 画布 1000×1000：terrain/outline/bays/river/roads/bridges/districts/ridge/features/houses/trees/labels 用 0~1000 画布坐标；markers 的 x/y 用 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数（百分比）。');
+          lines.push('2. 每个 marker 必须在对应位置有 features 地物：marker(x,y) 对应画布坐标 (x*10, y*10)，确保 emoji 落在地物上；河流与道路不得压住地标落点。');
+          lines.push('3. 城市图：outline(wall)+towers+gates 组成城墙，districts 分区，roads 主干道，river 可穿城并配 bridges，houses 15~40 个民居，trees 郊野点缀。');
           lines.push('4. 大陆图：ground="sea"，outline 用 path+land:true 画海岸线，terrain 拼雪原/森林/沙漠/农田/湖泊，ridge 表达山脉，roads 连接主要地标。');
           lines.push('5. 布局紧凑饱满、疏密有致；地标之间保持距离，不要都挤在中心或边缘。');
-          lines.push('6. 只输出 JSON 对象，不要 markdown 围栏，不要任何解释文字。');
+          if (!isPatch) {
+            lines.push('6. markers 控制在 5~12 个，覆盖剧情中已出现或提及的重要地点。');
+          }
           return lines.join('\n');
         },
 
-        buildMapArtUserPrompt(mode, artCfg, latest, context, locLines) {
+        buildMapArtUserPrompt(mode, artCfg, latest, context, locLines, retryHint) {
           let p = '';
           if (artCfg && artCfg.note) {
             p += '<地图设定备注（优先遵循）>\n' + artCfg.note + '\n</地图设定备注>\n\n';
@@ -11435,26 +11532,134 @@ createCharacterEntry(text, categoryKey) {
             p += '<最新剧情>\n' + latest + '\n</最新剧情>\n\n';
           }
           if (mode === 'merge' && this.mapArt) {
+            // 增量模式：旧图作为输入（让 AI 知道哪些位置已占），输出只要新增部分
             p +=
-              '<当前地图 JSON（必须完整保留其中全部内容：已有地标的名称/坐标/描述、全部地物与地理，一律不得修改或删减）>\n' +
+              '<当前地图 JSON（已经画好，仅供你判断哪些地点已存在、哪些坐标已被占用；不要重复输出其中任何内容）>\n' +
               JSON.stringify(this.mapArt) +
               '\n</当前地图>\n\n' +
-              '请依据剧情中新出现的地点，输出合并后的完整地图 JSON：旧内容原样保留，只为新地点追加 markers 条目，并在对应位置（x*10, y*10）追加 features/houses 等地物；如需新路/新区也可追加，但不得改动旧元素。\n';
+              '已有地标：' +
+              (this.mapArt.markers || []).map((m) => m.name).join('、') +
+              '\n请找出剧情中出现、但当前地图上还没有的地点，只输出新增部分：{"add":{…}}。' +
+              '新地标要避开已占坐标，并在 (x*10, y*10) 处补上对应 features 地物。若没有新地点，输出 {"add":{}}。\n';
           } else {
             p += '请依据以上剧情信息规划一张大地图并输出完整 JSON。地图必须覆盖剧情中已出现或提及的所有重要地点，并为每个地点配置 markers 与对应地物。\n';
+          }
+          if (retryHint) {
+            p +=
+              '\n<上次输出失败原因（务必避免同类错误）>\n' +
+              retryHint +
+              '\n</上次输出失败原因>\n请重新输出：严格合法、无注释、无尾随逗号、紧凑单行的 JSON。\n';
           }
           return p;
         },
 
-        parseMapArtOutput(raw) {
+        // 字符串感知的 JSON 修复：只在字符串外做结构性修补，字符串内的中文/斜杠/引号一律不动
+        repairJsonText(text) {
+          const src = String(text || '');
+          let out = '';
+          let inStr = false;
+          let esc = false;
+          const notes = [];
+          for (let i = 0; i < src.length; i++) {
+            const c = src[i];
+            if (inStr) {
+              out += c;
+              if (esc) esc = false;
+              else if (c === '\\') esc = true;
+              else if (c === '"') inStr = false;
+              continue;
+            }
+            // 字符串外
+            if (c === '"') {
+              // 缺失逗号：前一个有效 token 结束后紧跟新字符串
+              const prev = out.replace(/\s+$/, '').slice(-1);
+              if (prev === '}' || prev === ']' || prev === '"' || /[0-9a-zA-Z]/.test(prev)) {
+                out += ',';
+                notes.push('补逗号');
+              }
+              out += c;
+              inStr = true;
+              continue;
+            }
+            if (c === '/' && (src[i + 1] === '/' || src[i + 1] === '*')) {
+              // 剥注释
+              if (src[i + 1] === '/') {
+                while (i < src.length && src[i] !== '\n') i++;
+              } else {
+                i += 2;
+                while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++;
+                i++; // 跳过 '/'
+              }
+              notes.push('剥注释');
+              continue;
+            }
+            if (c === '，' || c === '、') { out += ','; notes.push('全角逗号'); continue; }
+            if (c === '：') { out += ':'; notes.push('全角冒号'); continue; }
+            if (c === '“' || c === '”') {
+              out += '"';
+              inStr = !inStr;
+              notes.push('全角引号');
+              continue;
+            }
+            if (c === '{' || c === '[') {
+              const prev = out.replace(/\s+$/, '').slice(-1);
+              if (prev === '}' || prev === ']' || prev === '"' || /[0-9]/.test(prev)) {
+                out += ',';
+                notes.push('补逗号');
+              }
+              out += c;
+              continue;
+            }
+            if (c === '}' || c === ']') {
+              // 删尾随逗号
+              const trimmed = out.replace(/\s+$/, '');
+              if (trimmed.slice(-1) === ',') {
+                out = trimmed.slice(0, -1);
+                notes.push('删尾随逗号');
+              }
+              out += c;
+              continue;
+            }
+            out += c;
+          }
+          return { text: out, notes: notes };
+        },
+
+        // 宽松解析：原样 parse 失败则修复后重试一次；失败信息保留 position/line 便于回传给 AI
+        parseJsonLoose(raw, label) {
           let text = String(raw || '').trim();
           text = text.replace(/^```[a-zA-Z]*\s*\n?/, '').replace(/\n?```\s*$/, '');
           const first = text.indexOf('{');
           const last = text.lastIndexOf('}');
           if (first === -1 || last === -1 || last <= first) {
-            throw new Error('AI 输出中未找到 JSON 对象');
+            throw new Error('AI 输出中未找到 JSON 对象（可能被截断或返回了纯文本）');
           }
-          const json = JSON.parse(text.slice(first, last + 1));
+          const sliced = text.slice(first, last + 1);
+          try {
+            return JSON.parse(sliced);
+          } catch (e1) {
+            const fixed = this.repairJsonText(sliced);
+            try {
+              const json = JSON.parse(fixed.text);
+              const kinds = [...new Set(fixed.notes)].join('/');
+              console.info('[MMS] ' + (label || '地图') + ' JSON 已自动修复（' + (kinds || '未知') + '）');
+              return json;
+            } catch (e2) {
+              const msg = e1 && e1.message ? e1.message : String(e1);
+              const lineNo = Number((msg.match(/line (\d+)/) || [])[1]);
+              let excerpt = '';
+              if (lineNo) {
+                const srcLine = sliced.split('\n')[lineNo - 1];
+                if (srcLine) excerpt = '\n出错行内容：' + srcLine.slice(0, 200);
+              }
+              throw new Error(msg + excerpt);
+            }
+          }
+        },
+
+        // 整图模式：解析完整地图 JSON
+        parseMapArtOutput(raw) {
+          const json = this.parseJsonLoose(raw, '大地图');
           if (!json || typeof json !== 'object' || Array.isArray(json)) {
             throw new Error('JSON 顶层不是对象');
           }
@@ -11467,27 +11672,188 @@ createCharacterEntry(text, categoryKey) {
           return json;
         },
 
+        // 增量模式：解析 patch（{add:{…}, name?}），空 patch 合法
+        parseMapArtPatch(raw) {
+          const json = this.parseJsonLoose(raw, '地图增量');
+          if (!json || typeof json !== 'object' || Array.isArray(json)) {
+            throw new Error('JSON 顶层不是对象');
+          }
+          // 兼容 AI 直接给了裸数组字段（无 add 包裹）或误输出整图
+          let add = json.add && typeof json.add === 'object' && !Array.isArray(json.add) ? json.add : null;
+          if (!add) {
+            const keys = ['markers', 'features', 'terrain', 'roads', 'districts', 'labels', 'bridges', 'houses', 'trees'];
+            if (keys.some((k) => Array.isArray(json[k]))) {
+              add = {};
+              for (const k of keys) if (Array.isArray(json[k])) add[k] = json[k];
+            } else {
+              throw new Error('缺少 add 字段');
+            }
+          }
+          for (const m of add.markers || []) {
+            if (!m || !m.name) throw new Error('新增地标中存在缺少名称的条目');
+          }
+          return { add: add, name: typeof json.name === 'string' ? json.name : null };
+        },
+
+        // 本地合并：纯追加 + 地标按名称去重（旧的胜出），骨架字段（outline/river/ridge/ground 等）不动
+        mergeMapArtPatch(base, patch) {
+          const out = JSON.parse(JSON.stringify(base));
+          const add = (patch && patch.add) || {};
+          const listKeys = ['markers', 'features', 'terrain', 'roads', 'districts', 'labels', 'bridges', 'houses', 'trees'];
+          let added = 0;
+          let dupSkipped = 0;
+          for (const k of listKeys) {
+            const incoming = Array.isArray(add[k]) ? add[k] : [];
+            if (!incoming.length) continue;
+            if (!Array.isArray(out[k])) out[k] = [];
+            if (k === 'markers') {
+              const known = new Set(out[k].map((m) => mmsNormalizeName(m && m.name)).filter(Boolean));
+              for (const m of incoming) {
+                const key = mmsNormalizeName(m && m.name);
+                if (!key || known.has(key)) { dupSkipped++; continue; }
+                known.add(key);
+                out[k].push(m);
+                added++;
+              }
+            } else {
+              out[k] = out[k].concat(incoming);
+              added += incoming.length;
+            }
+          }
+          if (patch && patch.name && String(patch.name).trim()) out.name = String(patch.name).trim();
+          const newMarkers = Array.isArray(add.markers)
+            ? add.markers.filter((m) => m && m.name).map((m) => m.name)
+            : [];
+          return { json: out, added: added, dupSkipped: dupSkipped, newMarkers: newMarkers };
+        },
+
         sanitizeMapArt(json) {
           const clamp = (v) =>
             Math.max(MMS_COORD_MIN, Math.min(MMS_COORD_MAX, Math.round(Number(v) || 50)));
+          const dropped = [];
+          const num = (v) => (typeof v === 'number' ? isFinite(v) : isFinite(Number(v))) ;
+          const isPair = (p) => Array.isArray(p) && p.length >= 2 && num(p[0]) && num(p[1]);
+          const toPair = (p) => [Number(p[0]), Number(p[1])];
+          const isPath = (s) => typeof s === 'string' && /^\s*[Mm]\s*-?\d/.test(s) && s.length < 4000;
+          const cap = (arr, n, label) => {
+            if (!Array.isArray(arr)) return [];
+            if (arr.length > n) dropped.push(label + ' 超量截断 ' + (arr.length - n));
+            return arr.slice(0, n);
+          };
+          const filterValid = (arr, pred, label) => {
+            const before = arr.length;
+            const out = arr.filter(pred);
+            if (out.length < before) dropped.push(label + ' 非法条目 ' + (before - out.length));
+            return out;
+          };
+
           json.name = String(json.name || '大地图').slice(0, 30);
           if (json.ground !== 'sea') json.ground = 'field';
-          const cap = (arr, n) => (Array.isArray(arr) ? arr.slice(0, n) : []);
-          json.terrain = cap(json.terrain, 24);
-          json.roads = cap(json.roads, 12);
-          json.bridges = cap(json.bridges, 8);
-          json.districts = cap(json.districts, 10);
-          json.features = cap(json.features, 90);
-          json.houses = cap(json.houses, 60);
-          json.trees = cap(json.trees, 50);
-          json.labels = cap(json.labels, 14);
-          json.markers = cap(json.markers, 30).map((m) => ({
-            emoji: String((m && m.emoji) || '📍').slice(0, 8),
-            name: String((m && m.name) || '').slice(0, 24),
-            x: clamp(m && m.x),
-            y: clamp(m && m.y),
-            desc: String((m && m.desc) || '').slice(0, 80),
-          }));
+
+          // 地形：ellipse(at+r) / rect(at+size) / path(d)
+          json.terrain = filterValid(
+            cap(json.terrain, 24, 'terrain'),
+            (t) => {
+              if (!t || typeof t !== 'object') return false;
+              if (t.type && MMS_MAPART_TERRAIN_TYPES.indexOf(t.type) === -1) t.type = 'grass';
+              if (t.shape === 'path') return isPath(t.d);
+              if (t.shape === 'rect') return isPair(t.at) && isPair(t.size);
+              t.shape = 'ellipse';
+              return isPair(t.at) && isPair(t.r);
+            },
+            'terrain',
+          );
+          // 路径类：必须是 M 开头的 SVG 路径串
+          json.roads = filterValid(cap(json.roads, 12, 'roads'), isPath, 'roads');
+          json.bays = filterValid(cap(json.bays, 6, 'bays'), isPath, 'bays');
+          if (json.river != null && !isPath(json.river)) {
+            dropped.push('river 非法');
+            delete json.river;
+          }
+          // 轮廓
+          if (json.outline && typeof json.outline === 'object') {
+            const o = json.outline;
+            const ok =
+              o.shape === 'path'
+                ? isPath(o.d)
+                : isPair(o.at) && isPair(o.size);
+            if (!ok) {
+              dropped.push('outline 非法');
+              delete json.outline;
+            } else if (o.shape !== 'path') {
+              o.shape = 'roundRect';
+              o.r = num(o.r) ? Math.max(0, Math.min(200, Number(o.r))) : 30;
+            }
+          } else if (json.outline != null) {
+            delete json.outline;
+          }
+          // 山脉
+          if (json.ridge && typeof json.ridge === 'object') {
+            if (!isPair(json.ridge.from) || !isPair(json.ridge.to)) {
+              dropped.push('ridge 非法');
+              delete json.ridge;
+            } else {
+              json.ridge.peaks = Math.max(2, Math.min(14, Math.round(Number(json.ridge.peaks) || 5)));
+            }
+          } else if (json.ridge != null) {
+            delete json.ridge;
+          }
+          // 桥梁 / 城区
+          json.bridges = filterValid(
+            cap(json.bridges, 8, 'bridges'),
+            (b) => b && typeof b === 'object' && isPair(b.at) && isPair(b.size),
+            'bridges',
+          );
+          json.districts = filterValid(
+            cap(json.districts, 10, 'districts'),
+            (d) => {
+              if (!d || typeof d !== 'object' || !isPair(d.at)) return false;
+              if (d.type && MMS_MAPART_DISTRICT_TYPES.indexOf(d.type) === -1) d.type = 'craft';
+              if (d.shape === 'ellipse') return isPair(d.r);
+              d.shape = 'rect';
+              return isPair(d.size);
+            },
+            'districts',
+          );
+          // 地物：type 必须在渲染器白名单内（否则命中 default 静默空绘）
+          json.features = filterValid(
+            cap(json.features, 90, 'features'),
+            (f) => f && typeof f === 'object' && isPair(f.at) && MMS_MAPART_FEATURE_TYPES.indexOf(f.type) !== -1,
+            'features',
+          );
+          // 坐标对数组
+          json.towers = filterValid(cap(json.towers, 24, 'towers'), isPair, 'towers').map(toPair);
+          json.gates = filterValid(cap(json.gates, 8, 'gates'), isPair, 'gates').map(toPair);
+          json.houses = filterValid(cap(json.houses, 60, 'houses'), isPair, 'houses').map(toPair);
+          json.trees = filterValid(cap(json.trees, 50, 'trees'), isPair, 'trees').map(toPair);
+          // 文字标注
+          json.labels = filterValid(
+            cap(json.labels, 14, 'labels'),
+            (l) => l && typeof l === 'object' && isPair(l.at) && l.text != null && String(l.text).trim(),
+            'labels',
+          ).map((l) => ({ at: toPair(l.at), text: String(l.text).slice(0, 20) }));
+
+          // 地标：清洗 + 按名称去重（旧的/先出现的胜出）
+          const seen = new Set();
+          const marks = [];
+          for (const m of Array.isArray(json.markers) ? json.markers : []) {
+            const name = String((m && m.name) || '').slice(0, 24).trim();
+            if (!name) continue;
+            const key = mmsNormalizeName(name);
+            if (seen.has(key)) { dropped.push('地标重名 ' + name); continue; }
+            seen.add(key);
+            marks.push({
+              emoji: String((m && m.emoji) || '📍').slice(0, 8),
+              name: name,
+              x: clamp(m && m.x),
+              y: clamp(m && m.y),
+              desc: String((m && m.desc) || '').slice(0, 80),
+            });
+            if (marks.length >= 40) { dropped.push('markers 超量截断'); break; }
+          }
+          json.markers = marks;
+
+          if (dropped.length) console.warn('[MMS] 大地图数据清洗：' + dropped.join('；'));
           return json;
         },
 
@@ -11516,12 +11882,17 @@ createCharacterEntry(text, categoryKey) {
             const floorCount = Math.min(10, Math.max(1, Number(cfg.contextFloors) || 2));
             const { latest, context } = this.collectStorySegments(floorId, floorCount);
             const locLines = this.collectLocationLines(floorId, floorCount);
-            const sysPrompt = this.buildMapArtSystemPrompt();
-            const userPrompt = this.buildMapArtUserPrompt(mode, artCfg, latest, context, locLines);
-            const customApi = this.buildCustomApi(cfg);
+            const sysPrompt = this.buildMapArtSystemPrompt(mode);
+            // 绘图输出体积远大于状态更新，给足输出余量（仅此次请求生效，不改用户全局设置）
+            const customApi = Object.assign({}, this.buildCustomApi(cfg), {
+              max_tokens: Math.max(Number(cfg.maxTokens) || 4096, 8192),
+            });
+            const baseArt = this.mapArt;
 
             let lastError = null;
+            let retryHint = null;
             for (let attempt = 0; attempt < 3; attempt++) {
+              const userPrompt = this.buildMapArtUserPrompt(mode, artCfg, latest, context, locLines, retryHint);
               try {
                 const config = {
                   ordered_prompts: [
@@ -11535,16 +11906,57 @@ createCharacterEntry(text, categoryKey) {
                 const result = await generateRaw(config);
                 const raw = typeof result === 'string' ? result : (result && result.content) || '';
                 this.debugLog(sysPrompt, userPrompt, raw, customApi);
-                const json = this.sanitizeMapArt(this.parseMapArtOutput(raw));
+
+                let json = null;
+                let okMsg = '大地图已更新';
+                if (mode === 'merge' && baseArt) {
+                  // 增量：AI 只输出新增部分，本地追加合并（旧图结构上不可能被破坏）
+                  const patch = this.parseMapArtPatch(raw);
+                  const merged = this.mergeMapArtPatch(baseArt, patch);
+                  if (!merged.added && !patch.name) {
+                    // 空 patch 不算失败：剧情确实没有新地点
+                    this.mapArtBusy = false;
+                    this.refreshBigMapCard();
+                    this.setIndicator('ok', '本轮未发现地图上缺失的新地点');
+                    setTimeout(() => {
+                      if (!this.updating && !this.mapArtBusy) this.setIndicator(null);
+                    }, 4000);
+                    return true;
+                  }
+                  json = this.sanitizeMapArt(merged.json);
+                  const parts = [];
+                  if (merged.newMarkers.length) parts.push('新增地标：' + merged.newMarkers.join('、'));
+                  if (merged.dupSkipped) parts.push('跳过重复 ' + merged.dupSkipped + ' 个');
+                  okMsg = parts.length ? '地图已更新（' + parts.join('，') + '）' : '地图已更新';
+                } else {
+                  json = this.sanitizeMapArt(this.parseMapArtOutput(raw));
+                  // 退化保护：整图重绘结果地标数骤降时让用户决定是否采用
+                  const oldCount = baseArt && baseArt.markers ? baseArt.markers.length : 0;
+                  if (oldCount >= 4 && json.markers.length < Math.ceil(oldCount * 0.5)) {
+                    const go = window.confirm(
+                      '新生成的地图只有 ' + json.markers.length + ' 个地标，原地图有 ' + oldCount +
+                        ' 个，可能是本次生成质量退化。\n\n点「确定」采用新图（旧图仍可用「撤销上次」找回），点「取消」保留原图。',
+                    );
+                    if (!go) {
+                      this.mapArtBusy = false;
+                      this.refreshBigMapCard();
+                      this.setIndicator('ok', '已保留原地图');
+                      setTimeout(() => {
+                        if (!this.updating && !this.mapArtBusy) this.setIndicator(null);
+                      }, 3000);
+                      return false;
+                    }
+                  }
+                }
 
                 this.mapArt = json;
-                this.saveMapArt(json);
+                this.saveMapArt(json, baseArt || null);
                 this.mapArtBusy = false;
                 this.refreshBigMapCard();
                 if (this.env.hasEventApi) {
                   eventEmit(MMS_EVENT_MAPART, {});
                 }
-                this.setIndicator('ok', '大地图已更新');
+                this.setIndicator('ok', okMsg);
                 setTimeout(() => {
                   if (!this.updating && !this.mapArtBusy) this.setIndicator(null);
                 }, 4000);
@@ -11552,6 +11964,8 @@ createCharacterEntry(text, categoryKey) {
               } catch (e) {
                 lastError = e;
                 console.warn('[MMS] 大地图生成失败（第 ' + (attempt + 1) + ' 次）：', e);
+                // 把失败原因回传给下一次尝试，让 AI 知道要修什么（同一份提示词重试 3 次没有意义）
+                retryHint = (e && e.message ? e.message : String(e)).slice(0, 600);
                 if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
               }
             }
