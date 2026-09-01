@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<!-- 临时截图辅助页（测试用，可删除）：iframe 载入 MiniMapStatus 并自动打开设置→图片管理 -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1a24; }
+  iframe { width: 100%; height: 100%; border: 0; display: block; }
+</style>
+</head>
+<body>
+  <iframe id="w" src="MiniMapStatus.html"></iframe>
+  <script>
+    const mode = new URLSearchParams(location.search).get('mode') || 'mid';
+    const setup = () => {
+      try {
+        const doc = document.getElementById('w').contentDocument;
+        const sc = doc.querySelector('.mms-tab-scroller');
+        if (mode === 'mid') {
+          // 切到图片管理后滚到中间（双侧渐隐）
+          sc.scrollLeft = Math.floor((sc.scrollWidth - sc.clientWidth) / 2);
+        } else if (mode === 'start') {
+          sc.scrollLeft = 0;
+        } else if (mode === 'end') {
+          sc.scrollLeft = sc.scrollWidth;
+        }
+        document.title = 'READY';
+      } catch (e) {
+        document.title = 'ERR:' + e.message;
+      }
+    };
+    let tries = 0;
+    const tick = () => {
+      try {
+        const doc = document.getElementById('w').contentDocument;
+        if (doc && doc.getElementById('settings-btn')) {
+          doc.getElementById('settings-btn').click();
+          setTimeout(() => {
+            doc.getElementById('tab-btn-images').click();
+            setTimeout(setup, 900);
+          }, 400);
+          return;
+        }
+      } catch (e) { /* cross-origin 或未就绪 */ }
+      if (++tries < 40) setTimeout(tick, 250);
+    };
+    setTimeout(tick, 1200);
+  </script>
+</body>
+</html>

@@ -1,3 +1,4 @@
+```
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -2669,6 +2670,146 @@ function buildPortraitHTML(roleName, portraitUrl) {
         border-radius: 2px;
       }
 
+      /* 页签栏横向滚动：隐藏滚动条 + 边缘内容渐隐（mask 方案，与主题背景色无关）；
+         PC 鼠标拖拽由 JS 接管，移动端保留原生惯性滑动 */
+      .mms-tab-scroller {
+        position: relative;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        user-select: none;
+        --mms-tab-fade-w: 24px;
+      }
+      .mms-tab-scroller::-webkit-scrollbar {
+        display: none;
+      }
+      .mms-tab-scroller.dragging {
+        cursor: grabbing;
+      }
+      .mms-tab-scroller.dragging .setting-tab-btn {
+        pointer-events: none;
+      }
+      .mms-tab-scroller.at-start.at-end {
+        mask-image: none;
+        -webkit-mask-image: none;
+      }
+      .mms-tab-scroller.at-start:not(.at-end) {
+        mask-image: linear-gradient(to right, black, black calc(100% - var(--mms-tab-fade-w)), transparent);
+        -webkit-mask-image: linear-gradient(to right, black, black calc(100% - var(--mms-tab-fade-w)), transparent);
+      }
+      .mms-tab-scroller:not(.at-start).at-end {
+        mask-image: linear-gradient(to left, black, black calc(100% - var(--mms-tab-fade-w)), transparent);
+        -webkit-mask-image: linear-gradient(to left, black, black calc(100% - var(--mms-tab-fade-w)), transparent);
+      }
+      .mms-tab-scroller:not(.at-start):not(.at-end) {
+        mask-image: linear-gradient(
+          to right,
+          transparent,
+          black var(--mms-tab-fade-w),
+          black calc(100% - var(--mms-tab-fade-w)),
+          transparent
+        );
+        -webkit-mask-image: linear-gradient(
+          to right,
+          transparent,
+          black var(--mms-tab-fade-w),
+          black calc(100% - var(--mms-tab-fade-w)),
+          transparent
+        );
+      }
+
+      /* 图片管理页签：分类按钮 + 条目行 */
+      .mms-img-cat-btn {
+        padding: 4px 12px;
+        border-radius: 9999px;
+        border: 1px solid rgba(120, 120, 140, 0.4);
+        background: rgba(255, 255, 255, 0.04);
+        color: #9ca3af;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .mms-img-cat-btn.active {
+        background: rgba(157, 124, 245, 0.25);
+        border-color: #9d7cf5;
+        color: #fff;
+        font-weight: 600;
+      }
+      .mms-img-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 8px;
+        border-radius: 10px;
+        border: 1px solid rgba(55, 65, 81, 0.35);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .mms-img-row.invalid {
+        border-color: rgba(239, 68, 68, 0.65);
+      }
+      .mms-img-thumb {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        overflow: hidden;
+        flex-shrink: 0;
+        background: rgba(0, 0, 0, 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        color: #6b7280;
+      }
+      .mms-img-thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .mms-img-name {
+        width: 118px;
+        flex-shrink: 0;
+      }
+      .mms-img-url {
+        flex: 1;
+        min-width: 0;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 11px;
+      }
+      .mms-img-del {
+        flex-shrink: 0;
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        border: 1px solid rgba(239, 68, 68, 0.35);
+        background: rgba(239, 68, 68, 0.08);
+        color: #ef4444;
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1;
+        transition: all 0.15s;
+      }
+      .mms-img-del:hover {
+        background: rgba(239, 68, 68, 0.2);
+      }
+      @media (max-width: 480px) {
+        .mms-img-name {
+          width: 84px;
+        }
+      }
+      .classic-mode .mms-img-row,
+      .romantic-mode .mms-img-row {
+        border-color: rgba(120, 100, 70, 0.25);
+      }
+      .classic-mode .mms-img-cat-btn,
+      .romantic-mode .mms-img-cat-btn {
+        color: #8c7052;
+      }
+      .classic-mode .mms-img-cat-btn.active,
+      .romantic-mode .mms-img-cat-btn.active {
+        color: #5c3b19;
+      }
+
       /* --- 古典模式 (Classic Mode) 全局深度美化与可读性修复 --- */
       .classic-mode .setting-tab-btn {
         color: #8c7052;
@@ -3389,21 +3530,24 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <i class="fa fa-check"></i> 完成
             </button>
           </div>
-          <div class="flex gap-4 text-xs font-medium border-b border-gray-700/20 overflow-x-auto">
-            <button id="tab-btn-roster" class="pb-2 setting-tab-btn active text-primary" type="button">
+          <div class="flex gap-4 text-xs font-medium border-b border-gray-700/20 overflow-x-auto mms-tab-scroller">
+            <button id="tab-btn-roster" class="pb-2 setting-tab-btn active text-primary shrink-0" type="button">
               <i class="fa fa-users mr-1"></i>固定角色名册
             </button>
-            <button id="tab-btn-theme" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
+            <button id="tab-btn-theme" class="pb-2 setting-tab-btn hover:text-gray-200 shrink-0" type="button">
               <i class="fa fa-paint-brush mr-1"></i>界面与交互
             </button>
-            <button id="tab-btn-ai" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
+            <button id="tab-btn-ai" class="pb-2 setting-tab-btn hover:text-gray-200 shrink-0" type="button">
               <i class="fa fa-magic mr-1"></i>独立 AI 更新
             </button>
-            <button id="tab-btn-maps" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
+            <button id="tab-btn-maps" class="pb-2 setting-tab-btn hover:text-gray-200 shrink-0" type="button">
               <i class="fa fa-map-o mr-1"></i>地图管理
             </button>
-            <button id="tab-btn-history" class="pb-2 setting-tab-btn hover:text-gray-200" type="button">
+            <button id="tab-btn-history" class="pb-2 setting-tab-btn hover:text-gray-200 shrink-0" type="button">
               <i class="fa fa-history mr-1"></i>历史回顾
+            </button>
+            <button id="tab-btn-images" class="pb-2 setting-tab-btn hover:text-gray-200 shrink-0" type="button">
+              <i class="fa fa-picture-o mr-1"></i>图片管理
             </button>
           </div>
         </div>
@@ -3896,6 +4040,68 @@ function buildPortraitHTML(roleName, portraitUrl) {
           </div>
           <div id="mms-history-list" class="space-y-2"></div>
         </div>
+
+        <!-- ============================================================ -->
+        <!-- Tab 7：图片管理（内置图片表增删改，保存写回正则源码） -->
+        <!-- ============================================================ -->
+        <div id="tab-content-images" class="p-3.5 space-y-3" style="display: none">
+          <!-- 头部：说明 + 保存/复制/导出/导入（flex-wrap：窄屏时按钮组换行到标题下方，避免挤压竖排） -->
+          <div class="flex flex-wrap justify-between items-center gap-2 roster-surface rounded-xl border border-gray-700/10 px-3 py-2">
+            <div class="min-w-[140px]">
+              <span class="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                <i class="fa fa-picture-o text-primary"></i> 内置图片库
+                <span id="mms-img-dirty" class="mms-count-badge" style="display: none">未保存 0 项</span>
+              </span>
+              <p class="text-[10px] text-gray-400 mt-0.5">
+                立绘 / 底图 / 头像链接内置于页面源码，修改立即生效；点「保存到源码」写回正则，随正则一起导出迁移
+              </p>
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                id="mms-img-save"
+                class="px-2.5 py-1.5 rounded-xl bg-primary text-white text-xs font-semibold hover:opacity-90 shadow-sm transition-all"
+                type="button"
+              >
+                <i class="fa fa-save mr-1"></i>保存到源码
+              </button>
+              <button id="mms-img-copy" class="mms-btn" type="button" title="复制标记块代码，可粘贴回本地 MiniMapStatus.html 同步">复制配置</button>
+              <button id="mms-img-export" class="mms-btn" type="button" title="导出为 JSON 文件备份">导出</button>
+              <button id="mms-img-import" class="mms-btn" type="button" title="从 JSON 文件导入">导入</button>
+            </div>
+          </div>
+
+          <!-- 分类切换 + 搜索 -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <button class="mms-img-cat-btn active" type="button" data-cat="portrait">
+              🖼 立绘 <span id="mms-img-count-portrait">0</span>
+            </button>
+            <button class="mms-img-cat-btn" type="button" data-cat="background">
+              🗺 大地图底图 <span id="mms-img-count-background">0</span>
+            </button>
+            <button class="mms-img-cat-btn" type="button" data-cat="avatar">
+              👤 小头像 <span id="mms-img-count-avatar">0</span>
+            </button>
+            <input id="mms-img-search" class="form-input flex-1" style="min-width: 110px" placeholder="搜索名称/链接…" />
+          </div>
+
+          <!-- 条目列表 -->
+          <div id="mms-img-list" class="space-y-1.5"></div>
+
+          <!-- 新增行 -->
+          <div class="flex gap-1.5 items-center">
+            <input id="mms-img-new-name" class="form-input" style="width: 128px" placeholder="名称（角色名/地图名）" />
+            <input id="mms-img-new-url" class="form-input flex-1" style="min-width: 0" placeholder="图片链接 https://…" />
+            <button id="mms-img-add" class="mms-btn mms-btn-primary flex-shrink-0" type="button">
+              <i class="fa fa-plus"></i> 添加
+            </button>
+          </div>
+          <p id="mms-img-status" class="text-[10px] text-primary" style="display: none"></p>
+          <p class="settings-hint">
+            立绘按角色名匹配（含「弗兰克脱衣」等状态变体）；底图按地图名匹配，新增后会自动进入「地图管理」页签的标签池；
+            小头像按角色名匹配小地图标记。名册角色自带的头像只在运行时覆盖同名条目（不写入源码）。
+            链接需以 http(s):// 开头；保存前刷新页面即可撤销全部修改。
+          </p>
+        </div>
       </div>
     </div>
 
@@ -3938,17 +4144,20 @@ function buildPortraitHTML(roleName, portraitUrl) {
     </div>
 
     <script>
-      // [扩展] 人物头像映射表：可在此处自由增删人物名和对应的图片链接
-      // === [新增] 高清立绘映射名单 (请在此维护立绘链接) ===
-window.PORTRAIT_MAP = {
-    "弗兰克脱衣": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克脱衣2_compressed.jpg",
+      // [扩展] 内置图片表：立绘 portrait / 大地图底图 background / 小头像 avatar
+      // 由「设置 → 图片管理」页签维护；「保存到源码」会整体重写标记块之间的内容，请勿改动两行标记注释
+      /* ==== MMS_IMAGE_DATA_START ==== */
+window.MMS_IMAGE_DATA = {
+  "portrait": {
     "弗兰克": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克穿衣2_compressed.jpg",
+    "弗兰克脱衣": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗兰克脱衣2_compressed.jpg",
+    "弗兰克全裸": "https://imgur.la/images/2026/09/02/_compressedc598ebc34dd37cce.jpg",
     "埃利奥特": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/埃利奥特_compressed.jpg",
     "爱德华": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/爱德华_compressed.jpg",
     "玛德琳": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/玛德琳_compressed.jpg",
     "弗朗索瓦丝": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/弗朗索瓦丝_compressed.jpg",
     "林有声": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/林有声_compressed.jpg",
-    "索恩": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/立绘/索恩形象_compressed.jpg",   
+    "索恩": "https://imgur.la/images/2026/09/02/_compressed.jpg",
     "烈阳剑尊": "https://www.imgur.la/images/2026/03/02/lieyang.jpg",
     "李长风": "https://www.imgur.la/images/2026/03/02/liichang.jpg",
     "青木真人": "https://www.imgur.la/images/2026/03/02/qinmu.jpg",
@@ -3982,7 +4191,6 @@ window.PORTRAIT_MAP = {
     "赵刚": "https://www.imgur.la/images/2026/03/06/zhaogang.jpg",
     "吕金元": "https://www.imgur.la/images/2026/03/06/lvjin.jpg",
     "白羽生": "https://www.imgur.la/images/2026/03/06/baiyu.jpg",
-    "金玉娘": "https://www.imgur.la/images/2026/03/02/jinyu.jpg",
     "阮青": "https://www.imgur.la/images/2026/03/06/ruanqin.jpg",
     "阴茎射后": "https://www.imgur.la/images/2026/03/13/0d9533d2f58683fe9efa9defcff69687.jpg",
     "阴茎疲软": "https://www.imgur.la/images/2026/03/13/2.jpg",
@@ -4009,9 +4217,8 @@ window.PORTRAIT_MAP = {
     "军人全裸": "https://imgur.la/images/2026/03/13/_compressed.jpg",
     "向震虎": "https://www.imgur.la/images/2026/04/12/_2026-02-2709h39m30s714msb76746a7791c8e01.png",
     "向震虎(投篮)": "https://www.imgur.la/images/2026/03/02/xiangzhen.jpg"
-};
-
-const BACKGROUND_MAP = {
+  },
+  "background": {
     "城市": "https://www.imgur.la/images/2026/03/19/qinggang.png",
     "营地": "https://www.imgur.la/images/2026/03/24/yindi.jpg",
     "维兰城": "https://www.imgur.la/images/2026/03/24/veran.jpg",
@@ -4023,61 +4230,72 @@ const BACKGROUND_MAP = {
     "亚洲": "https://www.imgur.la/images/2026/03/24/Asian.jpg",
     "南极洲": "https://www.imgur.la/images/2026/03/24/Antarctica.jpg",
     "棋盘": "https://www.imgur.la/images/2026/03/13/---2026-02-16T010703.041_compressed.jpg"
+  },
+  "avatar": {
+    "埃利奥特": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/Eil.png",
+    "埃利奥特·肖": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/Eil.png",
+    "弗兰克": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/Frank.png",
+    "弗兰克·德克尔": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/Frank.png",
+    "玛德琳": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/chen.png",
+    "玛德琳·陈": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/chen.png",
+    "爱德华": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/aidehua.png",
+    "爱德华·卡莱尔": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/aidehua.png",
+    "林有声": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/lin_compressed.png",
+    "弗朗索瓦丝": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/suowasi.png",
+    "索恩": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/suoen_compressed.png",
+    "朱利安·索恩": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/suoen_compressed.png",
+    "洪雷威": "https://www.imgur.la/images/2026/03/01/AHongF.jpg",
+    "周云": "https://www.imgur.la/images/2026/03/01/ZhouyunF.jpg",
+    "烈阳剑尊": "https://www.imgur.la/images/2026/03/06/lyt.jpg",
+    "李长风": "https://www.imgur.la/images/2026/03/06/lcft.jpg",
+    "青木真人": "https://www.imgur.la/images/2026/03/06/qmt.jpg",
+    "卢青鹤": "https://www.imgur.la/images/2026/03/06/lut.jpg",
+    "墨云生": "https://www.imgur.la/images/2026/03/06/myst.jpg",
+    "刘玺": "https://www.imgur.la/images/2026/03/06/liut.jpg",
+    "铁无山": "https://www.imgur.la/images/2026/03/06/tyst.jpg",
+    "明河剑祖": "https://www.imgur.la/images/2026/03/06/minhet.jpg",
+    "上官玉": "https://www.imgur.la/images/2026/03/06/sgyt.jpg",
+    "欧阳冶": "https://www.imgur.la/images/2026/03/06/oyyt.jpg",
+    "林沐雪": "https://www.imgur.la/images/2026/03/06/lmxt.jpg",
+    "司徒南": "https://www.imgur.la/images/2026/03/06/sitnt.jpg",
+    "李玄青": "https://www.imgur.la/images/2026/03/06/lxqt.jpg",
+    "玄机子": "https://www.imgur.la/images/2026/03/06/xjzt.jpg",
+    "云中子": "https://www.imgur.la/images/2026/03/06/yzzt.jpg",
+    "赵无极": "https://www.imgur.la/images/2026/03/06/zhaowujit.jpg",
+    "星瞳": "https://www.imgur.la/images/2026/03/06/xingtt.jpg",
+    "段木痕": "https://www.imgur.la/images/2026/03/06/duant.jpg",
+    "陈风": "https://www.imgur.la/images/2026/03/06/chent.jpg",
+    "古剑心": "https://www.imgur.la/images/2026/03/06/gut.jpg",
+    "韩枫": "https://www.imgur.la/images/2026/03/06/hanft.jpg",
+    "方无恨": "https://www.imgur.la/images/2026/03/06/fangt.jpg",
+    "红娘子": "https://www.imgur.la/images/2026/03/06/hongt.jpg",
+    "百花仙子": "https://www.imgur.la/images/2026/03/06/bait.jpg",
+    "韩立": "https://www.imgur.la/images/2026/03/06/hanlt.jpg",
+    "金玉娘": "https://www.imgur.la/images/2026/03/06/jyt.jpg",
+    "赤魁": "https://www.imgur.la/images/2026/03/06/chit.jpg",
+    "石大嘴": "https://www.imgur.la/images/2026/03/06/dazuit.jpg",
+    "莫贝贝": "https://www.imgur.la/images/2026/03/06/mbbt.jpg",
+    "祝无霜": "https://www.imgur.la/images/2026/03/06/zhuwushuangt.jpg",
+    "赵刚": "https://www.imgur.la/images/2026/03/06/zhaogangt.jpg",
+    "吕金元": "https://www.imgur.la/images/2026/03/06/lvjinyuant.jpg",
+    "白羽生": "https://www.imgur.la/images/2026/03/06/baiyut.jpg",
+    "阮青": "https://www.imgur.la/images/2026/03/06/ruanqint.jpg",
+    "向震虎": "https://www.imgur.la/images/2026/03/03/xiang.jpg"
+  }
 };
+/* ==== MMS_IMAGE_DATA_END ==== */
 
-const AVATAR_MAP = {
-        "埃利奥特": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/Eil.png",
-        "埃利奥特·肖": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/Eil.png",
-        "弗兰克": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/Frank.png",
-        "弗兰克·德克尔": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/Frank.png",
-        "玛德琳": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/chen.png",
-        "玛德琳·陈": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/chen.png",
-        "爱德华": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/aidehua.png",
-        "爱德华·卡莱尔": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/aidehua.png",
-        "林有声": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/lin_compressed.png",
-        "弗朗索瓦丝": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/suowasi.png",
-        "索恩": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/suoen_compressed.png",
-        "朱利安·索恩": "https://cdn.jsdelivr.net/gh/bachhoang2463j-a11y/test1@main/头像/suoen_compressed.png",
-        "洪雷威": "https://www.imgur.la/images/2026/03/01/AHongF.jpg",
-        "周云": "https://www.imgur.la/images/2026/03/01/ZhouyunF.jpg",
-        "烈阳剑尊": "https://www.imgur.la/images/2026/03/06/lyt.jpg",
-        "李长风": "https://www.imgur.la/images/2026/03/06/lcft.jpg",
-        "青木真人": "https://www.imgur.la/images/2026/03/06/qmt.jpg",
-        "卢青鹤": "https://www.imgur.la/images/2026/03/06/lut.jpg",
-        "墨云生": "https://www.imgur.la/images/2026/03/06/myst.jpg",
-        "刘玺": "https://www.imgur.la/images/2026/03/06/liut.jpg",
-        "铁无山": "https://www.imgur.la/images/2026/03/06/tyst.jpg",
-        "明河剑祖": "https://www.imgur.la/images/2026/03/06/minhet.jpg",
-        "上官玉": "https://www.imgur.la/images/2026/03/06/sgyt.jpg",
-        "欧阳冶": "https://www.imgur.la/images/2026/03/06/oyyt.jpg",
-        "林沐雪": "https://www.imgur.la/images/2026/03/06/lmxt.jpg",
-        "司徒南": "https://www.imgur.la/images/2026/03/06/sitnt.jpg",
-        "李玄青": "https://www.imgur.la/images/2026/03/06/lxqt.jpg",
-        "玄机子": "https://www.imgur.la/images/2026/03/06/xjzt.jpg",
-        "云中子": "https://www.imgur.la/images/2026/03/06/yzzt.jpg",
-        "赵无极": "https://www.imgur.la/images/2026/03/06/zhaowujit.jpg",
-        "星瞳": "https://www.imgur.la/images/2026/03/06/xingtt.jpg",
-        "段木痕": "https://www.imgur.la/images/2026/03/06/duant.jpg",
-        "陈风": "https://www.imgur.la/images/2026/03/06/chent.jpg",
-        "古剑心": "https://www.imgur.la/images/2026/03/06/gut.jpg",
-        "韩枫": "https://www.imgur.la/images/2026/03/06/hanft.jpg",
-        "方无恨": "https://www.imgur.la/images/2026/03/06/fangt.jpg",
-        "红娘子": "https://www.imgur.la/images/2026/03/06/hongt.jpg",
-        "百花仙子": "https://www.imgur.la/images/2026/03/06/bait.jpg",
-        "韩立": "https://www.imgur.la/images/2026/03/06/hanlt.jpg",
-        "金玉娘": "https://www.imgur.la/images/2026/03/06/jyt.jpg",
-        "赤魁": "https://www.imgur.la/images/2026/03/06/chit.jpg",
-        "石大嘴": "https://www.imgur.la/images/2026/03/06/dazuit.jpg",
-        "莫贝贝": "https://www.imgur.la/images/2026/03/06/mbbt.jpg",
-        "祝无霜": "https://www.imgur.la/images/2026/03/06/zhuwushuangt.jpg",
-        "赵刚": "https://www.imgur.la/images/2026/03/06/zhaogangt.jpg",
-        "吕金元": "https://www.imgur.la/images/2026/03/06/lvjinyuant.jpg",
-        "白羽生": "https://www.imgur.la/images/2026/03/06/baiyut.jpg",
-        "金玉娘": "https://www.imgur.la/images/2026/03/06/jyt.jpg",
-        "阮青": "https://www.imgur.la/images/2026/03/06/ruanqint.jpg",
-        "江魁锋": "https://www.imgur.la/images/2026/04/04/IMG_20260404_042907.jpg",
-        "向震虎": "https://www.imgur.la/images/2026/03/03/xiang.jpg"
-      };
+      // 源码载入时的原始快照：图片管理页签据此计算未保存差异。
+      // 必须在任何 UI 代码运行前捕获（名册头像会在启动时合并进运行时表，不应污染基线）
+      window.MMS_IMAGE_DATA_BASE = JSON.parse(JSON.stringify(window.MMS_IMAGE_DATA));
+
+      // 图片数据标记块定位（供「保存到源码」精确替换；惰性匹配到第一处 END 标记即止）
+      const MMS_IMG_BLOCK_RE = /\/\* ==== MMS_IMAGE_DATA_START[\s\S]*?MMS_IMAGE_DATA_END ==== \*\//;
+
+      // 既有引用保持兼容：绑定只读，内容仍可变（applyRosterAvatars 等继续原位写键）
+      window.PORTRAIT_MAP = window.MMS_IMAGE_DATA.portrait;
+      const BACKGROUND_MAP = window.MMS_IMAGE_DATA.background;
+      const AVATAR_MAP = window.MMS_IMAGE_DATA.avatar;
 
       const triggerQuickReply = text => {
         if (!text || ['…', '...'].includes(text.trim()) || text.trim().length === 0) return;
@@ -4316,12 +4534,14 @@ const AVATAR_MAP = {
       }
 
       // 方案二：设置视图就地整栏切换（无遮罩模态）
+      // 页签注册表：新增页签只需在此加一行（按钮 id 约定 tab-btn-<key>，内容 id 约定 tab-content-<key>）
       const MMS_SETTING_TAB_NAMES = {
         roster: '固定角色名册',
         theme: '界面与交互',
         ai: '独立 AI 更新',
         maps: '地图管理',
         history: '历史回顾',
+        images: '图片管理',
       };
 
       function mmsToggleSettingsView(show) {
@@ -4331,6 +4551,8 @@ const AVATAR_MAP = {
         if (show) {
           mainView.style.display = 'none';
           settingsView.style.display = 'block';
+          // 面板从隐藏变可见后页签栏才有真实宽度，重算边缘渐隐
+          if (typeof mmsTabScrollerUpdateEdges === 'function') mmsTabScrollerUpdateEdges();
         } else {
           settingsView.style.display = 'none';
           mainView.style.display = 'block';
@@ -4338,21 +4560,13 @@ const AVATAR_MAP = {
       }
 
       function mmsSwitchSettingTab(tabKey) {
-        const tabBtns = {
-          roster: document.getElementById('tab-btn-roster'),
-          theme: document.getElementById('tab-btn-theme'),
-          ai: document.getElementById('tab-btn-ai'),
-          maps: document.getElementById('tab-btn-maps'),
-          history: document.getElementById('tab-btn-history'),
-        };
-        const tabContents = {
-          roster: document.getElementById('tab-content-roster'),
-          theme: document.getElementById('tab-content-theme'),
-          ai: document.getElementById('tab-content-ai'),
-          maps: document.getElementById('tab-content-maps'),
-          history: document.getElementById('tab-content-history'),
-        };
-        Object.keys(tabBtns).forEach(k => {
+        const tabBtns = {};
+        const tabContents = {};
+        Object.keys(MMS_SETTING_TAB_NAMES).forEach((k) => {
+          tabBtns[k] = document.getElementById('tab-btn-' + k);
+          tabContents[k] = document.getElementById('tab-content-' + k);
+        });
+        Object.keys(MMS_SETTING_TAB_NAMES).forEach(k => {
           if (tabBtns[k]) {
             tabBtns[k].classList.remove('active', 'text-primary');
             tabBtns[k].classList.add('hover:text-gray-200');
@@ -4362,14 +4576,113 @@ const AVATAR_MAP = {
         if (tabBtns[tabKey]) {
           tabBtns[tabKey].classList.add('active', 'text-primary');
           tabBtns[tabKey].classList.remove('hover:text-gray-200');
+          // 页签栏可横向滚动：把激活按钮滚进可视区
+          // （用即时滚动：个别嵌入式浏览器对 smooth 滚动静默失败）
+          if (typeof tabBtns[tabKey].scrollIntoView === 'function') {
+            const siv = () => tabBtns[tabKey].scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+            siv();
+            // 激活态字重有 0.15s 过渡，按钮/整栏宽度随后才稳定（rAF 在未聚焦 iframe 会被节流，改用定时器）
+            setTimeout(siv, 60);
+            setTimeout(siv, 250);
+          }
         }
         if (tabContents[tabKey]) tabContents[tabKey].style.display = 'block';
+        // 页签栏边缘渐隐：切页签后重算（scrollIntoView 未发生滚动时没有 scroll 事件）
+        if (typeof mmsTabScrollerUpdateEdges === 'function') mmsTabScrollerUpdateEdges();
         // 切到历史Tab时重读聊天变量刷新列表（runUpdate 写入新记录后不主动刷新面板）
         if (tabKey === 'history' && typeof MMS !== 'undefined' && MMS.mmsRenderHistoryList) {
           MMS.mmsRenderHistoryList();
         }
+        // 切到图片管理时按最新数据重渲染列表（保存/导入后可能已变化）
+        if (tabKey === 'images' && typeof MMS !== 'undefined' && MMS.renderImageList) {
+          MMS.renderImageList();
+        }
         const titleSpan = document.getElementById('settings-current-tab-name');
         if (titleSpan) titleSpan.textContent = MMS_SETTING_TAB_NAMES[tabKey] || '设置';
+      }
+
+      // 页签栏横向滚动：PC 鼠标按住拖动（位移阈值区分点击/拖动），移动端不接管（原生惯性滑动）。
+      // 边缘渐隐（mask）由 .at-start/.at-end 类控制；Tailwind CDN 与字体异步加载会改变页签宽度，
+      // 初始计算可能失真，故在字体就绪/延迟后重算，切页签时也主动重算。
+      let mmsTabScrollerUpdateEdges = null;
+
+      function initTabDragScroll() {
+        const scroller = document.querySelector('.mms-tab-scroller');
+        if (!scroller) return;
+        let dragging = false;
+        let moved = false;
+        let startX = 0;
+        let startY = 0;
+        let startScroll = 0;
+
+        const updateEdges = () => {
+          const max = scroller.scrollWidth - scroller.clientWidth;
+          scroller.classList.toggle('at-start', scroller.scrollLeft <= 1);
+          scroller.classList.toggle('at-end', scroller.scrollLeft >= max - 1);
+        };
+        mmsTabScrollerUpdateEdges = updateEdges;
+
+        scroller.addEventListener('scroll', updateEdges, { passive: true });
+        window.addEventListener('resize', updateEdges);
+        if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+          document.fonts.ready.then(() => updateEdges());
+        }
+        setTimeout(updateEdges, 500);
+        setTimeout(updateEdges, 1500);
+        // ResizeObserver 兜底：视口变化/页签变宽（字体加载、激活加粗）后按布局完成时机的精确值重算
+        if (typeof ResizeObserver !== 'undefined') {
+          const ro = new ResizeObserver(() => updateEdges());
+          ro.observe(scroller);
+          Array.prototype.forEach.call(scroller.children, (child) => ro.observe(child));
+        }
+        // 兜底的兜底：个别嵌入式浏览器不投递 resize/RO 回调，面板可见期间周期自检（开销可忽略）
+        setInterval(() => {
+          if (scroller.clientWidth > 0) updateEdges();
+        }, 1500);
+
+        scroller.addEventListener('pointerdown', (e) => {
+          if (e.pointerType !== 'mouse' || e.button !== 0) return;
+          dragging = true;
+          moved = false;
+          startX = e.clientX;
+          startY = e.clientY;
+          startScroll = scroller.scrollLeft;
+        });
+
+        scroller.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          const dx = e.clientX - startX;
+          const dy = e.clientY - startY;
+          if (!moved && Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy)) {
+            moved = true;
+            scroller.classList.add('dragging');
+            try { scroller.setPointerCapture(e.pointerId); } catch (err) { /* 捕获失败不影响拖动 */ }
+          }
+          if (moved) {
+            e.preventDefault();
+            scroller.scrollLeft = startScroll - dx;
+          }
+        });
+
+        const endDrag = () => {
+          if (!dragging) return;
+          dragging = false;
+          if (moved) {
+            scroller.classList.remove('dragging');
+            // 吞掉拖动结束后的这一次 click，避免误触页签切换
+            const swallowClick = (ev) => {
+              ev.stopPropagation();
+              ev.preventDefault();
+            };
+            scroller.addEventListener('click', swallowClick, { capture: true, once: true });
+            setTimeout(() => scroller.removeEventListener('click', swallowClick, { capture: true }), 0);
+          }
+        };
+        scroller.addEventListener('pointerup', endDrag);
+        scroller.addEventListener('pointercancel', endDrag);
+        scroller.addEventListener('pointerleave', endDrag);
+
+        updateEdges();
       }
 
       function initSettingsPanel() {
@@ -4388,6 +4701,8 @@ const AVATAR_MAP = {
           const btn = document.getElementById('tab-btn-' + k);
           if (btn) btn.addEventListener('click', () => mmsSwitchSettingTab(k));
         });
+        // 页签栏横向拖动滚动（PC）；移动端保留原生滑动
+        initTabDragScroll();
 
         document.addEventListener('keydown', e => {
           if (e.key === 'Escape') {
@@ -9212,8 +9527,9 @@ createCharacterEntry(text, categoryKey) {
 
       // ---------- 地图标签池（SVG 场景 + BACKGROUND_MAP 外链图片，互斥三栏：pool/mini/big） ----------
 
-      // 全部可用地图标签：type=svg（TacticalMapEngine 环境识别）/ image（BACKGROUND_MAP 外链图片）
-      const MMS_ALL_MAP_TAGS = [
+      // 全部可用地图标签：type=svg（TacticalMapEngine 环境识别）为固定清单；
+      // type=image 的标签由 BACKGROUND_MAP 的键动态派生——图片管理页签增删底图后标签池自动同步
+      const MMS_SVG_MAP_TAGS = [
         { name: '昏暗室内', type: 'svg' },
         { name: '明亮室内', type: 'svg' },
         { name: '警局', type: 'svg' },
@@ -9245,18 +9561,21 @@ createCharacterEntry(text, categoryKey) {
         { name: '药园', type: 'svg' },
         { name: '洞府', type: 'svg' },
         { name: '论剑台', type: 'svg' },
-        { name: '城市', type: 'image' },
-        { name: '营地', type: 'image' },
-        { name: '维兰城', type: 'image' },
-        { name: '欧洲', type: 'image' },
-        { name: '北美洲', type: 'image' },
-        { name: '大洋洲', type: 'image' },
-        { name: '南美洲', type: 'image' },
-        { name: '非洲', type: 'image' },
-        { name: '亚洲', type: 'image' },
-        { name: '南极洲', type: 'image' },
-        { name: '棋盘', type: 'image' },
       ];
+      const MMS_ALL_MAP_TAGS = MMS_SVG_MAP_TAGS.concat(
+        Object.keys(BACKGROUND_MAP).map((n) => ({ name: n, type: 'image' }))
+      );
+      // 图片管理页签增删底图后重建标签池（原位修改数组，保持既有引用有效）
+      function mmsRebuildMapTags() {
+        MMS_ALL_MAP_TAGS.length = 0;
+        MMS_SVG_MAP_TAGS.forEach((t) => MMS_ALL_MAP_TAGS.push(t));
+        Object.keys(BACKGROUND_MAP).forEach((n) => {
+          if (!MMS_ALL_MAP_TAGS.some((t) => t.name === n)) MMS_ALL_MAP_TAGS.push({ name: n, type: 'image' });
+        });
+        MMS_ALL_TAG_NAMES.length = 0;
+        MMS_ALL_MAP_TAGS.forEach((t) => MMS_ALL_TAG_NAMES.push(t.name));
+        if (typeof MMS !== 'undefined' && MMS.renderMapTags) MMS.renderMapTags();
+      }
       // 小地图默认标签（与原提示词白名单一致）
       const MMS_MINI_DEFAULT_TAGS = MMS_ALL_MAP_TAGS.slice(0, 18).map((t) => t.name);
       const MMS_ALL_TAG_NAMES = MMS_ALL_MAP_TAGS.map((t) => t.name);
@@ -10593,6 +10912,7 @@ createCharacterEntry(text, categoryKey) {
           hasInjectApi: false,
           hasEventApi: false,
           hasSetChatApi: false,
+          hasRegexApi: false,
         },
 
         detectEnv() {
@@ -10610,6 +10930,8 @@ createCharacterEntry(text, categoryKey) {
           this.env.hasInjectApi = this.env.hasWorldbookApi;
           this.env.hasEventApi = typeof eventOn === 'function' && typeof eventEmit === 'function';
           this.env.hasSetChatApi = typeof setChatMessages === 'function';
+          // 图片管理「保存到源码」需要读写酒馆正则（本页面就住在其中一条正则的 replace_string 里）
+          this.env.hasRegexApi = typeof getTavernRegexes === 'function' && typeof replaceTavernRegexes === 'function';
         },
 
         // ---------- 工具 ----------
@@ -13140,6 +13462,7 @@ createCharacterEntry(text, categoryKey) {
 
           this.initRosterUI();
           this.initHistoryUI();
+          this.initImageUI();
         },
 
         // ---------- API 预设 UI ----------
@@ -14695,6 +15018,491 @@ createCharacterEntry(text, categoryKey) {
           };
           fill(portraitList, portraitMap);
           fill(avatarList, avatarMap);
+        },
+
+        // ---------- 图片管理（设置 → 图片管理页签） ----------
+        // imageData：编辑工作副本（保存时写回正则源码）
+        // imageBase：源码载入基线（MMS_IMAGE_DATA_BASE，仅保存成功后更新），两者差异 = 未保存项
+
+        imageCats: [
+          { key: 'portrait', label: '立绘' },
+          { key: 'background', label: '大地图底图' },
+          { key: 'avatar', label: '小头像' },
+        ],
+        imageCat: 'portrait',
+        imageData: null,
+        imageBase: null,
+        imageSearch: '',
+
+        initImageUI() {
+          const base = window.MMS_IMAGE_DATA_BASE || window.MMS_IMAGE_DATA;
+          this.imageBase = base;
+          this.imageData = JSON.parse(JSON.stringify(base));
+
+          const list = document.getElementById('mms-img-list');
+          if (list) {
+            list.addEventListener('change', (e) => this.onImageRowEdit(e));
+            list.addEventListener('click', (e) => {
+              const del = e.target.closest('.mms-img-del');
+              if (del) this.deleteImageKey(del.getAttribute('data-name'));
+            });
+          }
+          const search = document.getElementById('mms-img-search');
+          if (search) {
+            search.addEventListener('input', () => {
+              this.imageSearch = search.value.trim().toLowerCase();
+              this.renderImageList();
+            });
+          }
+          document.querySelectorAll('.mms-img-cat-btn').forEach((btn) => {
+            btn.addEventListener('click', () => {
+              this.imageCat = btn.getAttribute('data-cat') || 'portrait';
+              document.querySelectorAll('.mms-img-cat-btn').forEach((b) => b.classList.toggle('active', b === btn));
+              this.renderImageList();
+            });
+          });
+          const addBtn = document.getElementById('mms-img-add');
+          if (addBtn) addBtn.addEventListener('click', () => this.addImageEntry());
+          const saveBtn = document.getElementById('mms-img-save');
+          if (saveBtn) saveBtn.addEventListener('click', () => this.saveImageDataToSource());
+          const copyBtn = document.getElementById('mms-img-copy');
+          if (copyBtn) copyBtn.addEventListener('click', () => this.copyImageDataCode());
+          const expBtn = document.getElementById('mms-img-export');
+          if (expBtn) expBtn.addEventListener('click', () => this.exportPresetFile(this.imageData, 'mms-images.json'));
+          const impBtn = document.getElementById('mms-img-import');
+          if (impBtn) impBtn.addEventListener('click', () => this.importImageData());
+
+          this.syncImageUI();
+        },
+
+        renderImageList() {
+          const listEl = document.getElementById('mms-img-list');
+          if (!listEl || !this.imageData) return;
+          const data = this.imageData[this.imageCat] || {};
+          const q = this.imageSearch;
+          const names = Object.keys(data).filter(
+            (k) => !q || k.toLowerCase().includes(q) || String(data[k]).toLowerCase().includes(q),
+          );
+          listEl.innerHTML = '';
+          if (!names.length) {
+            listEl.innerHTML =
+              '<p class="text-[10px] text-gray-500 py-2 text-center">' +
+              (q ? '没有匹配「' + q + '」的条目' : '此分类暂无图片，请在下方添加') +
+              '</p>';
+            return;
+          }
+          names.forEach((name) => {
+            const url = data[name];
+            const row = document.createElement('div');
+            row.className = 'mms-img-row';
+            row.setAttribute('data-name', name);
+            if (this.validateImageName(name) || this.validateImageUrl(url)) row.classList.add('invalid');
+
+            const thumb = document.createElement('div');
+            thumb.className = 'mms-img-thumb';
+            thumb.title = name;
+            this.fillImageThumb(thumb, url);
+            row.appendChild(thumb);
+
+            const nameInput = document.createElement('input');
+            nameInput.className = 'form-input mms-img-name';
+            nameInput.value = name;
+            nameInput.placeholder = '名称';
+            row.appendChild(nameInput);
+
+            const urlInput = document.createElement('input');
+            urlInput.className = 'form-input mms-img-url';
+            urlInput.value = url;
+            urlInput.placeholder = 'https://…';
+            urlInput.spellcheck = false;
+            row.appendChild(urlInput);
+
+            const del = document.createElement('button');
+            del.className = 'mms-img-del';
+            del.type = 'button';
+            del.title = '删除「' + name + '」';
+            del.setAttribute('data-name', name);
+            del.textContent = '✕';
+            row.appendChild(del);
+
+            listEl.appendChild(row);
+          });
+        },
+
+        fillImageThumb(thumb, url) {
+          thumb.innerHTML = '';
+          if (!url) {
+            thumb.textContent = '🖼';
+            return;
+          }
+          const img = document.createElement('img');
+          img.loading = 'lazy';
+          img.alt = '';
+          img.src = url;
+          img.onerror = () => {
+            thumb.innerHTML = '';
+            thumb.textContent = '⚠';
+          };
+          thumb.appendChild(img);
+        },
+
+        onImageRowEdit(e) {
+          const row = e.target.closest('.mms-img-row');
+          if (!row || !this.imageData) return;
+          const oldName = row.getAttribute('data-name');
+          const cat = this.imageCat;
+          const data = this.imageData[cat];
+          if (!data || !(oldName in data)) return;
+
+          if (e.target.classList.contains('mms-img-name')) {
+            const newName = e.target.value.trim();
+            const err = this.validateImageName(newName);
+            if (err) {
+              alert('名称' + err);
+              e.target.value = oldName;
+              return;
+            }
+            if (newName !== oldName) {
+              if (newName in data) {
+                alert('已存在同名条目：' + newName);
+                e.target.value = oldName;
+                return;
+              }
+              this.renameImageKey(cat, oldName, newName);
+              this.syncImageUI();
+              this.setImageStatus('已重命名为「' + newName + '」');
+            }
+          } else if (e.target.classList.contains('mms-img-url')) {
+            const url = e.target.value.trim();
+            data[oldName] = url;
+            // 就地更新缩略图并同步运行时表
+            this.fillImageThumb(row.querySelector('.mms-img-thumb'), url);
+            row.classList.toggle('invalid', !!(this.validateImageName(oldName) || this.validateImageUrl(url)));
+            this.applyImageEntry(cat, oldName, url);
+            this.updateImageCounts();
+            this.updateImageDirty();
+            if (typeof this.fillImageDatalists === 'function') this.fillImageDatalists();
+          }
+        },
+
+        // 单条变更同步到运行时三张表（立即生效）；url 传 null 表示删除
+        applyImageEntry(cat, name, url) {
+          const live = window.MMS_IMAGE_DATA && window.MMS_IMAGE_DATA[cat];
+          if (!live) return;
+          if (url == null) delete live[name];
+          else live[name] = url;
+          if (cat === 'background' && typeof mmsRebuildMapTags === 'function') mmsRebuildMapTags();
+        },
+
+        // 原位替换（保持对象引用，PORTRAIT_MAP/BACKGROUND_MAP/AVATAR_MAP 等别名继续有效）
+        replaceMapInPlace(target, src) {
+          if (!target || !src) return;
+          Object.keys(target).forEach((k) => delete target[k]);
+          Object.keys(src).forEach((k) => {
+            target[k] = src[k];
+          });
+        },
+
+        renameImageKey(cat, oldName, newName) {
+          const reorder = (obj) => {
+            const next = {};
+            Object.keys(obj).forEach((k) => {
+              next[k === oldName ? newName : k] = obj[k];
+            });
+            this.replaceMapInPlace(obj, next);
+          };
+          reorder(this.imageData[cat]);
+          const live = window.MMS_IMAGE_DATA && window.MMS_IMAGE_DATA[cat];
+          if (live && oldName in live) reorder(live);
+          if (cat === 'background' && typeof mmsRebuildMapTags === 'function') mmsRebuildMapTags();
+        },
+
+        deleteImageKey(name) {
+          if (!this.imageData || !(name in this.imageData[this.imageCat])) return;
+          delete this.imageData[this.imageCat][name];
+          this.applyImageEntry(this.imageCat, name, null);
+          this.syncImageUI();
+          this.setImageStatus('已删除「' + name + '」（保存前刷新页面可撤销）');
+        },
+
+        addImageEntry() {
+          if (!this.imageData) return;
+          const nameEl = document.getElementById('mms-img-new-name');
+          const urlEl = document.getElementById('mms-img-new-url');
+          const name = ((nameEl && nameEl.value) || '').trim();
+          const url = ((urlEl && urlEl.value) || '').trim();
+          const err = this.validateImageName(name);
+          if (err) {
+            alert('名称' + err);
+            return;
+          }
+          if (name in this.imageData[this.imageCat]) {
+            alert('已存在同名条目：' + name);
+            return;
+          }
+          const urlErr = this.validateImageUrl(url);
+          if (urlErr) {
+            alert('链接' + urlErr);
+            return;
+          }
+          this.imageData[this.imageCat][name] = url;
+          this.applyImageEntry(this.imageCat, name, url);
+          if (nameEl) nameEl.value = '';
+          if (urlEl) urlEl.value = '';
+          this.syncImageUI();
+          this.setImageStatus('已添加「' + name + '」');
+        },
+
+        validateImageName(name) {
+          if (!name) return '不能为空';
+          if (/[<>"`]/.test(name)) return '不能包含 < > " ` 字符';
+          if (/[\r\n\t]/.test(name)) return '不能包含换行或制表符';
+          return '';
+        },
+
+        validateImageUrl(url) {
+          if (!url) return '不能为空';
+          if (!/^https?:\/\/\S+$/i.test(url)) return '需以 http:// 或 https:// 开头';
+          if (/[\r\n\s"`]/.test(url)) return '不能包含空格、换行、引号';
+          if (/[<>]/.test(url)) return '不能包含 < > 字符';
+          // $&、$1、$` 等是 JS 替换串特殊记号，会把注入的 HTML 撕裂
+          if (/\$(?:&|`|'|<|\d|\$)/.test(url)) return '包含 $&、$1 等 JS 替换特殊记号，会破坏页面注入';
+          return '';
+        },
+
+        syncImageUI() {
+          this.renderImageList();
+          this.updateImageCounts();
+          this.updateImageDirty();
+          if (typeof this.fillImageDatalists === 'function') this.fillImageDatalists();
+        },
+
+        updateImageCounts() {
+          if (!this.imageData) return;
+          this.imageCats.forEach((c) => {
+            const el = document.getElementById('mms-img-count-' + c.key);
+            if (el) el.textContent = String(Object.keys(this.imageData[c.key] || {}).length);
+          });
+        },
+
+        imageDiffCount() {
+          if (!this.imageData || !this.imageBase) return 0;
+          const diff = (a, b) => {
+            let n = 0;
+            new Set([...Object.keys(a), ...Object.keys(b)]).forEach((k) => {
+              if (a[k] !== b[k]) n++;
+            });
+            return n;
+          };
+          let total = 0;
+          this.imageCats.forEach((c) => {
+            total += diff(this.imageData[c.key] || {}, this.imageBase[c.key] || {});
+          });
+          return total;
+        },
+
+        updateImageDirty() {
+          const n = this.imageDiffCount();
+          const badge = document.getElementById('mms-img-dirty');
+          const saveBtn = document.getElementById('mms-img-save');
+          if (badge) {
+            badge.style.display = n ? '' : 'none';
+            badge.textContent = '未保存 ' + n + ' 项';
+          }
+          if (saveBtn) saveBtn.disabled = n === 0;
+        },
+
+        setImageStatus(text) {
+          const el = document.getElementById('mms-img-status');
+          if (!el) return;
+          el.textContent = text || '';
+          el.style.display = text ? '' : 'none';
+          if (text) {
+            clearTimeout(this._imgStatusTimer);
+            this._imgStatusTimer = setTimeout(() => {
+              el.style.display = 'none';
+            }, 4000);
+          }
+        },
+
+        // 把图片数据序列化为带标记的源码块（< 转义为 \u003c，防止出现 script 闭合标签截断内联脚本）
+        // 注意：标记用拼接构造——若以完整字面量出现在本函数里，源码中会存在第二处可被
+        // MMS_IMG_BLOCK_RE 匹配的文本，导致「保存到源码」的唯一性校验永远失败
+        serializeImageData(data) {
+          const json = JSON.stringify(data, null, 2).replace(/</g, '\\u003c');
+          const startMark = '/* ' + '==== MMS_IMAGE_DATA_START ==== */';
+          const endMark = '/* ' + '==== MMS_IMAGE_DATA_END ==== */';
+          return startMark + '\nwindow.MMS_IMAGE_DATA = ' + json + ';\n' + endMark;
+        },
+
+        // 定位承载本页面的正则（build_regex.mjs 的固定 UUID 优先，其次标记块，最后脚本名）
+        async findSelfRegex() {
+          const SELF_ID = '43f2c434-708b-467e-b9fd-dac04dc1d80e';
+          const SELF_NAME = '美化状态栏[独立更新]';
+          const options = [{ type: 'global' }, { type: 'character', name: 'current' }];
+          for (const option of options) {
+            let regexes;
+            try {
+              regexes = getTavernRegexes(option);
+              if (regexes && typeof regexes.then === 'function') regexes = await regexes;
+            } catch (e) {
+              continue;
+            }
+            if (!Array.isArray(regexes) || !regexes.length) continue;
+            const hasMarker = (r) => String((r && r.replace_string) || '').includes('MMS_IMAGE_DATA_START');
+            let index = regexes.findIndex((r) => r && r.id === SELF_ID && hasMarker(r));
+            if (index < 0) index = regexes.findIndex((r) => r && r.id === SELF_ID);
+            if (index < 0) index = regexes.findIndex(hasMarker);
+            if (index < 0) index = regexes.findIndex((r) => r && (r.script_name === SELF_NAME || r.scriptName === SELF_NAME));
+            if (index >= 0) return { option, regexes, index };
+          }
+          return null;
+        },
+
+        // 核心流程：校验 → 定位正则 → 精确替换标记块 → replaceTavernRegexes 写回
+        //（写回后酒馆会重载聊天并触发 CHAT_CHANGED，本 iframe 自动以新源码重建）
+        async saveImageDataToSource() {
+          if (!this.imageData) return;
+          // 1. 全量校验，有非法条目则拒绝保存
+          const problems = [];
+          this.imageCats.forEach((c) => {
+            const data = this.imageData[c.key] || {};
+            Object.keys(data).forEach((k) => {
+              const e1 = this.validateImageName(k);
+              const e2 = this.validateImageUrl(data[k]);
+              if (e1) problems.push(c.label + '「' + k + '」名称' + e1);
+              else if (e2) problems.push(c.label + '「' + k + '」链接' + e2);
+            });
+          });
+          if (problems.length) {
+            alert(
+              '以下条目有问题，请先修正：\n' +
+                problems.slice(0, 10).join('\n') +
+                (problems.length > 10 ? '\n…共 ' + problems.length + ' 项' : ''),
+            );
+            this.renderImageList();
+            return;
+          }
+
+          if (!this.env.hasRegexApi) {
+            alert('当前环境没有酒馆助手正则 API，无法写回源码。\n可先「导出」JSON 备份，或「复制配置」后手动粘贴回 MiniMapStatus.html。');
+            return;
+          }
+
+          const btn = document.getElementById('mms-img-save');
+          const restoreBtn = () => {
+            if (btn) {
+              btn.disabled = false;
+              btn.innerHTML = '<i class="fa fa-save mr-1"></i>保存到源码';
+            }
+          };
+          if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>写入中…';
+          }
+
+          try {
+            const found = await this.findSelfRegex();
+            if (!found) {
+              alert('未找到承载本页面的正则脚本（美化状态栏[独立更新]）。\n请确认该正则未被删除或改名；数据仍在编辑中，可「导出」先备份。');
+              return;
+            }
+            const { option, regexes, index } = found;
+            const src = String((regexes[index] && regexes[index].replace_string) || '');
+            const matches = src.match(MMS_IMG_BLOCK_RE) || [];
+            if (matches.length !== 1) {
+              alert('正则源码中未找到唯一的图片数据标记块（匹配 ' + matches.length + ' 处），为安全起见已取消写入。');
+              return;
+            }
+            const block = this.serializeImageData(this.imageData);
+            regexes[index].replace_string = src.replace(MMS_IMG_BLOCK_RE, () => block);
+            await replaceTavernRegexes(regexes, option);
+            // 走到这里通常页面已被酒馆重载；若未重载则手动对齐基线
+            window.MMS_IMAGE_DATA_BASE = JSON.parse(JSON.stringify(this.imageData));
+            this.imageBase = window.MMS_IMAGE_DATA_BASE;
+            this.updateImageDirty();
+            this.setImageStatus('已写回源码，页面即将自动刷新');
+          } catch (e) {
+            console.error('[MMS] 图片配置写回失败:', e);
+            alert('写回失败：' + (e && e.message ? e.message : e) + '\n数据未丢失（仍在编辑中），可「导出」先备份。');
+          } finally {
+            restoreBtn();
+          }
+        },
+
+        async copyImageDataCode() {
+          if (!this.imageData) return;
+          const code = this.serializeImageData(this.imageData);
+          let ok = false;
+          try {
+            // 剪贴板 API 可能因权限挂起（iframe/嵌入式环境），超时后走 execCommand 降级
+            const write = navigator.clipboard && navigator.clipboard.writeText
+              ? navigator.clipboard.writeText(code)
+              : Promise.reject(new Error('no clipboard api'));
+            await Promise.race([write, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 1500))]);
+            ok = true;
+          } catch (e) {
+            // 降级：临时 textarea + execCommand
+            try {
+              const ta = document.createElement('textarea');
+              ta.value = code;
+              ta.style.position = 'fixed';
+              ta.style.opacity = '0';
+              document.body.appendChild(ta);
+              ta.select();
+              ok = document.execCommand('copy');
+              document.body.removeChild(ta);
+            } catch (e2) {
+              ok = false;
+            }
+          }
+          if (ok) {
+            this.setImageStatus('已复制：在本地 MiniMapStatus.html 中全选旧标记块（START 到 END 两行含中间内容）后粘贴替换');
+          } else {
+            alert('复制失败，请改用「导出」保存 JSON。');
+          }
+        },
+
+        importImageData() {
+          if (!this.imageData) return;
+          this.importPresetFile('application/json', (data) => {
+            const errMsg = 'JSON 格式不对：应为「导出」产生的 { portrait, background, avatar } 结构';
+            if (!data || typeof data !== 'object' || Array.isArray(data)) {
+              alert(errMsg);
+              return;
+            }
+            const next = {};
+            for (const c of this.imageCats) {
+              const src = data[c.key];
+              if (!src || typeof src !== 'object' || Array.isArray(src)) {
+                alert(errMsg);
+                return;
+              }
+              for (const k of Object.keys(src)) {
+                if (typeof src[k] !== 'string') {
+                  alert(errMsg + '（' + c.label + '「' + k + '」的链接不是字符串）');
+                  return;
+                }
+              }
+              next[c.key] = Object.assign({}, src);
+            }
+            if (!confirm('导入将覆盖当前编辑中的三张图片表（未保存的修改会丢失），继续？')) return;
+            this.imageData = next;
+            for (const c of this.imageCats) {
+              this.replaceMapInPlace(window.MMS_IMAGE_DATA[c.key], next[c.key]);
+            }
+            if (typeof mmsRebuildMapTags === 'function') mmsRebuildMapTags();
+            this.syncImageUI();
+            this.setImageStatus(
+              '导入完成（立绘 ' +
+                Object.keys(next.portrait).length +
+                ' / 底图 ' +
+                Object.keys(next.background).length +
+                ' / 头像 ' +
+                Object.keys(next.avatar).length +
+                ' 项），记得「保存到源码」',
+            );
+          });
         },
 
         // ---------- 启动 ----------
