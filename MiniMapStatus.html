@@ -3814,6 +3814,10 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <input type="checkbox" id="mms-auto-update" checked />
               <span>自动更新状态（楼层完成或内容变化时触发）</span>
             </label>
+            <label class="mms-toggle-row">
+              <input type="checkbox" id="mms-combat-sync" checked />
+              <span>战斗结算直连（RpgCombat 战后数值直接写入，不经 LLM 转述）</span>
+            </label>
             <div class="flex gap-2 pt-1">
               <button id="mms-manual-update" class="px-3 py-1.5 rounded-lg bg-primary/20 text-primary text-xs font-semibold hover:bg-primary/30 flex items-center gap-1" type="button">
                 <i class="fa fa-refresh"></i> 立即更新状态
@@ -9182,6 +9186,12 @@ createCharacterEntry(text, categoryKey) {
       const MMS_INJECT_ID = 'mms-status-inject';
       // 世界书注入条目名（聊天绑定世界书内）
       const MMS_WB_ENTRY_NAME = 'MMS-状态栏数据';
+      // 战斗结算直连（RpgCombat）：真值载体、幂等台账、通知通道
+      const MMS_COMBAT_RESULT_VAR = '$rpg_combat_result';
+      const MMS_COMBAT_SYNC_VAR = '$mms_combat_sync';
+      const MMS_COMBAT_EVENT = 'rpgcombat:battle-result';
+      const MMS_COMBAT_APPLIED_EVENT = 'mms:combat-applied';
+      const MMS_COMBAT_CHANNEL = 'rpg-combat-bridge';
 
       function getCurrentMessage() {
         try {
@@ -10104,9 +10114,14 @@ createCharacterEntry(text, categoryKey) {
             }
           }
         }
+        return mmsSerializeItemList(list);
+      }
+
+      // 清单回写：装饰前缀在前，数量按原书写形态（xN / 名称：N+后缀 / 无数量）还原
+      function mmsSerializeItemList(list) {
         const parts = [];
-        for (const p of list.prefixes) parts.push(p);
-        for (const it of list.items) {
+        for (const p of (list && list.prefixes) || []) parts.push(p);
+        for (const it of (list && list.items) || []) {
           if (it.count == null) parts.push(`[${it.display}]`);
           else if (it.sep) parts.push(`[${it.display}${it.sep}${it.count}${it.suffix || ''}]`);
           else parts.push(`[${it.display}x${it.count}]`);
@@ -10175,6 +10190,313 @@ createCharacterEntry(text, categoryKey) {
         }
         const str = Math.abs(result % 1) > 1e-9 ? result.toFixed(2) : String(Math.round(result));
         return str + suffix;
+      }
+
+      // ---------- MMS：战斗结算直连（RpgCombat → 状态栏，全程不经 LLM） ----------
+
+      // 战斗数值键 → 状态栏可能使用的属性键别名（匹配走 mmsNormalizeName，故 "❤️HP" 能命中 "hp"）
+      const MMS_COMBAT_ATTR_ALIASES = {
+        hp: ['hp', '生命', '生命值', '体力', '血量', 'health'],
+        mp: ['mp', '法力', '法力值', '魔力', '精力', 'mana'],
+        atk: ['atk', '攻击', '攻击力', 'attack'],
+        armor: ['armor', '防御', '防御力', '护甲', '装甲', 'def'],
+        speed: ['speed', '速度', '敏捷', 'spd'],
+      };
+      // 战后伤势词写入的目标键（仅当角色已有此类键时才写）
+      const MMS_COMBAT_STATE_KEYS = ['状态', '伤势', '生死', '状况'];
+
+      // 严格匹配：全等优先；无全等时用"剥括号备注的主名"全等，且仅唯一命中才采纳。
+      // getName 从候选项取名字；返回命中下标，找不到/有歧义返回 -1
+      // （现有 mmsNameMatch 是双向子串匹配并取首个命中，"绷带" 会打到 "高级绷带" 上，直连不能用）
+      function mmsMatchOne(candidates, name, getName) {
+        const pick = getName || ((c) => (c && c.name != null ? c.name : c));
+        const target = mmsNormalizeName(name);
+        if (!target || !candidates || !candidates.length) return -1;
+        for (let i = 0; i < candidates.length; i++) {
+          if (mmsNormalizeName(pick(candidates[i])) === target) return i;
+        }
+        const base = mmsItemBaseName(name);
+        if (!base) return -1;
+        const hits = [];
+        for (let i = 0; i < candidates.length; i++) {
+          if (mmsItemBaseName(pick(candidates[i])) === base) hits.push(i);
+        }
+        return hits.length === 1 ? hits[0] : -1;
+      }
+
+      // 按绝对数量改写清单：只改已有条目，允许并保留零数量条目，不新增、不删除。
+      // 不走 mmsApplyItemCommands：那里 "set 0" 语义是移除（LLM 协议里"用光了就删掉"），
+      // 但弹药打空必须留下 "[.45子弹：0]"，否则下一份 Combat_block 就没这条弹药、枪的绑定永久断供。
+      // 返回 {str, applied:[名], missed:[名]}
+      function mmsSetItemCounts(prevStr, pairs) {
+        const list = mmsParseItemList(prevStr);
+        const applied = [];
+        const missed = [];
+        for (const p of pairs || []) {
+          if (!p || !p.name || p.count == null) continue;
+          const idx = mmsMatchOne(list.items, p.name);
+          if (idx < 0) {
+            missed.push(p.name);
+            continue;
+          }
+          const it = list.items[idx];
+          // 原本无数量的条目（"[手电筒]"）不强加数量，避免把叙事道具改成计数物
+          if (it.count == null) {
+            missed.push(p.name);
+            continue;
+          }
+          it.count = Math.max(0, Math.floor(p.count));
+          applied.push(it.display);
+        }
+        return { str: mmsSerializeItemList(list), applied, missed };
+      }
+
+      // 战后伤势档位（按最终 HP 比例查表，非生成式改写）
+      function mmsCombatInjuryWord(hero) {
+        const max = Number(hero && hero.maxHp) || 0;
+        const cur = Math.max(0, Number(hero && hero.hp) || 0);
+        if (hero && hero.alive === false) return '重伤濒死';
+        if (!max) return '';
+        const r = cur / max;
+        if (cur <= 0) return '重伤濒死';
+        if (r >= 1) return '无恙';
+        if (r >= 0.6) return '轻伤';
+        if (r >= 0.3) return '重伤';
+        return '濒死';
+      }
+
+      // 战斗结果 → 状态栏。返回 {state, report}
+      // report.applied 同时充当"合并层硬锁"清单：{name, attrs:[状态栏键名], items:[状态栏显示名]}
+      function mmsBuildCombatResult(state, result, roster) {
+        const report = { applied: [], unmatchedChars: [], unmatchedItems: [], maxMismatch: [] };
+        const next = JSON.parse(JSON.stringify(state || {}));
+        const R = next['状态栏'];
+        if (!R || typeof R !== 'object') return { state: next, report };
+        const heroes = (result && Array.isArray(result.heroes) ? result.heroes : []).filter(
+          (h) => h && h.name,
+        );
+        if (!heroes.length) return { state: next, report };
+
+        const entries = Array.isArray(R['角色列表']) ? R['角色列表'] : [];
+        const chars = entries
+          .map((e) => (e && typeof e === 'object' ? e['角色'] || e['用户'] || e : null))
+          .filter((c) => c && typeof c === 'object');
+        const rosterChars = (roster && roster.characters) || [];
+
+        for (const hero of heroes) {
+          const ci = mmsMatchOne(chars, hero.name, (c) => {
+            const f = mmsFindNameField(c);
+            return f ? c[f] : '';
+          });
+          if (ci < 0) {
+            report.unmatchedChars.push(hero.name);
+            continue;
+          }
+          const target = chars[ci];
+          const ri = mmsMatchOne(rosterChars, hero.name, (r) => r.name);
+          const rosterChar = ri >= 0 ? rosterChars[ri] : null;
+          const entry = { name: hero.name, attrs: [], items: [] };
+
+          mmsApplyCombatAttrs(target, hero, rosterChar, entry, report);
+          mmsApplyCombatItems(target, hero, rosterChar, entry, report);
+
+          if (entry.attrs.length || entry.items.length) report.applied.push(entry);
+        }
+        return { state: next, report };
+      }
+
+      // 属性：只为状态栏"已存在的键"生成绝对值 set 命令，不新增键
+      function mmsApplyCombatAttrs(target, hero, rosterChar, entry, report) {
+        const attrKey = Object.keys(target).find((k) => /属性|数值|状态值/.test(k)) || '属性';
+        const prevStr = target[attrKey];
+        const attrs = mmsParseAttrList(prevStr);
+        if (!attrs.length) return;
+        const findKey = (aliases) => {
+          for (const alias of aliases) {
+            const nk = mmsNormalizeName(alias);
+            const hit = attrs.find((a) => mmsNormalizeName(a.display) === nk);
+            if (hit) return hit;
+          }
+          return null;
+        };
+        const cmds = [];
+        const pushPair = (aliases, cur, max) => {
+          const hit = findKey(aliases);
+          if (!hit) return;
+          if (mmsIsCurMax(hit.value)) {
+            const statusMax = parseFloat(String(hit.value).split('/')[1]);
+            if (max != null && isFinite(statusMax) && Number(max) !== statusMax) {
+              report.maxMismatch.push({
+                name: hero.name,
+                key: hit.display,
+                combatMax: Number(max),
+                statusMax,
+              });
+            }
+          }
+          cmds.push(`[${hit.display}:${Math.max(0, Math.floor(Number(cur) || 0))}]`);
+          entry.attrs.push(hit.display);
+        };
+        if (hero.hp != null) pushPair(MMS_COMBAT_ATTR_ALIASES.hp, hero.hp, hero.maxHp);
+        if (hero.mp != null) pushPair(MMS_COMBAT_ATTR_ALIASES.mp, hero.mp, hero.maxMp);
+        if (hero.atk != null) pushPair(MMS_COMBAT_ATTR_ALIASES.atk, hero.atk, null);
+        if (hero.armor != null) pushPair(MMS_COMBAT_ATTR_ALIASES.armor, hero.armor, null);
+        if (hero.speed != null) pushPair(MMS_COMBAT_ATTR_ALIASES.speed, hero.speed, null);
+        // 伤势词：仅当已有 状态/伤势 类属性键时写入
+        const word = mmsCombatInjuryWord(hero);
+        if (word) {
+          const stateHit = findKey(MMS_COMBAT_STATE_KEYS);
+          if (stateHit && !mmsIsCurMax(stateHit.value) && mmsAttrToNumber(stateHit.value) == null) {
+            cmds.push(`[${stateHit.display}:${word}]`);
+            entry.attrs.push(stateHit.display);
+          }
+        }
+        if (!cmds.length) return;
+        const tmpl = rosterChar ? (rosterChar.attrs || []).map((a) => ({ key: a.key, value: a.value })) : [];
+        // 交给现成引擎应用：cur/max 型会锁住状态栏上限并把当前值夹到 [0, 上限]
+        target[attrKey] = mmsApplyAttrCommands(prevStr, cmds.join(''), tmpl);
+      }
+
+      // 物品：候选字段 = 名册 check 字段 ∪ 条目上能解析出括号清单的字段（排除属性/自由字段）
+      function mmsApplyCombatItems(target, hero, rosterChar, entry, report) {
+        const items = (hero.items || []).filter((it) => it && it.name && it.count != null);
+        if (!items.length) return;
+        const freeKeys = new Set();
+        const checkKeys = [];
+        for (const f of mmsCharFields(rosterChar) || []) {
+          if (!f || !f.key) continue;
+          if (f.mode === 'free') freeKeys.add(f.key);
+          else checkKeys.push(f.key);
+        }
+        const fields = [];
+        for (const k of checkKeys) {
+          if (typeof target[k] === 'string') fields.push(k);
+        }
+        for (const k of Object.keys(target)) {
+          if (fields.includes(k)) continue;
+          if (freeKeys.has(k)) continue;
+          if (/名字|姓名|名称|属性|数值|状态值/.test(k)) continue;
+          if (typeof target[k] !== 'string') continue;
+          if (!mmsParseItemList(target[k]).items.length) continue;
+          fields.push(k);
+        }
+        if (!fields.length) {
+          for (const it of items) report.unmatchedItems.push(hero.name + '·' + it.name);
+          return;
+        }
+        const pending = items.slice();
+        for (const field of fields) {
+          if (!pending.length) break;
+          const res = mmsSetItemCounts(target[field], pending);
+          if (res.applied.length) {
+            target[field] = res.str;
+            for (const n of res.applied) entry.items.push(n);
+          }
+          // 未命中的留给下一个字段继续找
+          const missedSet = new Set(res.missed.map((n) => mmsNormalizeName(n)));
+          for (let i = pending.length - 1; i >= 0; i--) {
+            if (!missedSet.has(mmsNormalizeName(pending[i].name))) pending.splice(i, 1);
+          }
+        }
+        for (const it of pending) report.unmatchedItems.push(hero.name + '·' + it.name);
+      }
+
+      // 硬锁：丢弃更新 AI 对"已由程序写入"的属性键/物品的数值命令。
+      // 只挡数值（±N 与数字 set），文本类 set（如 状态:清醒）照常通过；未锁定的键与新物品不受影响。
+      // 提示词级禁令挡不住大段战斗叙事的对冲，所以真正的防线放在合并层。
+      function mmsLockHit(lockedNames, name) {
+        const nk = mmsNormalizeName(name);
+        const bk = mmsItemBaseName(name);
+        for (const l of lockedNames || []) {
+          if (mmsNormalizeName(l) === nk) return true;
+          if (bk && mmsItemBaseName(l) === bk) return true;
+        }
+        return false;
+      }
+
+      function mmsFilterLockedAttrCmd(cmdStr, lockedKeys) {
+        if (!lockedKeys || !lockedKeys.length) return cmdStr;
+        const segments = String(cmdStr == null ? '' : cmdStr).match(/\[([^\[\]]+)\]/g) || [];
+        if (!segments.length) return cmdStr;
+        const kept = [];
+        let dropped = 0;
+        for (const seg of segments) {
+          const content = seg.slice(1, -1).trim();
+          if (!content || mmsIsEmojiOnly(content)) {
+            kept.push(seg);
+            continue;
+          }
+          let key = null;
+          let numeric = false;
+          let m = content.match(/^(.+?)\s*([+-])\s*(\d+(?:\.\d+)?)$/);
+          if (m) {
+            key = m[1].trim();
+            numeric = true;
+          } else {
+            m = content.match(/^(.+?)\s*[:：]\s*(.+)$/);
+            if (m) {
+              key = m[1].trim();
+              numeric = /^-?\d+(?:\.\d+)?(?:\s*\/\s*\d+(?:\.\d+)?)?$/.test(m[2].trim());
+            }
+          }
+          if (key && numeric && mmsLockHit(lockedKeys, key)) {
+            dropped++;
+            continue;
+          }
+          kept.push(seg);
+        }
+        if (!dropped) return cmdStr;
+        console.info('[MMS] 战斗结算硬锁：丢弃了 ' + dropped + ' 条属性数值命令');
+        return kept.join('');
+      }
+
+      function mmsItemCmdName(content) {
+        let m = content.match(/^\+\s*(.+?)\s*x\s*(\d+)$/);
+        if (m) return m[1].trim();
+        m = content.match(/^\+\s*(.+)$/);
+        if (m) return m[1].trim();
+        m = content.match(/^(.+?)\s*[-+]\s*(\d+)$/);
+        if (m) return m[1].trim();
+        m = content.match(/^(.+?)\s*[:：]\s*(\d+)/);
+        if (m) return m[1].trim();
+        m = content.match(/^(.*?)\s*x\s*(\d+)$/);
+        if (m && m[1].trim()) return m[1].trim();
+        return content;
+      }
+
+      function mmsFilterLockedItemCmd(cmdStr, lockedNames) {
+        if (!lockedNames || !lockedNames.length) return cmdStr;
+        const segments = String(cmdStr == null ? '' : cmdStr).match(/\[([^\[\]]+)\]/g) || [];
+        if (!segments.length) return cmdStr;
+        const kept = [];
+        let dropped = 0;
+        for (const seg of segments) {
+          const content = seg.slice(1, -1).trim();
+          if (!content || mmsIsEmojiOnly(content)) {
+            kept.push(seg);
+            continue;
+          }
+          if (mmsLockHit(lockedNames, mmsItemCmdName(content))) {
+            dropped++;
+            continue;
+          }
+          kept.push(seg);
+        }
+        if (!dropped) return cmdStr;
+        console.info('[MMS] 战斗结算硬锁：丢弃了 ' + dropped + ' 条清单数量命令');
+        return kept.join('');
+      }
+
+      // 锁清单 → 按角色索引的 Map（键为归一化名字）
+      function mmsIndexCombatLock(lock) {
+        const map = new Map();
+        for (const e of lock || []) {
+          if (!e || !e.name) continue;
+          const nk = mmsNormalizeName(e.name);
+          if (!nk) continue;
+          map.set(nk, { attrs: e.attrs || [], items: e.items || [] });
+        }
+        return map;
       }
 
       // ---------- MMS v2：名册合并引擎 ----------
@@ -10345,7 +10667,7 @@ createCharacterEntry(text, categoryKey) {
       // 合并单个角色：base=基底（上次状态或名册模板），aiChar=AI输出（可null）
       // absenceCount: 该角色连续缺席轮数（null=非更新场景，不适用阈值）
       // threshold: 连续缺席超过该轮数才显示占位文案，之前保留上轮自由字段
-      function mmsMergeChar(base, aiChar, rosterEntry, storyText, displayCfg, absenceCount, threshold) {
+      function mmsMergeChar(base, aiChar, rosterEntry, storyText, displayCfg, absenceCount, threshold, charLock) {
         const src = aiChar && typeof aiChar === 'object' ? aiChar : null;
         const b = base && typeof base === 'object' ? base : {};
         const fields = mmsCharFields(rosterEntry);
@@ -10354,6 +10676,9 @@ createCharacterEntry(text, categoryKey) {
         const reserved = new Set(['名字', '属性', '立绘']);
         for (const f of checkFields) reserved.add(f.key);
         const c = {};
+        // 战斗结算硬锁：该角色被程序写过的属性键/物品，本轮 AI 的数值命令一律丢弃
+        const lockAttrs = (charLock && charLock.attrs) || null;
+        const lockItems = (charLock && charLock.items) || null;
 
         // 固定成员名字锁定名册配置：AI 输出不覆盖（页签 emoji 不随 AI 漂移）；
         // 非名册角色沿用 AI/base 名字。两者都做"空格+emoji"显示归一——
@@ -10369,13 +10694,13 @@ createCharacterEntry(text, categoryKey) {
         const templateAttrs = rosterEntry ? rosterEntry.attrs : null;
         c['属性'] =
           src && src['属性'] != null
-            ? mmsApplyAttrCommands(b['属性'] || '', src['属性'], templateAttrs)
+            ? mmsApplyAttrCommands(b['属性'] || '', mmsFilterLockedAttrCmd(src['属性'], lockAttrs), templateAttrs)
             : b['属性'] || (templateAttrs ? mmsAttrsToString(templateAttrs) : '');
 
         // 校验字段（武器/物品/弹药/消耗/道具…）：AI 输出命令 → 应用到基底；初值兜底
         for (const f of checkFields) {
           if (src && src[f.key] != null) {
-            c[f.key] = mmsApplyItemCommands(b[f.key] || '', src[f.key]);
+            c[f.key] = mmsApplyItemCommands(b[f.key] || '', mmsFilterLockedItemCmd(src[f.key], lockItems));
           } else {
             c[f.key] = b[f.key] != null ? b[f.key] : f.initial || '';
           }
@@ -10385,16 +10710,18 @@ createCharacterEntry(text, categoryKey) {
         // 值被 [ ] 包裹 → 按校验字段套命令协议落地（与一键导入的分类规则一致），
         // 纯文本 → 按自由字段落地。防止 "[薄羊皮手套+1]" 这类命令串原样显示在卡片上。
         // 仅对名册角色生效：非名册角色没有字段配置，全部按自由字段处理
+        // （例外：战斗结算锁生效时，非名册角色的清单也走命令协议，否则 AI 的全量重写会覆盖已结算数量）
         const knownFieldKeys = new Set(fields.map((f) => f.key));
+        const hasItemLock = !!(lockItems && lockItems.length);
         for (const k of Object.keys(src || {})) {
           if (reserved.has(k)) continue;
           if (
-            rosterEntry &&
+            (rosterEntry || hasItemLock) &&
             !knownFieldKeys.has(k) &&
             typeof src[k] === 'string' &&
             src[k].includes('[')
           ) {
-            c[k] = mmsApplyItemCommands(b[k] || '', src[k]);
+            c[k] = mmsApplyItemCommands(b[k] || '', mmsFilterLockedItemCmd(src[k], lockItems));
             continue;
           }
           c[k] = src[k];
@@ -10532,11 +10859,13 @@ createCharacterEntry(text, categoryKey) {
 
       // 总合并：prev=上次状态(已规范化)，aiOut=AI输出(已规范化)，roster=名册，storyText=本轮正文
       // absenceMap：缺席轮数表（对象，会被原地更新：AI输出该角色→清零，漏输出→+1），null=不计数
-      function mmsMergeState(prev, aiOut, roster, storyText, absenceMap) {
+      // combatLock：战斗结算硬锁清单 [{name, attrs, items}]，锁定项的 AI 数值命令一律丢弃
+      function mmsMergeState(prev, aiOut, roster, storyText, absenceMap, combatLock) {
         const displayCfg = {
           absentText: (roster && roster.absentText) || '本轮未提及',
           presentText: (roster && roster.presentText) || '在场·本轮未详',
         };
+        const lockMap = mmsIndexCombatLock(combatLock);
         const threshold =
           roster && roster.absentThreshold != null ? Number(roster.absentThreshold) : 3;
         const rosterChars = (roster && roster.characters) || [];
@@ -10588,13 +10917,13 @@ createCharacterEntry(text, categoryKey) {
               absenceMap[nk] = absenceCount;
             }
             list.push({
-              角色: mmsMergeChar(base, ai, r, storyText, displayCfg, absenceCount, threshold),
+              角色: mmsMergeChar(base, ai, r, storyText, displayCfg, absenceCount, threshold, lockMap.get(nk)),
             });
           }
           for (const [nk, ai] of aiChars) {
             if (used.has(nk)) continue;
             const prevC = prevChars.get(nk);
-            list.push({ 角色: mmsMergeChar(prevC || {}, ai, null, storyText, displayCfg) });
+            list.push({ 角色: mmsMergeChar(prevC || {}, ai, null, storyText, displayCfg, null, null, lockMap.get(nk)) });
           }
           if (list.length) R['角色列表'] = list;
         } else if (prevRoot['角色列表'] || rosterChars.length) {
@@ -10967,6 +11296,7 @@ createCharacterEntry(text, categoryKey) {
         loadConfig() {
           const defaults = {
             autoUpdate: true,
+            combatSync: true,
             apiUrl: '',
             apiKey: '',
             model: '',
@@ -11192,6 +11522,185 @@ createCharacterEntry(text, categoryKey) {
             insertOrAssignVariables({ $mms_absence: absence || {} }, { type: 'chat' });
           } catch (e) {
             console.warn('[MMS] 保存缺席轮数失败:', e);
+          }
+        },
+
+        // ---------- 战斗结算直连（RpgCombat → 状态栏，0 次 LLM） ----------
+
+        // 战斗侧写入的结算载荷（聊天变量 $rpg_combat_result）
+        loadCombatResult() {
+          try {
+            if (!this.env.hasVarsApi) return null;
+            const chatVars = getVariables({ type: 'chat' }) || {};
+            const r = chatVars && chatVars[MMS_COMBAT_RESULT_VAR];
+            if (!r || typeof r !== 'object' || !r.id || !Array.isArray(r.heroes)) return null;
+            return r;
+          } catch (e) {
+            return null;
+          }
+        },
+
+        // 幂等台账（聊天变量 $mms_combat_sync）：{lastId, appliedFloor, ts, lock, report}
+        loadCombatSync() {
+          try {
+            if (!this.env.hasVarsApi) return {};
+            const chatVars = getVariables({ type: 'chat' }) || {};
+            const s = chatVars && chatVars[MMS_COMBAT_SYNC_VAR];
+            return s && typeof s === 'object' ? s : {};
+          } catch (e) {
+            return {};
+          }
+        },
+
+        saveCombatSync(sync) {
+          try {
+            if (!this.env.hasVarsApi) return;
+            insertOrAssignVariables({ [MMS_COMBAT_SYNC_VAR]: sync || {} }, { type: 'chat' });
+          } catch (e) {
+            console.warn('[MMS] 保存战斗结算台账失败:', e);
+          }
+        },
+
+        // 未被应用过的结算：返回载荷，已应用/无数据/开关关闭时返回 null
+        pendingCombatResult() {
+          const cfg = this.loadConfig();
+          if (cfg.combatSync === false) return null;
+          const result = this.loadCombatResult();
+          if (!result) return null;
+          const sync = this.loadCombatSync();
+          return sync.lastId === result.id ? null : result;
+        },
+
+        // 有效的硬锁清单：战斗叙事还在更新 AI 上下文窗口内时才锁
+        combatLockFor(targetFloorId) {
+          try {
+            const cfg = this.loadConfig();
+            if (cfg.combatSync === false) return null;
+            const sync = this.loadCombatSync();
+            if (!sync || !Array.isArray(sync.lock) || !sync.lock.length) return null;
+            if (sync.appliedFloor == null || targetFloorId == null) return sync.lock;
+            const span = Math.min(10, Math.max(1, Number(cfg.contextFloors) || 2));
+            if (targetFloorId - sync.appliedFloor > span) return null;
+            return sync.lock;
+          } catch (e) {
+            return null;
+          }
+        },
+
+        // 结算写入状态栏。opts.state 传入时就地应用于该状态对象（runUpdate 的 prev 场景，不落盘）
+        async applyCombatResult(result, opts = {}) {
+          const { inline = false, baseState = null, floorId = null } = opts;
+          if (!this.env.hasVarsApi || !result) return null;
+          const cfg = this.loadConfig();
+          if (cfg.combatSync === false) return null;
+
+          const targetFloor = floorId != null ? floorId : this.floorId;
+          if (!inline) {
+            if (targetFloor == null) return null;
+            // 单写者：只有最新 AI 楼的实例负责落盘（每个带状态栏的楼层都渲染一个实例）
+            if (!this.checkLastAssistantFloor(targetFloor)) return null;
+            // 幂等：同一结算只应用一次（比对台账，多实例抢跑最坏情况是同值重写）
+            if (this.loadCombatSync().lastId === result.id) return null;
+          }
+
+          let base = baseState;
+          if (!base) {
+            const vars = this.readFloorVars(targetFloor);
+            base = vars && vars.stat_data ? mmsNormalizeState(vars.stat_data) || vars.stat_data : null;
+            if (!base) {
+              const prev = await this.findPrevState(targetFloor);
+              base = prev ? prev.state : null;
+            }
+          }
+          if (!base || !base['状态栏']) {
+            console.warn('[MMS] 无状态基线，战斗结算无法写入');
+            return null;
+          }
+
+          const roster = this.loadRoster();
+          const { state, report } = mmsBuildCombatResult(base, result, roster);
+          const charCount = report.applied.length;
+          const itemCount = report.applied.reduce((n, e) => n + e.items.length, 0);
+
+          if (inline) return { state, report };
+
+          if (!charCount) {
+            // 一个角色都没匹配上：不写状态，只提示 + 落台账（避免反复重试）
+            this.saveCombatSync({
+              lastId: result.id,
+              appliedFloor: targetFloor,
+              ts: Date.now(),
+              lock: [],
+              report,
+            });
+            this.setIndicator('error', '战斗结算未匹配到任何角色：' + report.unmatchedChars.join('、'));
+            this.notifyCombatApplied(result.id, false, report);
+            return { state: base, report };
+          }
+
+          this.sanitizeState(state);
+          // 写前快照：结算写错（例如战斗失败后重打）可用「剧情回溯」回滚
+          this.appendHistory(base, state, targetFloor);
+          this.writeState(targetFloor, state);
+          if (this.checkLastAssistantFloor(targetFloor)) await this.ensureInjection(state, targetFloor);
+          if (targetFloor === this.floorId) this.refreshFromVars();
+          if (this.env.hasEventApi) {
+            try {
+              eventEmit(MMS_EVENT_UPDATED, { message_id: targetFloor, state });
+            } catch (e) { /* 忽略 */ }
+          }
+          this.saveCombatSync({
+            lastId: result.id,
+            appliedFloor: targetFloor,
+            ts: Date.now(),
+            lock: report.applied,
+            report,
+          });
+
+          const warn = [];
+          if (report.unmatchedChars.length) warn.push('未匹配角色：' + report.unmatchedChars.join('、'));
+          if (report.unmatchedItems.length) warn.push('未匹配物品：' + report.unmatchedItems.join('、'));
+          if (report.maxMismatch.length) {
+            warn.push(
+              '上限不一致（已沿用状态栏上限）：' +
+                report.maxMismatch.map((m) => m.name + '·' + m.key + ' ' + m.combatMax + '→' + m.statusMax).join('、'),
+            );
+          }
+          const summary = '⚔ 战斗结算已同步：' + charCount + ' 名成员 / ' + itemCount + ' 项物品';
+          this.setIndicator(warn.length ? 'error' : 'ok', warn.length ? summary + '；' + warn.join('；') : summary);
+          if (!warn.length) {
+            setTimeout(() => {
+              if (!this.updating) this.setIndicator(null);
+            }, 4000);
+          }
+          this.notifyCombatApplied(result.id, true, report);
+          return { state, report };
+        },
+
+        // 回执：战斗侧据此把结算弹窗的同步徽标从"等待确认"翻成结果态
+        notifyCombatApplied(id, ok, report) {
+          const payload = { id, ok: !!ok, report };
+          try {
+            if (this.env.hasEventApi) eventEmit(MMS_COMBAT_APPLIED_EVENT, payload);
+          } catch (e) { /* 忽略 */ }
+          try {
+            if (this.combatChannel) this.combatChannel.postMessage({ type: 'combat-applied', ...payload });
+          } catch (e) { /* 忽略 */ }
+        },
+
+        // 战斗侧通知通道（独立于 mms-sync，不干扰跨楼层状态同步语义）
+        initCombatBridge() {
+          try {
+            if (this.combatChannel || typeof BroadcastChannel === 'undefined') return;
+            this.combatChannel = new BroadcastChannel(MMS_COMBAT_CHANNEL);
+            this.combatChannel.onmessage = (ev) => {
+              const data = ev && ev.data;
+              if (!data || data.type !== 'battle-result') return;
+              const result = this.pendingCombatResult();
+              if (result) this.applyCombatResult(result);
+            };
+          } catch (e) {
+            this.combatChannel = null; // 环境不支持时静默降级（靠事件与 boot 对账兜底）
           }
         },
 
@@ -12680,6 +13189,23 @@ createCharacterEntry(text, categoryKey) {
           try {
             const prev = await this.findPrevState(targetFloorId);
             const roster = this.loadRoster();
+            // 战斗结算护栏：结算数值先程序化写入基线，再让 AI 在此之上依剧情更新。
+            // 落台账要等本次成功写盘之后——否则 LLM 三次都失败时结算数据就丢了。
+            let combatPending = null;
+            let combatLock = this.combatLockFor(targetFloorId);
+            const rawResult = this.pendingCombatResult();
+            if (rawResult && prev && prev.state) {
+              const applied = await this.applyCombatResult(rawResult, {
+                inline: true,
+                baseState: prev.state,
+                floorId: targetFloorId,
+              });
+              if (applied && applied.report.applied.length) {
+                prev.state = applied.state;
+                combatPending = { result: rawResult, report: applied.report };
+                combatLock = applied.report.applied;
+              }
+            }
             const prevYaml = prev
               ? this.stateToYaml(prev.state)
               : '（暂无初始状态，请依据剧情建立完整状态栏）';
@@ -12712,6 +13238,21 @@ createCharacterEntry(text, categoryKey) {
                 '<成员人设（撰写其内心/穿着等自由字段时必须遵从）>\n' +
                 personaLines.join('\n') +
                 '\n</成员人设>\n\n';
+            }
+            // 战斗结算禁令（纵深防御，真正的拦截在合并层硬锁）
+            if (combatLock && combatLock.length) {
+              const lockLines = combatLock.map((e) => {
+                const parts = [];
+                if (e.attrs && e.attrs.length) parts.push('属性 ' + e.attrs.join('、'));
+                if (e.items && e.items.length) parts.push('物品 ' + e.items.join('、'));
+                return '- ' + e.name + '：' + (parts.join('；') || '（无）');
+              });
+              userPrompt +=
+                '<战斗结算（以下数值已由系统直接写入当前状态，禁止重复应用）>\n' +
+                lockLines.join('\n') +
+                '\n说明：战斗造成的 HP/法力消耗与消耗品、弹药消耗均已结算完毕。' +
+                '即使剧情正文描写了受伤、开枪、用药，也不得对上列项再作任何增减；' +
+                '只依据剧情更新时间、地点、内心、穿着、人物关系等非数值内容。\n</战斗结算>\n\n';
             }
             userPrompt += '请输出更新后的完整状态栏 JSON。';
 
@@ -12753,6 +13294,7 @@ createCharacterEntry(text, categoryKey) {
                   roster,
                   latest || '',
                   absence,
+                  combatLock,
                 );
                 this.saveAbsence(absence);
                 this.sanitizeState(state);
@@ -12762,6 +13304,17 @@ createCharacterEntry(text, categoryKey) {
                 this.mmsRenderHistoryList(); // 设置面板若停在历史Tab，立即刷新（否则显示陈旧列表）
 
                 this.writeState(targetFloorId, state);
+                // 结算已随本次更新落盘：此刻才记台账（幂等 + 硬锁窗口起点）
+                if (combatPending) {
+                  this.saveCombatSync({
+                    lastId: combatPending.result.id,
+                    appliedFloor: targetFloorId,
+                    ts: Date.now(),
+                    lock: combatPending.report.applied,
+                    report: combatPending.report,
+                  });
+                  this.notifyCombatApplied(combatPending.result.id, true, combatPending.report);
+                }
 
                 const isLatest = this.checkLastAssistantFloor(targetFloorId);
                 if (isLatest) this.ensureInjection(state, targetFloorId);
@@ -13338,6 +13891,15 @@ createCharacterEntry(text, categoryKey) {
             autoChk.addEventListener('change', () => {
               const c = this.loadConfig();
               c.autoUpdate = autoChk.checked;
+              this.saveConfig(c);
+            });
+          }
+          const combatChk = document.getElementById('mms-combat-sync');
+          if (combatChk) {
+            combatChk.checked = cfg.combatSync !== false;
+            combatChk.addEventListener('change', () => {
+              const c = this.loadConfig();
+              c.combatSync = combatChk.checked;
               this.saveConfig(c);
             });
           }
@@ -15530,6 +16092,8 @@ createCharacterEntry(text, categoryKey) {
 
           // 跨楼层实例同步（名册/状态变化广播）
           this.initSyncChannel();
+          // 战斗侧通知通道（RpgCombat 结算推送）
+          this.initCombatBridge();
 
           let msg = null;
           try {
@@ -15603,6 +16167,17 @@ createCharacterEntry(text, categoryKey) {
             }
           }
 
+          // 战斗结算对账：结算时没有本楼实例在场、事件丢失、页面刷新等情况的兜底。
+          // 已记台账的结算不会重复应用（applyCombatResult 内比对 lastId）
+          try {
+            const pendingCombat = this.pendingCombatResult();
+            if (pendingCombat && this.isLastAssistantFloor) {
+              await this.applyCombatResult(pendingCombat);
+            }
+          } catch (e) {
+            console.warn('[MMS] 战斗结算对账失败:', e);
+          }
+
           // 事件刷新监听（本楼原地刷新，不重载 iframe）
           if (this.env.hasEventApi) {
             try {
@@ -15613,6 +16188,13 @@ createCharacterEntry(text, categoryKey) {
                 if (payload && payload.message_id === this.floorId) {
                   this.setIndicator('error', '更新失败：' + payload.error + '（点击重试）');
                 }
+              });
+              // 战斗结算直连：战斗结束即写入状态栏（单写者与幂等判定在 applyCombatResult 内）
+              eventOn(MMS_COMBAT_EVENT, () => {
+                try {
+                  const result = this.pendingCombatResult();
+                  if (result) this.applyCombatResult(result);
+                } catch (e) { /* 忽略 */ }
               });
               // 独立大地图更新（任意楼层生成完毕 → 本楼原地刷新底图与地标，不切标签页）
               eventOn(MMS_EVENT_MAPART, () => {
