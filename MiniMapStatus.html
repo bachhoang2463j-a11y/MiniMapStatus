@@ -3818,6 +3818,10 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <input type="checkbox" id="mms-combat-sync" checked />
               <span>战斗结算直连（RpgCombat 战后数值直接写入，不经 LLM 转述）</span>
             </label>
+            <label class="mms-toggle-row">
+              <input type="checkbox" id="mms-combat-floor-lock" checked />
+              <span>战斗结算楼层锁定（检测到战报内容时，该轮禁止更新 AI 改动属性与物品数值）</span>
+            </label>
             <div class="flex gap-2 pt-1">
               <button id="mms-manual-update" class="px-3 py-1.5 rounded-lg bg-primary/20 text-primary text-xs font-semibold hover:bg-primary/30 flex items-center gap-1" type="button">
                 <i class="fa fa-refresh"></i> 立即更新状态
@@ -8817,6 +8821,12 @@ createAttributeItem(key, value) {
         const badge = document.createElement('span');
         badge.className = 'item-badge px-1.5 py-0 text-xs rounded border theme-transition whitespace-nowrap';
         badge.textContent = itemName;
+        // 计数条目归零（x0 / ：0，含 0(备注) 后缀形态）：弹药/消耗品/道具永不消失，标红提示已耗尽
+        if (/(?:x|[:：])0(?!\d)/.test(itemName)) {
+          badge.style.color = '#f87171';
+          badge.style.borderColor = 'rgba(248,113,113,0.45)';
+          badge.title = '已耗尽（数量 0，条目保留）';
+        }
         badgeContainer.appendChild(badge);
       });
 
@@ -9998,7 +10008,7 @@ createCharacterEntry(text, categoryKey) {
         return /[(（][^)）]*[)）]/.test(String(name == null ? '' : name));
       }
 
-      // 应用物品清单命令：add/delta/set；归零移除
+      // 应用物品清单命令：add/delta/set；计数条目归零保留（渲染层标红，条目永不消失）
       // 裸段（无 +/-/: 运算符）语义按是否已在清单中区分：
       //   整串皆裸段且命中已有物品 → 判定为"全量重述"，按全量替换处理（否则会把重述当增量累加，静默翻倍）
       //   单个裸段命中已有物品 → 视为对齐数量而非累加；未命中 → 视为新获得
@@ -10095,17 +10105,18 @@ createCharacterEntry(text, categoryKey) {
             if (idx >= 0) {
               const it = list.items[idx];
               if (it.count == null) {
-                list.items.splice(idx, 1); // 无数量物品消耗即移除
+                list.items.splice(idx, 1); // 无数量物品消耗即移除（无可展示的余量）
               } else {
-                it.count -= c.count;
-                if (it.count <= 0) list.items.splice(idx, 1);
+                // 弹药/消耗品/道具类计数条目永不消失：清零保留（渲染层标红），下一份 Combat_block 仍能续带
+                it.count = Math.max(0, it.count - c.count);
               }
             } else {
               console.warn('[MMS] 消耗的物品不在清单中:', c.name);
             }
           } else if (c.op === 'set') {
             if (c.count <= 0) {
-              if (idx >= 0) list.items.splice(idx, 1);
+              // 归零保留：set 0 不再删除条目（与直连路径 mmsSetItemCounts 的零数量语义一致）
+              if (idx >= 0) list.items[idx].count = 0;
             } else if (idx >= 0) {
               list.items[idx].count = c.count;
               applyNote(list.items[idx]);
@@ -10225,8 +10236,10 @@ createCharacterEntry(text, categoryKey) {
       }
 
       // 按绝对数量改写清单：只改已有条目，允许并保留零数量条目，不新增、不删除。
-      // 不走 mmsApplyItemCommands：那里 "set 0" 语义是移除（LLM 协议里"用光了就删掉"），
-      // 但弹药打空必须留下 "[.45子弹：0]"，否则下一份 Combat_block 就没这条弹药、枪的绑定永久断供。
+      // 不走 mmsApplyItemCommands：那里走命令协议解析（add/delta/set + 裸段全量重述判定），
+      // 直连需要的是"逐物品按绝对值改写"，且必须用严格名称匹配（mmsMatchOne）——
+      // mmsNameMatch 的双向子串匹配会把"绷带"打到"高级绷带"上。
+      // 零数量语义两边已统一（引擎 set/delta 归零同样保留），此函数保留是为严格匹配与逐条报告。
       // 返回 {str, applied:[名], missed:[名]}
       function mmsSetItemCounts(prevStr, pairs) {
         const list = mmsParseItemList(prevStr);
@@ -10415,7 +10428,7 @@ createCharacterEntry(text, categoryKey) {
       }
 
       function mmsFilterLockedAttrCmd(cmdStr, lockedKeys) {
-        if (!lockedKeys || !lockedKeys.length) return cmdStr;
+        if (!lockedKeys || (!lockedKeys.length && !lockedKeys.allNumeric)) return cmdStr;
         const segments = String(cmdStr == null ? '' : cmdStr).match(/\[([^\[\]]+)\]/g) || [];
         if (!segments.length) return cmdStr;
         const kept = [];
@@ -10439,7 +10452,8 @@ createCharacterEntry(text, categoryKey) {
               numeric = /^-?\d+(?:\.\d+)?(?:\s*\/\s*\d+(?:\.\d+)?)?$/.test(m[2].trim());
             }
           }
-          if (key && numeric && mmsLockHit(lockedKeys, key)) {
+          // allNumeric（战斗结算楼层锁定）：全部数值命令一律丢弃，不按名单匹配
+          if (key && numeric && (lockedKeys.allNumeric || mmsLockHit(lockedKeys, key))) {
             dropped++;
             continue;
           }
@@ -10465,7 +10479,7 @@ createCharacterEntry(text, categoryKey) {
       }
 
       function mmsFilterLockedItemCmd(cmdStr, lockedNames) {
-        if (!lockedNames || !lockedNames.length) return cmdStr;
+        if (!lockedNames || (!lockedNames.length && !lockedNames.allNumeric)) return cmdStr;
         const segments = String(cmdStr == null ? '' : cmdStr).match(/\[([^\[\]]+)\]/g) || [];
         if (!segments.length) return cmdStr;
         const kept = [];
@@ -10476,7 +10490,8 @@ createCharacterEntry(text, categoryKey) {
             kept.push(seg);
             continue;
           }
-          if (mmsLockHit(lockedNames, mmsItemCmdName(content))) {
+          // allNumeric（战斗结算楼层锁定）：校验字段清单整体禁编，任何物品命令都丢弃
+          if (lockedNames.allNumeric || mmsLockHit(lockedNames, mmsItemCmdName(content))) {
             dropped++;
             continue;
           }
@@ -10676,9 +10691,10 @@ createCharacterEntry(text, categoryKey) {
         const reserved = new Set(['名字', '属性', '立绘']);
         for (const f of checkFields) reserved.add(f.key);
         const c = {};
-        // 战斗结算硬锁：该角色被程序写过的属性键/物品，本轮 AI 的数值命令一律丢弃
-        const lockAttrs = (charLock && charLock.attrs) || null;
-        const lockItems = (charLock && charLock.items) || null;
+        // 战斗结算硬锁：该角色被程序写过的属性键/物品，本轮 AI 的数值命令一律丢弃；
+        // allNumeric（结算楼层锁定）时整个锁对象下传——过滤函数据此丢弃全部数值命令
+        const lockAttrs = charLock ? (charLock.allNumeric ? charLock : charLock.attrs || null) : null;
+        const lockItems = charLock ? (charLock.allNumeric ? charLock : charLock.items || null) : null;
 
         // 固定成员名字锁定名册配置：AI 输出不覆盖（页签 emoji 不随 AI 漂移）；
         // 非名册角色沿用 AI/base 名字。两者都做"空格+emoji"显示归一——
@@ -10712,7 +10728,7 @@ createCharacterEntry(text, categoryKey) {
         // 仅对名册角色生效：非名册角色没有字段配置，全部按自由字段处理
         // （例外：战斗结算锁生效时，非名册角色的清单也走命令协议，否则 AI 的全量重写会覆盖已结算数量）
         const knownFieldKeys = new Set(fields.map((f) => f.key));
-        const hasItemLock = !!(lockItems && lockItems.length);
+        const hasItemLock = !!(lockItems && (lockItems.length || lockItems.allNumeric));
         for (const k of Object.keys(src || {})) {
           if (reserved.has(k)) continue;
           if (
@@ -10865,7 +10881,10 @@ createCharacterEntry(text, categoryKey) {
           absentText: (roster && roster.absentText) || '本轮未提及',
           presentText: (roster && roster.presentText) || '在场·本轮未详',
         };
-        const lockMap = mmsIndexCombatLock(combatLock);
+        // allNumeric：战斗结算楼层锁定（最新楼层含战报内容时禁止一切校验字段数值改动），对所有角色生效
+        const lockAll = !!(combatLock && combatLock.allNumeric);
+        const lockMap = lockAll ? null : mmsIndexCombatLock(combatLock);
+        const lockFor = (nk) => (lockAll ? { allNumeric: true } : lockMap.get(nk));
         const threshold =
           roster && roster.absentThreshold != null ? Number(roster.absentThreshold) : 3;
         const rosterChars = (roster && roster.characters) || [];
@@ -10917,13 +10936,13 @@ createCharacterEntry(text, categoryKey) {
               absenceMap[nk] = absenceCount;
             }
             list.push({
-              角色: mmsMergeChar(base, ai, r, storyText, displayCfg, absenceCount, threshold, lockMap.get(nk)),
+              角色: mmsMergeChar(base, ai, r, storyText, displayCfg, absenceCount, threshold, lockFor(nk)),
             });
           }
           for (const [nk, ai] of aiChars) {
             if (used.has(nk)) continue;
             const prevC = prevChars.get(nk);
-            list.push({ 角色: mmsMergeChar(prevC || {}, ai, null, storyText, displayCfg, null, null, lockMap.get(nk)) });
+            list.push({ 角色: mmsMergeChar(prevC || {}, ai, null, storyText, displayCfg, null, null, lockFor(nk)) });
           }
           if (list.length) R['角色列表'] = list;
         } else if (prevRoot['角色列表'] || rosterChars.length) {
@@ -11122,6 +11141,7 @@ createCharacterEntry(text, categoryKey) {
         lines.push('  例：`"属性": "[HP-2][SAN-5]"`、`"现金": "[团队现金:5000]"`、`"武器": "[.45左轮+1]"`、`"物品": "[绷带-2][.45子弹:30]"`');
         lines.push('- 当前校验字段：' + (checkParts.length ? checkParts.join('；') : '（当前无校验字段）') + '（其值在当前状态中被 [ ] 包裹，如 `[❤️HP:12/12]`、`[.45子弹x30][绷带]`）。校验字段的值只能输出 [ ] 包裹的清单或命令，禁止写成句子（如"充足"、"已锁死"）。');
         lines.push('- 消耗/减少只能针对该字段当前清单中已有的物品；物品存放在其他模块（据点/载具等）时，在该模块对应字段下输出命令。');
+        lines.push('- 弹药/消耗品/道具类计数物品的数量归零后条目不删除（系统会保留为 0 并标红提示已耗尽）：照常输出 `[物品:0]` 或 `[物品-N]` 扣到零即可，不要为了"清空"而省略该条目，也不要改写成"已耗尽"等文字。');
         lines.push('- 随身武器（及需要标注存放处的道具）在名称后用括号备注放置位置，如 `[柯尔特M1911(夹克内侧)]`、`[战术短刃(靴筒)]`。位置变化时重述该条目并改写括号内容（`"武器": "[柯尔特M1911(腰后)]"`），不要新增一条，也不要先消耗旧条目再获得新条目；括号内只写存放处，数量仍用 `：N` 或 `+N/-N` 表达。');
         lines.push('- 团队现金：你是正文 AI 的会计，无自由裁量权。只有剧情明确描写固定成员作出带可见金额的支付时才输出扣减命令，金额以剧情明示为准（外币按年代汇率换算）；剧情没写的钱一分不动，不得推断、估算或预扣任何开销。团队获得钱款同理：剧情明示才增加。');
         if (!modulesOn) {
@@ -11297,6 +11317,7 @@ createCharacterEntry(text, categoryKey) {
           const defaults = {
             autoUpdate: true,
             combatSync: true,
+            combatFloorLock: true,
             apiUrl: '',
             apiKey: '',
             model: '',
@@ -13211,6 +13232,16 @@ createCharacterEntry(text, categoryKey) {
               : '（暂无初始状态，请依据剧情建立完整状态栏）';
             const floorCount = Math.min(10, Math.max(1, Number(cfg.contextFloors) || 2));
             const { latest, context } = this.collectStorySegments(targetFloorId, floorCount);
+            // 战斗结算楼层锁定：最新剧情窗口（用户指令+AI正文）含战斗结算标记时，
+            // 本轮禁止更新 AI 改动任何校验字段的数值——直连关闭回退转述、结算漏同步等场景下，
+            // 战报原文就在正文里，大段数值描写最容易诱导更新 AI 幻觉改数（提示词禁令挡不住）
+            const floorLock =
+              cfg.combatFloorLock !== false &&
+              /<战报摘要>|<战局记录>|战况记录（最近）|战况（程序化摘要|\[小队战后状态|\[小队战后伤势/.test(
+                (latest || '') + '\n' + (context || ''),
+              );
+            // 楼层锁（全员全字段）比直连台账锁（已同步键）更宽，两者并存时取宽者
+            let mergeLock = floorLock ? { allNumeric: true } : combatLock;
 
             let userPrompt = '<当前状态>\n' + prevYaml + '\n</当前状态>\n\n';
             if (context) {
@@ -13240,7 +13271,14 @@ createCharacterEntry(text, categoryKey) {
                 '\n</成员人设>\n\n';
             }
             // 战斗结算禁令（纵深防御，真正的拦截在合并层硬锁）
-            if (combatLock && combatLock.length) {
+            if (floorLock) {
+              userPrompt +=
+                '<战斗结算楼层（本轮禁止改动任何校验字段）>\n' +
+                '说明：检测到本轮剧情包含战斗结算内容。战斗造成的一切数值变化（HP/法力、属性增减、' +
+                '消耗品/弹药/道具数量）均已结算完毕或不在本轮结算范围，任何角色的属性与物品清单字段' +
+                '必须原样保留当前状态中的值，不得输出任何增减或设值命令。' +
+                '只依据剧情更新时间、地点、内心、穿着、人物关系等自由字段与叙事模块。\n</战斗结算楼层>\n\n';
+            } else if (combatLock && combatLock.length) {
               const lockLines = combatLock.map((e) => {
                 const parts = [];
                 if (e.attrs && e.attrs.length) parts.push('属性 ' + e.attrs.join('、'));
@@ -13294,7 +13332,7 @@ createCharacterEntry(text, categoryKey) {
                   roster,
                   latest || '',
                   absence,
-                  combatLock,
+                  mergeLock,
                 );
                 this.saveAbsence(absence);
                 this.sanitizeState(state);
@@ -13900,6 +13938,15 @@ createCharacterEntry(text, categoryKey) {
             combatChk.addEventListener('change', () => {
               const c = this.loadConfig();
               c.combatSync = combatChk.checked;
+              this.saveConfig(c);
+            });
+          }
+          const floorLockChk = document.getElementById('mms-combat-floor-lock');
+          if (floorLockChk) {
+            floorLockChk.checked = cfg.combatFloorLock !== false;
+            floorLockChk.addEventListener('change', () => {
+              const c = this.loadConfig();
+              c.combatFloorLock = floorLockChk.checked;
               this.saveConfig(c);
             });
           }
