@@ -1963,6 +1963,29 @@ function buildPortraitHTML(roleName, portraitUrl) {
   border-color: rgba(157, 124, 245, 0.3);
   transform: translateX(2px);
 }
+/* 人物条目右上角删除小红叉：hover 才显形，避免长期追踪列表满屏叉 */
+.character-entry .char-del-x {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.08);
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+.character-entry:hover .char-del-x {
+  opacity: 1;
+}
+.character-entry .char-del-x:hover {
+  color: #fff;
+  background: rgba(248, 113, 113, 0.75);
+}
 .character-entry .char-emoji {
   font-size: 0.85rem;
   margin-right: 0.4rem;
@@ -9123,6 +9146,25 @@ createCharacterEntry(text, categoryKey) {
 
   entry.appendChild(content);
 
+  // 右上角删除小红叉：玩家手动移除已登记人物（长期追踪条目不经 AI 手动清理）
+  if (name) {
+    entry.style.position = 'relative';
+    const del = document.createElement('span');
+    del.className = 'char-del-x';
+    del.textContent = '✕';
+    del.title = '从人物登记簿移除：' + name;
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      try {
+        if (window.MMS && typeof MMS.deletePeopleEntry === 'function') {
+          MMS.deletePeopleEntry(categoryKey, name);
+        }
+      } catch (err) { /* 忽略 */ }
+    });
+    entry.appendChild(del);
+  }
+
   return entry;
 }
 
@@ -10881,6 +10923,51 @@ createCharacterEntry(text, categoryKey) {
         return out;
       }
 
+      // 人物模块：长期信息追踪登记簿（名字键合并）。
+      // AI 只需输出增量——同名=更新描述（桶以 AI 输出为准，跨桶跟随移动）、新名=登记、
+      // 未提及=保留（长期追踪，漏写不等于退场）；显式移除输出 "【名字】[移除]"。
+      // 无【名字】的无名条目（侍者/路人/杂兵群等临时角色）不进人物——它们只在小地图出现。
+      function mmsMergePeople(prevPeople, aiPeople) {
+        const buckets = ['盟友', 'NPC', '敌人'];
+        const norm = (p) => {
+          const o = {};
+          for (const b of buckets) o[b] = p && Array.isArray(p[b]) ? p[b].filter((x) => typeof x === 'string') : [];
+          return o;
+        };
+        const nameKey = (line) => {
+          const m = String(line == null ? '' : line).match(/【([^【】]+)】/);
+          return m ? m[1].trim() : '';
+        };
+        const out = norm(prevPeople);
+        const isRemoveCmd = (line, k) => {
+          // 剥掉 emoji 前缀与【名字】后的剩余部分以 [移除] 开头，即视为显式移除命令
+          const rest = String(line).replace(/^[^【】]*【[^【】]+】/, '').trim();
+          return !!k && /^\[(已)?移除\]/.test(rest);
+        };
+        for (const b of buckets) {
+          for (const line of norm(aiPeople)[b]) {
+            const k = nameKey(line);
+            if (!k) continue; // 无名条目：不进人物（临时角色只在小地图）
+            if (isRemoveCmd(line, k)) {
+              for (const bb of buckets) out[bb] = out[bb].filter((l) => nameKey(l) !== k);
+              continue;
+            }
+            for (const bb of buckets) {
+              const i = out[bb].findIndex((l) => nameKey(l) === k);
+              if (i >= 0) {
+                out[bb].splice(i, 1); // 同名=更新描述；跨桶移动：从旧桶删，落位到 AI 指定的新桶
+                break;
+              }
+            }
+            out[b].push(line);
+            if (out[b].length > 200) out[b] = out[b].slice(-200); // 防失控上限
+          }
+        }
+        // 基底里遗留的无名条目同样滤除（历史数据迁移）
+        for (const b of buckets) out[b] = out[b].filter((l) => nameKey(l));
+        return out;
+      }
+
       // 总合并：prev=上次状态(已规范化)，aiOut=AI输出(已规范化)，roster=名册，storyText=本轮正文
       // absenceMap：缺席轮数表（对象，会被原地更新：AI输出该角色→清零，漏输出→+1），null=不计数
       // combatLock：战斗结算硬锁清单 [{name, attrs, items}]，锁定项的 AI 数值命令一律丢弃
@@ -10960,7 +11047,7 @@ createCharacterEntry(text, categoryKey) {
           if (augList && augList.length) R['角色列表'] = augList;
         }
 
-        // 人物（自由全量；AI省略保留上次）。形状校验：必须是"分类→字符串数组"的对象，
+        // 人物（长期追踪登记簿：名字键合并）。形状校验：必须是"分类→字符串数组"的对象，
         // 数组或含非字符串条目的输出一律保留上次（防止 AI 把人物写成数组导致渲染错乱）
         {
           const aiPeople = aiRoot['人物'];
@@ -10974,10 +11061,10 @@ createCharacterEntry(text, categoryKey) {
                 Array.isArray(aiPeople[k]) &&
                 aiPeople[k].every((x) => typeof x === 'string'),
             );
-          if (peopleOk) R['人物'] = aiPeople;
+          if (peopleOk) R['人物'] = mmsMergePeople(prevRoot['人物'], aiPeople);
           else {
             if (aiPeople) console.warn('[MMS] 人物模块形状异常，保留上次:', aiPeople);
-            if (prevRoot['人物']) R['人物'] = prevRoot['人物'];
+            if (prevRoot['人物']) R['人物'] = mmsMergePeople(prevRoot['人物'], null);
           }
           // 固定成员只在角色列表显示：从人物模块剔除其重复条目
           if (R['人物']) R['人物'] = mmsStripRosterFromPeople(R['人物'], rosterChars);
@@ -11113,7 +11200,7 @@ createCharacterEntry(text, categoryKey) {
         const freeListParts = ['日期和时间', '地点'];
         if (minimapOn) freeListParts.push('小地图');
         if (bigmapOn) freeListParts.push('大地图');
-        freeListParts.push('人物（盟友/NPC/敌人）', '行动选项');
+        freeListParts.push('行动选项');
         for (const m of modules) {
           if (m.titleVal) freeListParts.push(m.name + '的名称');
         }
@@ -11141,7 +11228,7 @@ createCharacterEntry(text, categoryKey) {
         lines.push('2. 保持当前状态的字段命名、层级结构与 Emoji 风格。不得自创顶层模块或已有模块的变体（如已有「情报」再输出「局势情报」），只在已有键名下更新。');
         lines.push('3. 字段输出策略：');
         lines.push('   - 【校验字段】：有变化的仅输出增量指令；无变化的整项省略（不要输出空字符串）。');
-        lines.push('   - 【自由字段】' + freeListParts.join('、') + '：贴合剧情每轮全量输出。「人物」模块只移除已明确退场的条目——关系未决的（等待回信、已约定会面、悬而未决的威胁）保留并更新其状态描述；新登场的加入。角色列表的条目取舍见下文角色列表条款。');
+        lines.push('   - 【自由字段】' + freeListParts.join('、') + '：贴合剧情每轮全量输出。「人物」不是自由字段，走上文人物章节的增量协议。角色列表的条目取舍见下文角色列表条款。');
         lines.push('   - 自定义模块按原有结构全量输出，不要丢弃。');
         lines.push('');
         lines.push('## 二、校验字段：增量指令规范（仅在有变动时输出，属性值如 8/10 不可超出其上限）');
@@ -11176,13 +11263,16 @@ createCharacterEntry(text, categoryKey) {
           lines.push('用于更大范围的区域/全局场景（城市、荒野全图等）。场景键只能从以下选择：' + (bigTags || '（无可用标签）') + '。坐标 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 整数，' + (minimapOn ? '条目格式同小地图。' : '条目格式：`"Emoji【名称】(x, y) 10字内位置与姿态描述"`。'));
           lines.push('');
         }
-        lines.push('### ' + secNo++ + '. 👥 人物（侧重意图与即时行为）');
-        if (minimapOn) lines.push('- 与小地图的分工：地图写位置与姿态，这里写行为意图。');
+        lines.push('### ' + secNo++ + '. 👥 人物（长期信息追踪登记簿，增量更新）');
+        if (minimapOn) lines.push('- 与小地图的分工：地图写无名临时角色（侍者、路人、杂兵群）的位置与姿态；「人物」只登记有名有姓的角色。');
+        lines.push('- 增量协议：程序按【名称】合并你的输出——同名条目=更新该人的描述（跨桶移动跟随你输出的分类）；新名称=登记；未提及的人物自动保留。**不需要每轮重抄全部人物**，只输出本轮有变化或新登场的。');
+        lines.push('- 移除：仅在剧情明确退场/死亡/永别时，输出 `"【名称】[移除]"`；关系未决的（等待回信、已约定会面、悬而未决的威胁）保留并更新状态，不要随手删人。');
+        lines.push('- 描述侧重长期信息：身份、与团队的关系、约定、恩怨、行踪线索、遗留事项——即时动作交给小地图与正文。');
         lines.push('- 「人物」只放非固定成员：固定成员一律在角色列表输出，不要在此重复出现。');
-        lines.push('- 盟友：`"Emoji【名称】[职业/武器] 行动或意图（10字内）"`');
-        lines.push('- NPC：`"Emoji【名称】[身份/态度] 交涉倾向（10字内）"`');
-        lines.push('- 敌人：`"Emoji【名称】[类型/规模/武器] 战术行动（10字内）"`，多名杂兵合并描述规模。只列在场或已确认接触的对象，不列抽象威胁或背景势力');
-        lines.push('  例：`"👥【邪教徒x3】[近战/疯狂] 举着短刀包抄过来"`');
+        lines.push('- 盟友：`"Emoji【名称】[职业/武器] 长期信息与近况"`');
+        lines.push('- NPC：`"Emoji【名称】[身份/态度] 长期信息与近况"`');
+        lines.push('- 敌人：`"Emoji【名称】[类型/规模/武器] 长期威胁与近况"`，只列在场或已确认接触的对象，不列抽象威胁或背景势力');
+        lines.push('  例：`"🎩【史密斯警探】[友善] 专注失踪案，欠团队一个人情，约好周五码头见面"`');
         lines.push('');
         lines.push('### ' + secNo++ + '. 🧑 团队行动选项（严格遵循 4 维设计，指明在场执行角色，每条 20 字左右）');
         lines.push('- 1（🎲）：高难度高收益，必须包含 COC7 技能或属性检定。`"1. 🎲【技能名检定】+ 角色行动描述"`');
@@ -11972,6 +12062,38 @@ createCharacterEntry(text, categoryKey) {
             if (removed) this.writeCurrentState(state);
           } catch (e) {
             console.warn('[MMS] 模块状态删除失败:', e);
+          }
+        },
+
+        // 删除人物登记簿条目（渲染层红叉入口）：按【名字】跨桶移除，本楼状态原地更新
+        deletePeopleEntry(categoryKey, name) {
+          if (this.floorId == null || !this.env.hasVarsApi || !name) return;
+          try {
+            const vars = this.readFloorVars(this.floorId);
+            const state = vars && vars.stat_data ? mmsNormalizeState(vars.stat_data) : null;
+            if (!state || !state['状态栏']) return;
+            const people = state['状态栏']['人物'];
+            if (!people || typeof people !== 'object' || Array.isArray(people)) return;
+            let removed = false;
+            const nk = mmsNormalizeName(name);
+            for (const k of Object.keys(people)) {
+              const arr = people[k];
+              if (!Array.isArray(arr)) continue;
+              const kept = arr.filter((line) => {
+                const m = String(line == null ? '' : line).match(/【([^】]+)】/);
+                return !(m && mmsNormalizeName(m[1]) === nk);
+              });
+              if (kept.length !== arr.length) {
+                people[k] = kept;
+                removed = true;
+              }
+            }
+            if (removed) {
+              this.writeCurrentState(state);
+              console.info('[MMS] 人物登记簿移除条目:', name);
+            }
+          } catch (e) {
+            console.warn('[MMS] 人物条目删除失败:', e);
           }
         },
 
