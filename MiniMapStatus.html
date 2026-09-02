@@ -3845,6 +3845,12 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <input type="checkbox" id="mms-combat-floor-lock" checked />
               <span>战斗结算楼层锁定（检测到战报内容时，该轮禁止更新 AI 改动属性与物品数值）</span>
             </label>
+            <div class="mms-toggle-row" style="display:block;">
+              <label for="mms-people-filter" style="display:block;margin-bottom:4px;">人物过滤词（逗号分隔的临时角色词，如：散修,杂役,道童）</label>
+              <input type="text" id="mms-people-filter" placeholder="补充你世界观里的泛用角色词" autocomplete="off"
+                style="width:100%;padding:6px 10px;border-radius:8px;border:1px solid rgba(148,163,184,.35);background:rgba(0,0,0,.25);color:inherit;font-size:12px;" />
+              <div style="font-size:10px;color:#64748b;margin-top:3px;">整词精确匹配（多一字不滤）；内置常见词：侍者/混混/村民/邪教徒等，头衔型（店主/管家/船长）不滤</div>
+            </div>
             <div class="flex gap-2 pt-1">
               <button id="mms-manual-update" class="px-3 py-1.5 rounded-lg bg-primary/20 text-primary text-xs font-semibold hover:bg-primary/30 flex items-center gap-1" type="button">
                 <i class="fa fa-refresh"></i> 立即更新状态
@@ -10923,11 +10929,42 @@ createCharacterEntry(text, categoryKey) {
         return out;
       }
 
+      // 临时角色词表：AI 常把职业/身份词塞进【名字】括号（【侍者】【混混】【邪教徒x3】），
+      // 只收明显的临时/杂兵/群体角色词；头衔型（管家/店主/船长/警探/祭司/学徒）一概不收
+      // ——常驻 NPC 常以职务相称，误杀代价高，误放行由渲染层红叉兜底
+      const MMS_GENERIC_PEOPLE_NAMES = [
+        '侍者', '服务员', '店员', '伙计', '跑堂', '酒保', '门童', '门卫',
+        '卫兵', '哨兵', '警卫', '保镖', '打手', '混混', '地痞', '流氓',
+        '小偷', '扒手', '窃贼', '强盗', '劫匪', '土匪', '山贼', '马匪',
+        '海盗', '匪徒', '暴徒', '喽啰', '爪牙', '邪教徒', '教徒', '信徒',
+        '暴民', '村民', '农夫', '工人', '路人', '行人', '平民', '仆人',
+        '女仆', '车夫', '脚夫',
+      ];
+
+      // 判定人物名字是否为泛用临时角色词：剥数量前后缀后与词表（内置 ∪ 自定义）整词精确匹配——
+      // 多一字都放行（【酒保】滤、【疤脸酒保】留、【史密斯警探】留），绝不子串匹配
+      function mmsIsGenericPeopleName(name, extraWords) {
+        let n = String(name == null ? '' : name).trim();
+        if (!n) return true;
+        if (/^(路人|某人|某某|某|路)?[甲乙丙丁戊]$/.test(n)) return true; // 占位代号：甲 / 路人甲 / 某某乙
+        n = n
+          .replace(/[\s]*[x×＊*][\s]*\d+$/, '') // 后缀：x2 / ×3 / *2
+          .replace(/\s*\d+\s*(名|个|位|人|体|只|头)$/, '') // 后缀：3名/2个
+          .replace(/^(一[群伙帮批]|几[名个位]?|数[名个位]?|[一二三四五六七八九十]+[名个位])\s*/, '') // 前缀：一群/几名/数个/三个
+          .trim();
+        if (!n) return true; // 剥完为空（纯数量短语）
+        if (MMS_GENERIC_PEOPLE_NAMES.includes(n)) return true;
+        for (const w of extraWords || []) {
+          if (w && String(w).trim() === n) return true;
+        }
+        return false;
+      }
+
       // 人物模块：长期信息追踪登记簿（名字键合并）。
       // AI 只需输出增量——同名=更新描述（桶以 AI 输出为准，跨桶跟随移动）、新名=登记、
       // 未提及=保留（长期追踪，漏写不等于退场）；显式移除输出 "【名字】[移除]"。
-      // 无【名字】的无名条目（侍者/路人/杂兵群等临时角色）不进人物——它们只在小地图出现。
-      function mmsMergePeople(prevPeople, aiPeople) {
+      // 无【名字】或名字是泛用临时角色词（侍者/混混/杂兵群等）的条目不进人物——它们只在小地图出现。
+      function mmsMergePeople(prevPeople, aiPeople, extraFilterWords) {
         const buckets = ['盟友', 'NPC', '敌人'];
         const norm = (p) => {
           const o = {};
@@ -10947,7 +10984,7 @@ createCharacterEntry(text, categoryKey) {
         for (const b of buckets) {
           for (const line of norm(aiPeople)[b]) {
             const k = nameKey(line);
-            if (!k) continue; // 无名条目：不进人物（临时角色只在小地图）
+            if (!k || mmsIsGenericPeopleName(k, extraFilterWords)) continue; // 无名/泛用名：不进人物（临时角色只在小地图）
             if (isRemoveCmd(line, k)) {
               for (const bb of buckets) out[bb] = out[bb].filter((l) => nameKey(l) !== k);
               continue;
@@ -10963,8 +11000,8 @@ createCharacterEntry(text, categoryKey) {
             if (out[b].length > 200) out[b] = out[b].slice(-200); // 防失控上限
           }
         }
-        // 基底里遗留的无名条目同样滤除（历史数据迁移）
-        for (const b of buckets) out[b] = out[b].filter((l) => nameKey(l));
+        // 基底里遗留的无名/泛用名条目同样滤除（历史数据迁移）
+        for (const b of buckets) out[b] = out[b].filter((l) => { const k = nameKey(l); return k && !mmsIsGenericPeopleName(k, extraFilterWords); });
         return out;
       }
 
@@ -11061,10 +11098,16 @@ createCharacterEntry(text, categoryKey) {
                 Array.isArray(aiPeople[k]) &&
                 aiPeople[k].every((x) => typeof x === 'string'),
             );
-          if (peopleOk) R['人物'] = mmsMergePeople(prevRoot['人物'], aiPeople);
+          // 自定义人物过滤词（修仙/奇幻世界观自备词），与内置词表在合并内做整词精确匹配
+          let peopleFilterWords = [];
+          try {
+            const cfgWords = MMS.loadConfig().peopleFilterWords;
+            if (Array.isArray(cfgWords)) peopleFilterWords = cfgWords.filter((x) => typeof x === 'string');
+          } catch (e) { /* 配置读取失败时仅用内置词表 */ }
+          if (peopleOk) R['人物'] = mmsMergePeople(prevRoot['人物'], aiPeople, peopleFilterWords);
           else {
             if (aiPeople) console.warn('[MMS] 人物模块形状异常，保留上次:', aiPeople);
-            if (prevRoot['人物']) R['人物'] = mmsMergePeople(prevRoot['人物'], null);
+            if (prevRoot['人物']) R['人物'] = mmsMergePeople(prevRoot['人物'], null, peopleFilterWords);
           }
           // 固定成员只在角色列表显示：从人物模块剔除其重复条目
           if (R['人物']) R['人物'] = mmsStripRosterFromPeople(R['人物'], rosterChars);
@@ -11263,16 +11306,20 @@ createCharacterEntry(text, categoryKey) {
           lines.push('用于更大范围的区域/全局场景（城市、荒野全图等）。场景键只能从以下选择：' + (bigTags || '（无可用标签）') + '。坐标 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 整数，' + (minimapOn ? '条目格式同小地图。' : '条目格式：`"Emoji【名称】(x, y) 10字内位置与姿态描述"`。'));
           lines.push('');
         }
-        lines.push('### ' + secNo++ + '. 👥 人物（长期信息追踪登记簿，增量更新）');
+        lines.push('### ' + secNo++ + '. 👥 人物（在场行为与去向追踪，增量更新）');
         if (minimapOn) lines.push('- 与小地图的分工：地图写无名临时角色（侍者、路人、杂兵群）的位置与姿态；「人物」只登记有名有姓的角色。');
+        lines.push('- 名字约束：【名称】必须是有名有姓的真实姓名（史密斯、老约翰、王小明），不得用职业/身份/种族词充当名字（侍者、混混、村民、邪教徒等）——无名临时角色只写小地图；确需登记又不知姓名时用显著特征起代称（如【疤脸酒保】），获知姓名后更新。');
         lines.push('- 增量协议：程序按【名称】合并你的输出——同名条目=更新该人的描述（跨桶移动跟随你输出的分类）；新名称=登记；未提及的人物自动保留。**不需要每轮重抄全部人物**，只输出本轮有变化或新登场的。');
-        lines.push('- 移除：仅在剧情明确退场/死亡/永别时，输出 `"【名称】[移除]"`；关系未决的（等待回信、已约定会面、悬而未决的威胁）保留并更新状态，不要随手删人。');
-        lines.push('- 描述侧重长期信息：身份、与团队的关系、约定、恩怨、行踪线索、遗留事项——即时动作交给小地图与正文。');
+        lines.push('- 移除：仅在剧情明确退场/死亡/永别时，输出 `"【名称】[移除]"`；关系未决的（等待回信、已约定会面、悬而未决的威胁）保留，不要随手删人。');
+        lines.push('- 描述一句话（10字内），按角色状态三选一，每次更新整体覆盖、不累积：');
+        lines.push('  - 在场：此刻的行为与反应。例：`"🧑【老约翰】[店主] 递上麦酒，压低声音提了句码头"`');
+        lines.push('  - 离场：简短去向。例：`"🧑【老约翰】[店主] 已回店主楼，约好明日再见"`');
+        lines.push('  - 传闻（不在场但剧情提到其行踪）：更新去向。例：`"🧑【老约翰】[店主] 据旅人所称已南下波士顿"`');
+        lines.push('- 不在场且无新消息的人物直接省略（条目自动保留，上一条去向即当前状态）。详细身份/关系/履历不写——那是世界书的职责。');
         lines.push('- 「人物」只放非固定成员：固定成员一律在角色列表输出，不要在此重复出现。');
-        lines.push('- 盟友：`"Emoji【名称】[职业/武器] 长期信息与近况"`');
-        lines.push('- NPC：`"Emoji【名称】[身份/态度] 长期信息与近况"`');
-        lines.push('- 敌人：`"Emoji【名称】[类型/规模/武器] 长期威胁与近况"`，只列在场或已确认接触的对象，不列抽象威胁或背景势力');
-        lines.push('  例：`"🎩【史密斯警探】[友善] 专注失踪案，欠团队一个人情，约好周五码头见面"`');
+        lines.push('- 盟友：`"Emoji【姓名】[职业/武器] 一句话状态"`');
+        lines.push('- NPC：`"Emoji【姓名】[身份/态度] 一句话状态"`');
+        lines.push('- 敌人：`"Emoji【姓名】[类型/武器] 一句话状态"`，只列在场或已确认接触的对象，不列抽象威胁或背景势力');
         lines.push('');
         lines.push('### ' + secNo++ + '. 🧑 团队行动选项（严格遵循 4 维设计，指明在场执行角色，每条 20 字左右）');
         lines.push('- 1（🎲）：高难度高收益，必须包含 COC7 技能或属性检定。`"1. 🎲【技能名检定】+ 角色行动描述"`');
@@ -11416,6 +11463,7 @@ createCharacterEntry(text, categoryKey) {
             autoUpdate: true,
             combatSync: true,
             combatFloorLock: true,
+            peopleFilterWords: [],
             apiUrl: '',
             apiKey: '',
             model: '',
@@ -14077,6 +14125,19 @@ createCharacterEntry(text, categoryKey) {
             floorLockChk.addEventListener('change', () => {
               const c = this.loadConfig();
               c.combatFloorLock = floorLockChk.checked;
+              this.saveConfig(c);
+            });
+          }
+          const peopleFilterEl = document.getElementById('mms-people-filter');
+          if (peopleFilterEl) {
+            peopleFilterEl.value = (cfg.peopleFilterWords || []).join(',');
+            peopleFilterEl.addEventListener('change', () => {
+              const c = this.loadConfig();
+              c.peopleFilterWords = peopleFilterEl.value
+                .split(/[,，、\s]+/)
+                .map((w) => w.trim())
+                .filter(Boolean);
+              peopleFilterEl.value = c.peopleFilterWords.join(',');
               this.saveConfig(c);
             });
           }
