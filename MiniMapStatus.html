@@ -8827,6 +8827,14 @@ createAttributeItem(key, value) {
           badge.style.borderColor = 'rgba(248,113,113,0.45)';
           badge.title = '已耗尽（数量 0，条目保留）';
         }
+        // cur/max 型属性（❤️HP:25/100）≤30% 标红预警：数值下限保护（夹到 [0,上限]）一直在，
+        // 这里补视觉层；无上限型数值（如纯 Armor:5）没有分母，不参与比例预警（0 即其保底）
+        const cm = itemName.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*$/);
+        if (cm && parseFloat(cm[2]) > 0 && parseFloat(cm[1]) / parseFloat(cm[2]) <= 0.3) {
+          badge.style.color = '#f87171';
+          badge.style.borderColor = 'rgba(248,113,113,0.45)';
+          badge.title = '数值过低（不超过上限的30%）';
+        }
         badgeContainer.appendChild(badge);
       });
 
