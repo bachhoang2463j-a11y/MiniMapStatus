@@ -181,9 +181,15 @@
 ```bash
 # 1. 修改唯一源码 MiniMapStatus.html
 # 2. 验证（语法 + 引擎回归测试）
-node build_regex.mjs          # 3. 重建正则 JSON（内嵌最新 HTML 全文）
-git add -A && git commit      # 4. 提交（含重建后的 JSON）
+node build_tailwind.mjs       # 3. 若改了 class 工具类/主题色：重建内联 Tailwind 产物 CSS
+node build_regex.mjs          # 4. 重建正则 JSON（内嵌最新 HTML 全文）
+git add -A && git commit      # 5. 提交（含重建后的 JSON）
 ```
+
+> **Tailwind 说明**：源 HTML 已移除 `cdn.tailwindcss.com` 运行时编译器（原先每楼 iframe
+> 要下载 ~110KB 且每次重绘都触发重编译）。工具类 CSS 由 `build_tailwind.mjs` 用
+> Tailwind CLI（v3，与原 Play CDN 同代）构建期生成，内联进 HTML 的
+> `TAILWIND BUILD OUTPUT` 标记区块；主题色配置在 `tailwind.config.js`。
 
 **用户侧（拿到更新后）：**
 
@@ -283,6 +289,8 @@ git add -A && git commit      # 4. 提交（含重建后的 JSON）
 | 文件 | 说明 |
 |---|---|
 | `MiniMapStatus.html` | 唯一源码：渲染器 + 管理引擎一体（所有改动静默改这里） |
+| `build_tailwind.mjs` | 构建脚本：Tailwind CLI 构建期编译工具类 CSS，内联进源 HTML 标记区块（改了 class/主题色后重跑） |
+| `tailwind.config.js` | Tailwind 主题配置（原源 HTML 内联 config 迁出） |
 | `build_regex.mjs` | 构建脚本：从 HTML 生成两个正则 JSON（每次改动后必须重跑） |
 | `regex-美化状态栏[独立更新].json` | 构建产物：显示用正则，**内嵌完整 HTML**（功能更新的导入入口） |
 | `regex-状态栏标记清理[上下文].json` | 构建产物：提示词清理正则（导入酒馆） |
