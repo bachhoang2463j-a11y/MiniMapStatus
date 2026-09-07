@@ -79,7 +79,8 @@ function buildPortraitHTML(roleName, portraitUrl) {
       return;
     }
 
-    const bodyText = document.body ? (document.body.innerText || document.body.textContent || "") : "";
+    // textContent 不触发强制重排（innerText 在大 DOM 上会迫使全文档 reflow）
+    const bodyText = document.body ? document.body.textContent || "" : "";
     if (!bodyText.includes("【立绘") && !bodyText.includes("【 立绘")) {
       if (attemptCount < MAX_ATTEMPTS) {
         scheduleNextScan();
@@ -152,7 +153,11 @@ function buildPortraitHTML(roleName, portraitUrl) {
   }
 
   const observer = new MutationObserver(() => {
-    if (attemptCount >= MAX_ATTEMPTS) return;
+    if (attemptCount >= MAX_ATTEMPTS) {
+      // 轮次耗尽后断开监听：此后状态栏的整栏重绘不再空触发回调
+      observer.disconnect();
+      return;
+    }
     console.log("♻️ [立绘引擎] DOM 发生变化，重新排队扫描");
     scheduleNextScan();
   });
