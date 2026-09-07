@@ -2152,7 +2152,6 @@ function buildPortraitHTML(roleName, portraitUrl) {
         .tactical-map-container.env-restaurant { background-color: #2c1e16; border-color: #5c4033; }
         .tactical-map-container.env-desert { background-color: #fef3c7; border-color: #d97706; }
         .tactical-map-container.env-volcano { background-color: #111827; border-color: #991b1b; }
-        .tactical-map-container.env-nightmarket { background-color: #1e1b4b; border-color: #4338ca; }
         .tactical-map-container.env-hospital { background-color: #f0fdfa; border-color: #5eead4; }
         .tactical-map-container.env-restaurant { background-color: #2c1e16; border-color: #5c4033; } /* 海边主题改为治愈系暖沙色 */
         
@@ -2234,7 +2233,6 @@ function buildPortraitHTML(roleName, portraitUrl) {
         .env-restaurant .map-tooltip { background: #1c140d; color: #fef3c7; border-color: #92400e; }
         .env-desert .map-tooltip { background: #fffbeb; color: #92400e; border-color: #f59e0b; }
         .env-volcano .map-tooltip { background: #1f2937; color: #f87171; border-color: #b91c1c; }
-        .env-nightmarket .map-tooltip { background: #312e81; color: #f472b6; border-color: #6366f1; }
         .env-hospital .map-tooltip { background: #ffffff; color: #0f766e; border-color: #2dd4bf; }
         
         /* 复古弹窗面板 */
@@ -2253,7 +2251,6 @@ function buildPortraitHTML(roleName, portraitUrl) {
         .env-restaurant .map-info-panel { background: #2c1e16; border-color: #78350f; }
         .env-desert .map-info-panel { background: #fffbeb; border-color: #f59e0b; }
         .env-volcano .map-info-panel { background: #000000; border-color: #991b1b; }
-        .env-nightmarket .map-info-panel { background: #1e1b4b; border-color: #6366f1; }
         .env-hospital .map-info-panel { background: #ffffff; border-color: #2dd4bf; }
         .env-snowfield .map-info-panel { background: #f0f9ff; border-color: #bae6fd; box-shadow: 0 8px 16px rgba(14, 165, 233, 0.15); }
         .env-restaurant .map-info-panel { background: #2c1e16; border-color: #78350f; box-shadow: 0 8px 16px rgba(0,0,0,0.6); }
@@ -2268,7 +2265,6 @@ function buildPortraitHTML(roleName, portraitUrl) {
         .env-restaurant .map-info-title { color: #fbbf24; }
         .env-desert .map-info-title { color: #b45309; }
         .env-volcano .map-info-title { color: #ef4444; }
-        .env-nightmarket .map-info-title { color: #f472b6; }
         .env-hospital .map-info-title { color: #0d9488; }
         .env-snowfield .map-info-title { color: #0284c7; border-color: #e0f2fe; }
         .env-restaurant .map-info-title { color: #fbbf24; border-color: #451a03; }
@@ -2300,8 +2296,6 @@ function buildPortraitHTML(roleName, portraitUrl) {
         .env-cave .map-btn-go:hover { background: #7e22ce; }
         .env-seaside .map-btn-go { background: #38bdf8; border-color: #7dd3fc; color: white; }
         .env-seaside .map-btn-go:hover { background: #0284c7; }
-        .env-nightmarket .map-btn-go { background: #4338ca; border-color: #6366f1; color: white; }
-        .env-nightmarket .map-btn-go:hover { background: #3730a3; }
         .env-hospital .map-btn-go { background: #0d9488; border-color: #2dd4bf; color: white; }
         .env-hospital .map-btn-go:hover { background: #0f766e; }
         .env-desert .map-btn-go { background: #d97706; border-color: #f59e0b; color: white; }
@@ -5190,12 +5184,8 @@ window.MMS_IMAGE_DATA = {
               this.envType = 'night-market';
           } else if (this.mapTypeStr.includes("神殿") || this.mapTypeStr.includes("祭坛") || this.mapTypeStr.includes("圣所")) {
               this.envType = 'temple';
-          } else if (this.mapTypeStr.includes("广场") || this.mapTypeStr.includes("中心") || this.mapTypeStr.includes("公园") || this.mapTypeStr.includes("庭院")) {
-              this.envType = 'plaza';
           } else if (this.mapTypeStr.includes("明亮") || this.mapTypeStr.includes("白天") || this.mapTypeStr.includes("清晨")) {
               this.envType = 'bright-room';
-          } else if (this.mapTypeStr.includes("街") || this.mapTypeStr.includes("巷") || this.mapTypeStr.includes("路") || this.mapTypeStr.includes("道")) {
-              this.envType = 'street';
           } else if (this.mapTypeStr.includes("商场") || this.mapTypeStr.includes("市场") || this.mapTypeStr.includes("大厅") || this.mapTypeStr.includes("超市")) {
               this.envType = 'mall';
           } else if (this.mapTypeStr.includes("荒野") || this.mapTypeStr.includes("林") || this.mapTypeStr.includes("郊") || this.mapTypeStr.includes("平原")) {
@@ -5218,7 +5208,7 @@ window.MMS_IMAGE_DATA = {
               this.envType = 'cramped-shop';
           } else if (this.mapTypeStr.includes("洞府") || this.mapTypeStr.includes("闭关") || this.mapTypeStr.includes("静室")) {
     this.envType = 'seclusion-cave';
-    } else if (this.mapTypeStr.includes("论剑台") || this.mapTypeStr.includes("演武场") || this.mapTypeStr.includes("擂台")) {
+    } else if (this.mapTypeStr.includes("论剑台") || this.mapTypeStr.includes("擂台")) {
     this.envType = 'sword-arena';
     } else if (this.mapTypeStr.includes("藏经阁") || this.mapTypeStr.includes("书阁") || this.mapTypeStr.includes("传功塔")) {
     this.envType = 'scripture-pavilion';
@@ -5228,12 +5218,19 @@ window.MMS_IMAGE_DATA = {
     this.envType = 'herb-garden';
     } else if (this.mapTypeStr.includes("客栈") || this.mapTypeStr.includes("酒楼") || this.mapTypeStr.includes("茶馆")) {
     this.envType = 'tavern';
-    } else if (this.mapTypeStr.includes("坊市") || this.mapTypeStr.includes("集市") || this.mapTypeStr.includes("黑市") || this.mapTypeStr.includes("夜市")) {
+    } else if (this.mapTypeStr.includes("坊市")) {
+    // 集市/黑市/夜市已被前面的 night-market 分支截获，此处不再重复
     this.envType = 'marketplace';
         } else if (this.mapTypeStr.includes("废墟") || this.mapTypeStr.includes("禁地") || this.mapTypeStr.includes("血色")) {
     this.envType = 'blood-ruins';
-          } else if (this.mapTypeStr.includes("餐厅") || this.mapTypeStr.includes("客栈") || this.mapTypeStr.includes("旅店") || this.mapTypeStr.includes("饭店") || this.mapTypeStr.includes("食堂")) {
+          } else if (this.mapTypeStr.includes("餐厅") || this.mapTypeStr.includes("旅店") || this.mapTypeStr.includes("饭店") || this.mapTypeStr.includes("食堂")) {
               this.envType = 'restaurant';
+          } else if (this.mapTypeStr.includes("广场") || this.mapTypeStr.includes("中心") || this.mapTypeStr.includes("公园") || this.mapTypeStr.includes("庭院")) {
+              // 宽泛词后置：避免"中心/广场"截住 医院/商场 等具体场景
+              this.envType = 'plaza';
+          } else if (this.mapTypeStr.includes("街") || this.mapTypeStr.includes("巷") || this.mapTypeStr.includes("路") || this.mapTypeStr.includes("道")) {
+              // 单字宽泛词最后兜底：避免"街/道"截住 路边摊/雪山道 等具体场景
+              this.envType = 'street';
           }
           
           this.scale = 1; this.translateX = 0; this.translateY = 0;
@@ -6448,36 +6445,6 @@ window.MMS_IMAGE_DATA = {
                   <rect x="400" y="450" width="200" height="100" fill="#c49a77" stroke="#3a4a5e" stroke-width="6" />
                 </svg>
               `;
-
-            case 'nightmarket':
-              return `
-                <svg class="map-svg-bg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-                  <defs>
-                    <pattern id="night-paving-\${uid}" width="50" height="50" patternUnits="userSpaceOnUse">
-                      <rect width="50" height="50" fill="#1e1b4b" />
-                      <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#312e81" stroke-width="1" />
-                    </pattern>
-                    <radialGradient id="neon-glow-\${uid}" cx="50%" cy="50%" r="50%">
-                      <stop offset="0%" stop-color="#f472b6" stop-opacity="0.3"/>
-                      <stop offset="100%" stop-color="#f472b6" stop-opacity="0"/>
-                    </radialGradient>
-                  </defs>
-                  <rect width="1000" height="1000" fill="url(#night-paving-\${uid})" />
-                  <!-- 街道摊位 -->
-                  <rect x="100" y="150" width="150" height="100" fill="#be185d" rx="4" />
-                  <path d="M 80 150 L 270 150 L 250 180 L 100 180 Z" fill="#db2777" />
-                  <rect x="400" y="100" width="180" height="100" fill="#0369a1" rx="4" />
-                  <path d="M 380 100 L 600 100 L 580 130 L 400 130 Z" fill="#0ea5e9" />
-                  <rect x="750" y="180" width="140" height="100" fill="#a16207" rx="4" />
-                  <path d="M 730 180 L 910 180 L 890 210 L 750 210 Z" fill="#ca8a04" />
-                  <!-- 霓虹装饰 -->
-                  <circle cx="200" cy="500" r="100" fill="url(#neon-glow-\${uid})" pointer-events="none" />
-                  <circle cx="800" cy="400" r="120" fill="url(#neon-glow-\${uid})" pointer-events="none" />
-                  <text x="175" y="220" font-size="25">🏮</text>
-                  <text x="490" y="170" font-size="25">🏮</text>
-                  <text x="820" y="250" font-size="25">🏮</text>
-                  <path d="M 0 500 L 1000 500 M 0 510 L 1000 510" stroke="#4338ca" stroke-width="2" opacity="0.4" />
-                </svg>`;
 
             case 'hospital':
               return `
