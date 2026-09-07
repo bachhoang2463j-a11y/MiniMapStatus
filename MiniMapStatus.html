@@ -16312,15 +16312,15 @@ createCharacterEntry(text, categoryKey) {
         },
 
         // 把图片数据序列化为带标记的源码块（< 转义为 \u003c，防止出现 script 闭合标签截断内联脚本）
-        // 实体加固对齐 build_regex.mjs：链接里的 &quot; 等实体形态若原样写入，酒馆管线
-        // 解码会把 &quot; 变成 " 撕裂字符串（&lt;/script&gt; 更会截断脚本）；
-        // & 前缀改写为 \u0026（字符串里语义等价）后，管线解码变空操作
+        // & 全量转义为 \u0026（字符串里语义等价）：酒馆管线连无分号旧式实体都解码
+        // （&not→¬、&quot→"），任何裸 & 都是活弹；且 \u0026 不含 & 字符，本地
+        // 「复制配置」粘贴回源码再构建时不会被全量 &amp; 转义二次叠加
         // 注意：标记用拼接构造——若以完整字面量出现在本函数里，源码中会存在第二处可被
         // MMS_IMG_BLOCK_RE 匹配的文本，导致「保存到源码」的唯一性校验永远失败
         serializeImageData(data) {
           const json = JSON.stringify(data, null, 2)
             .replace(/</g, '\\u003c')
-            .replace(/&(?=(?:lt|gt|quot|amp|apos|#\d{1,5}|#x[0-9a-fA-F]{1,5});)/g, '\\u0026');
+            .replace(/&/g, '\\u0026');
           const startMark = '/* ' + '==== MMS_IMAGE_DATA_START ==== */';
           const endMark = '/* ' + '==== MMS_IMAGE_DATA_END ==== */';
           return startMark + '\nwindow.MMS_IMAGE_DATA = ' + json + ';\n' + endMark;

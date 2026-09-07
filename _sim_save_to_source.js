@@ -4,10 +4,9 @@
 // 还原。产物的存储形态因此本身不是合法 JS（设计使然）——语法断言一律在「管线解码后」
 // 的文本上执行。解码建模含无分号旧式命名实体（RpgCombat 实测：&&notify 的 &not → ¬）。
 //
-// 对比三版运行时序列化（「保存到源码」写入标记块的内容）：
-//   committed  当前已提交：仅带分号核心实体（lt/gt/quot/amp/apos/数字）lookahead → \u0026
-//   proposed   提议修正：全量 & → \u0026（对齐构建层「任何 & 都可能被解码」的威胁模型）
-//   ampStyle   否决方案：全量 & → &amp;（本地「复制配置」粘贴回 HTML 再构建会双重转义）
+// 对比两版运行时序列化（「保存到源码」写入标记块的内容）：
+//   shipped   当前实现：全量 & → \u0026（对齐构建层「任何 & 都可能被解码」的威胁模型）
+//   ampStyle  否决方案：全量 & → &amp;（本地「复制配置」粘贴回 HTML 再构建会双重转义）
 
 const fs = require('fs');
 const path = require('path');
@@ -34,6 +33,8 @@ const decodePipeline = (t) =>
   });
 
 // ---------- 运行时逻辑复刻（与 MiniMapStatus.html serializeImageData 同构） ----------
+// shipped：当前实现——& 全量 → \u0026（对齐 1feb5fa 威胁模型：管线连无分号旧式实体都解码）
+// ampStyle：否决方案——全量 & → &amp;（本地「复制配置」粘贴回 HTML 再构建会双重转义）
 const MMS_IMG_BLOCK_RE = /\/\* ==== MMS_IMAGE_DATA_START[\s\S]*?MMS_IMAGE_DATA_END ==== \*\//;
 const makeSerializer = (ampRe, ampTo) => (data) => {
   const json = JSON.stringify(data, null, 2).replace(/</g, '\\u003c').replace(ampRe, ampTo);
@@ -41,8 +42,7 @@ const makeSerializer = (ampRe, ampTo) => (data) => {
   const endMark = '/* ' + '==== MMS_IMAGE_DATA_END ==== */';
   return startMark + '\nwindow.MMS_IMAGE_DATA = ' + json + ';\n' + endMark;
 };
-const committed = makeSerializer(/&(?=(?:lt|gt|quot|amp|apos|#\d{1,5}|#x[0-9a-fA-F]{1,5});)/g, '\\u0026');
-const proposed = makeSerializer(/&/g, '\\u0026');
+const shipped = makeSerializer(/&/g, '\\u0026');
 const ampStyle = makeSerializer(/&/g, '&amp;');
 
 // ---------- 断言工具 ----------
@@ -116,12 +116,8 @@ function runScenario(serializerName, serializer, url) {
 }
 
 for (const [label, url] of Object.entries(URLS)) {
-  console.log('== committed（当前已提交） × ' + label + ' ==');
-  runScenario('committed', committed, url);
-}
-for (const [label, url] of Object.entries(URLS)) {
-  console.log('== proposed（提议：全量 \\u0026） × ' + label + ' ==');
-  runScenario('proposed', proposed, url);
+  console.log('== shipped（当前实现：全量 \\u0026） × ' + label + ' ==');
+  runScenario('shipped', shipped, url);
 }
 
 // ---------- ampStyle 否决依据：本地「复制配置」→ 粘贴回 HTML → 重新构建 的双重转义 ----------
@@ -139,10 +135,10 @@ const liveR = decodePipeline(rebuilt);
 const valR = evalBlockValue(liveR);
 console.log('  本地重建路径: 原 ' + JSON.stringify(urlG) + ' → 实际 ' + JSON.stringify(valR.portrait['测试']) +
   (valR.portrait['测试'] === urlG ? ' [OK]' : ' [FAIL] 双重转义损坏'));
-// 对照：proposed 的 \u0026 无 & 字符，构建全量转义不触碰
-const blockP = proposed(dG);
+// 对照：shipped 的 \u0026 无 & 字符，构建全量转义不触碰
+const blockP = shipped(dG);
 const rebuiltP = decodePipeline(blockP.replace(/&/g, '&amp;'));
-console.log('  proposed 对照: ' + (evalBlockValue(rebuiltP).portrait['测试'] === urlG ? '[OK] 重建后仍保真' : '[FAIL]'));
+console.log('  shipped 对照: ' + (evalBlockValue(rebuiltP).portrait['测试'] === urlG ? '[OK] 重建后仍保真' : '[FAIL]'));
 
 // ---------- 名称 $ 记号校验（与 178beb3 一致，回归确认） ----------
 const validateImageName = (name) =>
