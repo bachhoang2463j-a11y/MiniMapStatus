@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>NewDay 每日结算直连 · Harness</title>
+<style>
+  body { font-family: Consolas, monospace; font-size: 13px; max-width: 860px; margin: 24px auto; padding: 0 12px; }
+  h2 { border-bottom: 2px solid #333; padding-bottom: 4px; }
+  .grp { margin: 10px 0; }
+  .row { padding: 2px 6px; border-left: 3px solid #999; margin: 2px 0; background: #f6f6f6; }
+  .row.ok { border-color: #2e8b57; }
+  .row.bad { border-color: #d93025; background: #fdeceb; }
+  .total { font-weight: bold; font-size: 15px; margin-top: 14px; padding: 6px; background: #eee; }
+  #run { font-size: 14px; padding: 6px 16px; }
+  pre { background: #222; color: #9f9; padding: 8px; font-size: 11px; overflow: auto; max-height: 220px; }
+</style>
+</head>
+<body>
+<h1>NewDay 每日结算直连 · Harness</h1>
+<button id="run" type="button">▶ 运行全部断言</button>
+<div id="out"></div>
+<pre id="log"></pre>
+
+<script>
+(function () {
+  const out = document.getElementById('out');
+  const logEl = document.getElementById('log');
+  const log = (...a) => { logEl.innerText += a.join(' ') + '\n'; };
+  let passCount = 0, total = 0;
+
+  function assert(desc, fn) {
+    total++;
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.textContent = '… ' + desc;
+    out.appendChild(row);
+    try {
+      const ok = fn();
+      row.className = 'row ' + (ok ? 'ok' : 'bad');
+      row.textContent = (ok ? '✓ ' : '✗ ') + desc;
+      if (ok) passCount++;
+    } catch (e) {
+      row.className = 'row bad';
+      row.textContent = '✗ ' + desc + ' — 异常: ' + e.message;
+      log('EXC', desc, e.stack);
+    }
+  }
+
+  function group(name) {
+    const g = document.createElement('div');
+    g.className = 'grp';
+    const h = document.createElement('h2');
+    h.textContent = name;
+    g.appendChild(h);
+    out.appendChild(g);
+  }
+
+  const totalRow = document.createElement('div');
+  totalRow.className = 'total';
+  totalRow.textContent = '0 项通过';
+  out.appendChild(totalRow);
+  function finish() {
+    totalRow.textContent = passCount + ' / ' + total + ' 项通过' + (passCount === total ? '（全部通过）' : '（存在失败项）');
+  }
+
+  document.getElementById('run').addEventListener('click', runAll);
+
+  // ================= 断言实 =================
+  // MMS 侧核心纯函数从真实产物中提取执行（script 第 2 块，与正则 replace_string 同源）
+  let mmsScript = '';
+  // 新版账单：LLM 只输出叙事字段，数字（结余/总额/余额/期号）由程序生成
+    const billRaw = `
+yesterday_bill:
+  items:
+    - category: 住宿
+      tier: 【标准】
+      cost: 12.00
+      details: 两间客房
+    - category: 餐饮
+      tier: 【经济】
+      cost: 15.00
+      details: 寒潮夜宰客晚餐
+    - category: 弹药
+      tier: 【标准】
+      cost: 38.00
+      details: 补充弹药
+`;
+  const stateBase = {
+    状态栏: {
+      角色列表: [
+        { 名字: '李娟', 属性: '[❤️HP:19/28][💧MP:3/14][🛡️防:5]' },
+        { 名字: '陈教授', 属性: '[❤️HP:22/25][魔力:6/9]' },
+        { 名字: '老赵', 属性: '[❤️HP:25/25]' },
+      ],
+      据点: { 名称: '小队营地', 现金: '520美元', 物资: '[绷带x2][罐头x5]' },
+    },
+  };
+  const roster = {
+    characters: [
+      { name: '李娟', attrs: [{ key: '❤️HP', value: '28/28' }, { key: '💧MP', value: '14/14' }] },
+      { name: '陈教授', attrs: [{ key: '❤️HP', value: '25/25' }, { key: '魔力', value: '9/9' }] },
+      { name: '老赵', attrs: [{ key: '❤️HP', value: '25/25' }] },
+    ],
+    modules: [],
+  };
+  const bill = {
+    id: 'nd-99-abc',
+    floorId: 99,
+    date: '1925年1月17日',
+    dateMs: null, // 由 NewDay 侧 parseCnDate 生成，此处手工填
+    days: 1,
+    cashBefore: 520,
+    totalCost: 65,
+    items: [
+      { category: '住宿', tier: '【标准】', cost: 12, details: '两间客房' },
+      { category: '餐饮', tier: '【经济】', cost: 15, details: '寒潮夜宰客晚餐' },
+      { category: '弹药', tier: '【标准】', cost: 38, details: '补充弹药' },
+    ],
+  };
+
+  function runAll() {
+    out.innerHTML = '';
+    out.appendChild(totalRow);
+    totalRow.textContent = '运行中…';
+    passCount = 0; total = 0;
+    logEl.innerText = '';
+
+    // 提取 MMS 主脚本块（document.currentScript 前有 replace_string 包裹代码块）
+    fetch('../MiniMapStatus.html').then((r) => r.text()).then((html) => {
+      const re = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
+      const blocks = [];
+      let m;
+      while ((m = re.exec(html))) blocks.push(m[1]);
+      // 主脚本是含 MMS 常量定义的一块
+      mmsScript = blocks.find((b) => b.includes('MMS_COMBAT_RESULT_VAR')) || '';
+
+      group('端到端主流程（构建函数）');
+      assert('加载真实产物脚本（找到 MMS 主块）', () => !!mmsScript);
+      testBuild();
+      group('幂等与触发（模拟引擎状态机）');
+      testIdempotency();
+      group('NewDay.html 渲染与解析');
+      testNewdayParse();
+      finish();
+    });
+  }
+
+  // 在隔离环境执行 MMS 纯函数集：提供其依赖的最小全局（jsyaml stub 不被这些函数用到）
+  function mmsEnv() {
+    const docStub = {
+      getElementById: () => null,
+      addEventListener: () => {},
+      querySelector: () => null,
+      querySelectorAll: () => [],
+    };
+    const sandbox = new Function(
+      'jsyaml', 'window', 'document',
+      mmsScript + '\n;return {' +
+      ' mmsBuildNewdayResult, mmsParseAttrList, mmsIsCurMax, mmsApplyAttrCommands,' +
+      ' mmsNormalizeName, mmsMatchOne, mmsCashCompute, mmsFindNameField, mmsAttrsToString };',
+    );
+    return sandbox(() => ({}), {}, docStub);
+  }
+
+  let fns = null;
+  function testBuild() {
+    // 初始化提取的函数集（每轮重新提取保证干净）
+    fns = null;
+    try { fns = mmsEnv(); } catch (e) { log('mmsEnv fail', e.message); }
+    if (!fns) return;
+
+    assert('现金：520 − 65 = 455（mmsCashCompute 保留美元后缀）', () => {
+      const r = fns.mmsBuildNewdayResult(stateBase, bill, roster);
+      const cash = r.state['状态栏']['据点']['现金'];
+      log('cash →', cash);
+      return cash === '455美元';
+    });
+
+    assert('回血（默认 20%/天 × 1 天）：李娟 HP 19/28 → ceil(19+5.6)=25/28，MP 3/14 → 6/14', () => {
+      const r = fns.mmsBuildNewdayResult(stateBase, bill, roster);
+      const a = r.state['状态栏']['角色列表'][0]['属性'];
+      log('李娟 →', a);
+      return a.includes('[❤️HP:25/28]') && a.includes('[💧MP:6/14]');
+    });
+
+    assert('回血（隔 3 天结算，60%）：李娟 HP 19/28 → 28/28，MP 3/14 → ceil(3+8.4)=12/14', () => {
+      const b3 = Object.assign({}, bill, { days: 3 });
+      const r = fns.mmsBuildNewdayResult(stateBase, b3, roster);
+      const a = r.state['状态栏']['角色列表'][0]['属性'];
+      log('李娟(3天) →', a);
+      return a.includes('[❤️HP:28/28]') && a.includes('[💧MP:12/14]');
+    });
+
+    assert('回血倍率封顶：隔 10 天结算 200% → 夹到 100%（不溢出上限）', () => {
+      const b10 = Object.assign({}, bill, { days: 10 });
+      const r = fns.mmsBuildNewdayResult(stateBase, b10, roster);
+      const a = r.state['状态栏']['角色列表'][0]['属性'];
+      log('李娟(10天) →', a);
+      return a.includes('[❤️HP:28/28]') && a.includes('[💧MP:14/14]');
+    });
+
+    assert('回血（自定义 50%/天）：李娟 HP 19/28 → ceil(19+14)=28/28', () => {
+      const r = fns.mmsBuildNewdayResult(stateBase, bill, roster, { newdayHealPct: 50 });
+      const a = r.state['状态栏']['角色列表'][0]['属性'];
+      log('李娟(50%) →', a);
+      return a.includes('[❤️HP:28/28]');
+    });
+
+    assert('回血：陈教授 HP 22/25 → 27/25 夹取到 25/25；魔力 6/9 → ceil(6+1.8)=8/9', () => {
+      const r = fns.mmsBuildNewdayResult(stateBase, bill, roster);
+      const a = r.state['状态栏']['角色列表'][1]['属性'];
+      log('陈教授 →', a);
+      return a.includes('[❤️HP:25/25]') && a.includes('[魔力:8/9]');
+    });
+
+    assert('回血：老赵 HP 已满 25/25，不生成命令、无 diff', () => {
+      const r = fns.mmsBuildNewdayResult(stateBase, bill, roster);
+      const h = r.report.healed.find((x) => x.name === '老赵');
+      return !h;
+    });
+
+    assert('report：healed 2 名、cashModule=据点、unmatchedChars 空', () => {
+      const r = fns.mmsBuildNewdayResult(stateBase, bill, roster);
+      log('report →', JSON.stringify(r.report));
+      return r.report.healed.length === 2 && r.report.cashModule === '据点' && r.report.unmatchedChars.length === 0;
+    });
+
+    assert('非数值属性（🛡️防:5）不被回血改动', () => {
+      const r = fns.mmsBuildNewdayResult(stateBase, bill, roster);
+      return r.state['状态栏']['角色列表'][0]['属性'].includes('[🛡️防:5]');
+    });
+
+    assert('零账单：不扣现金、仍回血', () => {
+      const zero = Object.assign({}, bill, { totalCost: 0, items: [] });
+      const r = fns.mmsBuildNewdayResult(stateBase, zero, roster);
+      const cash = r.state['状态栏']['据点']['现金'];
+      log('zero cash →', cash, 'healed →', r.report.healed.length);
+      return cash === '520美元' && r.report.healed.length === 2 && r.report.zeroBill === true;
+    });
+
+    assert('名册多出的角色不在状态栏 → unmatchedChars 上报，不误伤他人', () => {
+      const r2 = { characters: roster.characters.concat([{ name: '神秘人', attrs: [] }]) };
+      const r = fns.mmsBuildNewdayResult(stateBase, bill, r2);
+      return r.report.unmatchedChars.length === 1 && r.report.unmatchedChars[0] === '神秘人' && r.report.healed.length === 2;
+    });
+
+    assert('原始 state 不被原地污染（每次构建都从基线出发）', () => {
+      fns.mmsBuildNewdayResult(stateBase, bill, roster);
+      const a = stateBase['状态栏']['角色列表'][0]['属性'];
+      return a.includes('[❤️HP:19/28]') && stateBase['状态栏']['据点']['现金'] === '520美元';
+    });
+  }
+
+  function testIdempotency() {
+    // 模拟 applyNewdayBill 的幂等判定链：pendingNewdayBill = lastId 比对
+    assert('幂等：lastId === bill.id 时 pending 为 null（不重复应用）', () => {
+      const sync = { lastId: bill.id, appliedFloor: 99, ts: 1 };
+      const pending = sync.lastId === bill.id ? null : bill;
+      return pending === null;
+    });
+    assert('幂等：不同 id（新一天账单）→ pending 返回载荷', () => {
+      const sync = { lastId: 'nd-98-old', appliedFloor: 98, ts: 1 };
+      const pending = sync.lastId === bill.id ? null : bill;
+      return pending === bill;
+    });
+    assert('开关：newdaySync === false → 永不 pending', () => {
+      const cfg = { newdaySync: false };
+      const sync = {};
+      const pending = cfg.newdaySync === false ? null : (sync.lastId === bill.id ? null : bill);
+      return pending === null;
+    });
+    assert('引擎方法存在于产物脚本（applyNewdayBill / pendingNewdayBill / initNewdayBridge）', () => {
+      return /applyNewdayBill\s*\(/.test(mmsScript) && /pendingNewdayBill\s*\(/.test(mmsScript) && /initNewdayBridge\s*\(/.test(mmsScript);
+    });
+    assert('boot 对账兜底存在（每日结算对账注释 + pendingNewdayBill 调用）', () => {
+      const flat = mmsScript.replace(/\n/g, ' ');
+      return mmsScript.includes('每日结算对账') && /pendingNewdayBill\(\)[\s\S]*?applyNewdayBill/.test(flat);
+    });
+    assert('常量与 NewDay.html 一致（$newday_bill_result / newday:bill-settle / newday-bill-bridge）', () => {
+      return mmsScript.includes('$newday_bill_result') && mmsScript.includes('newday:bill-settle') && mmsScript.includes('newday-bill-bridge');
+    });
+  }
+
+  function testNewdayParse() {
+    // NewDay 解析与渲染：完整执行其脚本 IIFE（wrapper 元素存根带 innerText/innerHTML 记录），
+    // 胶囊文本喂真实账单原始文（与正则 $0 注入同源），断言渲染输出而非函数返回值。
+    fetch('../NewDay.html').then((r) => r.text()).then((html) => {
+      const m = /<script>([\s\S]*?)<\/script>/i.exec(html);
+      const src = m[1];
+      const capsuleText = '<Newday>\ndate_and_weather:\n  date: 1925年1月17日\ntoday_news:\n  headline: 无事发生\n' + billRaw + '</Newday>';
+      const rendered = {}; // selector → {innerText, innerHTML}
+      const els = {};
+      const mkEl = (sel) => {
+        if (els[sel]) return els[sel];
+        const el = {
+          addEventListener: () => {},
+          style: { setProperty: () => {} },
+          setAttribute: () => {},
+          removeAttribute: () => {},
+          title: '',
+          value: sel === '.raw-newday-capsule' ? capsuleText : '',
+        };
+        Object.defineProperty(el, 'innerText', {
+          get: () => (rendered[sel] || {}).innerText,
+          set: (v) => { rendered[sel] = Object.assign(rendered[sel] || {}, { innerText: String(v) }); },
+        });
+        Object.defineProperty(el, 'innerHTML', {
+          get: () => (rendered[sel] || {}).innerHTML,
+          set: (v) => { rendered[sel] = Object.assign(rendered[sel] || {}, { innerHTML: String(v) }); },
+        });
+        els[sel] = el;
+        return el;
+      };
+      const wrapperStub = { querySelector: (sel) => mkEl(sel) };
+      const mk = new Function(
+        'document', '__wrapperStub',
+        'const __wrapper = __wrapperStub;' +
+        'const __cs = { previousElementSibling: __wrapper };' +
+        'Object.defineProperty(document, "currentScript", { get: () => __cs });' +
+        src,
+      );
+      const docStub = {
+        querySelector: () => null,
+        getElementById: () => null,
+        createElement: () => ({ style: {}, setAttribute: () => {}, appendChild: () => {} }),
+      };
+      try {
+        mk(docStub, wrapperStub);
+        assert('NewDay 渲染：无状态栏时结余 $0.00（回退值）+ 扣除 -$65.00（逐条求和）', () => {
+          log('nd →', (rendered['.cash-before-val'] || {}).innerText, (rendered['.cash-deduct-val'] || {}).innerText);
+          return (rendered['.cash-before-val'] || {}).innerText === '$0.00' &&
+                 (rendered['.cash-deduct-val'] || {}).innerText === '-$65.00';
+        });
+        assert('NewDay 渲染：余额为核算值 $-65.00（结余 − 扣款，负余额展示让用户肉眼发现）', () => {
+          log('after →', (rendered['.cash-after-val'] || {}).innerText);
+          return (rendered['.cash-after-val'] || {}).innerText === '$-65.00';
+        });
+        assert('NewDay 渲染：期号按日期锚点推导（1925-1-17 → VOL. XLVIII No. 143）', () => {
+          log('issue →', (rendered['.issue-no-val'] || {}).innerText);
+          return (rendered['.issue-no-val'] || {}).innerText === 'VOL. XLVIII No. 143';
+        });
+        assert('NewDay 渲染：账单条目 3 条（新格式：只有 items，无总额字段）', () => {
+          const h = (rendered['.bill-list-val'] || {}).innerHTML || '';
+          return (h.match(/class="bill-item"/g) || []).length === 3;
+        });
+        assert('NewDay 区间哨兵：【经济】餐饮 $15.00 出界 → 标红波浪线（不拦截）', () => {
+          const h = (rendered['.bill-list-val'] || {}).innerHTML || '';
+          return h.indexOf('bill-cost-warn') > -1 && h.indexOf('underline wavy') > -1;
+        });
+        assert('NewDay 区间哨兵：【标准】弹药 $38.00 在区间内 → 不标红', () => {
+          const h = (rendered['.bill-list-val'] || {}).innerHTML || '';
+          const warns = (h.match(/bill-cost-warn/g) || []).length;
+          log('warn count →', warns);
+          return warns === 1;
+        });
+        assert('NewDay 结算按钮：无变量 API 环境标记 noapi（不误触发结算）', () => {
+          const note = (rendered['.settle-note-val'] || {}).innerText || '';
+          log('note →', note);
+          return note.indexOf('变量 API') > -1;
+        });
+        assert('老格式兼容（cost 写在 details 之后）：details 不残留 cost:/tier: 字样', () => {
+          // 独立沙盒跑一份字段倒序的旧格式数据
+          const oldCapsule = '<Newday>\ndate_and_weather:\n  date: 1925年1月17日\nyesterday_bill:\n  team_cash_before: 150.00\n  items:\n    - category: "住宿费"\n      tier: "【标准】"\n      details: "旅馆双人间2间"\n      cost: 12.00\n  total_cost: 37.00\n  team_cash_after: 113.00\n</Newday>';
+          const r2 = {}; const e2 = {};
+          const mkEl2 = (sel) => {
+            if (e2[sel]) return e2[sel];
+            const el = { addEventListener(){}, style:{setProperty(){}}, setAttribute(){}, removeAttribute(){}, title:'', value: sel==='.raw-newday-capsule'?oldCapsule:'' };
+            Object.defineProperty(el,'innerText',{get:()=>(r2[sel]||{}).innerText,set:(v)=>{r2[sel]=Object.assign(r2[sel]||{},{innerText:String(v)});}});
+            Object.defineProperty(el,'innerHTML',{get:()=>(r2[sel]||{}).innerHTML,set:(v)=>{r2[sel]=Object.assign(r2[sel]||{},{innerHTML:String(v)});}});
+            e2[sel]=el; return el;
+          };
+          const docStub2 = {
+            querySelector: () => null,
+            getElementById: () => null,
+            createElement: () => ({ style: {}, setAttribute: () => {}, appendChild: () => {} }),
+          };
+          try { mk(docStub2, { querySelector: (sel) => mkEl2(sel) }); } catch (e) { log('old fmt err', e.message); return false; }
+          const h = (r2['.bill-list-val'] || {}).innerHTML || '';
+          log('old details →', h.replace(/<[^>]+>/g, ' ').trim().slice(0, 80));
+          return !/cost\s*:/i.test(h) && !/tier\s*:/i.test(h) && h.indexOf('旅馆双人间2间') > -1;
+        });
+      } catch (e) {
+        log('NewDay 执行失败', e.message);
+        assert('NewDay 渲染（执行失败，该项红）', () => false);
+      }
+      finish();
+    });
+  }
+})();
+</script>
+</body>
+</html>

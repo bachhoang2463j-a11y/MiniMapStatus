@@ -234,6 +234,12 @@
         .bill-cost { font-family: var(--font-mono); font-weight: bold; font-size: 1em; color: var(--accent-red); }
         .bill-details { font-size: 0.86em; color: var(--ink-secondary); line-height: 1.45; white-space: pre-line; border-top: 1px dashed rgba(0,0,0,0.1); padding-top: 4px; margin-top: 4px; text-align: justify; }
 
+        .newday-settle-row { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 10px; }
+        .newday-settle-note { font-family: var(--font-mono); font-size: 0.78em; color: var(--ink-faded); }
+        .newday-settle-note.ok { color: #556b2f; }
+        .newday-settle-note.err { color: var(--accent-red); }
+        .btn-settle-bill:disabled { opacity: 0.45; cursor: default; }
+
         .newspaper-footer { margin-top: 16px; border-top: 1px solid var(--ink-primary); padding-top: 6px; text-align: center; font-family: var(--font-mono); font-size: 0.75em; color: var(--ink-faded); }
         
         /* Debug element */
@@ -314,6 +320,11 @@
             </div>
 
             <div class="bill-items-list bill-list-val"></div>
+
+            <div class="newday-settle-row">
+                <span class="newday-settle-note settle-note-val">未结算</span>
+                <button class="btn-vintage btn-settle-bill" type="button" disabled>🪙 结算昨日账单</button>
+            </div>
         </section>
 
         <footer class="newspaper-footer">PRINTED BY CHRONICLE PRESS · ALL RIGHTS RESERVED 1925</footer>
@@ -397,7 +408,8 @@
 
         // 2. News
         const newsName = getKeyVal(newsRaw, 'newspaper_name') || '《悉尼先驱晨报》';
-        const issueNo = getKeyVal(newsRaw, 'issue_no') || '';
+        // 期号：程序按日期锚点推导（LLM 不再输出）
+        const issueNo = computeIssueNo(date) || getKeyVal(newsRaw, 'issue_no') || '';
         const headline = getKeyVal(newsRaw, 'headline') || '';
 
         const bulletins = [];
@@ -418,7 +430,8 @@
         // 3. Bill
         const cashBefore = getKeyVal(billRaw, 'team_cash_before') || getKeyVal(billRaw, 'cash_before') || '0.00';
         const totalCost = getKeyVal(billRaw, 'total_cost') || getKeyVal(billRaw, 'total_deducted') || '0.00';
-        const cashAfter = getKeyVal(billRaw, 'team_cash_after') || getKeyVal(billRaw, 'cash_after') || '0.00';
+        // 仅展示用：真值由脚本核算（状态栏现金 − 总扣款），不再信任 LLM 算的余额
+        const cashAfter = getKeyVal(billRaw, 'team_cash_after') || getKeyVal(billRaw, 'cash_after') || '';
 
         const items = [];
         if (billRaw) {
@@ -428,9 +441,9 @@
                 const category = getKeyVal(block, 'category') || '消费支出';
                 const tier = getKeyVal(block, 'tier') || '【标准】';
                 const cost = getKeyVal(block, 'cost') || '0.00';
-                
+
                 let details = '';
-                const detMatch = block.match(/details\s*:\s*(?:\|?\s*)([\s\S]+?)(?=\n\s*(?:-\s*)?category:|\n\s*total_cost:|\n\s*total-cost:|\n\s*team_cash_after:|\n\s*team-cash-after:|$)/i);
+                const detMatch = block.match(/details\s*:\s*(?:\|?\s*)([\s\S]+?)(?=\n\s*(?:-\s*)?category:|\n\s*total_cost:|\n\s*total-cost:|\n\s*team_cash_after:|\n\s*team-cash-after:|\n\s*(?:-\s*)?cost:|\n\s*(?:-\s*)?tier:|$)/i);
                 if (detMatch) {
                     details = detMatch[1].trim();
                     if ((details.startsWith('"') && details.endsWith('"')) || (details.startsWith("'") && details.endsWith("'"))) {
@@ -441,7 +454,234 @@
             }
         }
 
-        return { date, location, weather, newsName, issueNo, headline, bulletins, cashBefore, totalCost, cashAfter, items };
+        return { date, location, weather, newsName, issueNo, headline, bulletins, cashBefore, totalCost, cashAfter, items, hasBill: !!billRaw };
+    }
+
+    // ==================== 每日结算直连（NewDay → MiniMapStatus 状态栏） ====================
+    // 常量须与 MiniMapStatus.html 一致：载荷变量 / 幂等台账 / 事件名
+    const NEWDAY_BILL_VAR = '$newday_bill_result';
+    const NEWDAY_SYNC_VAR = '$mms_newday_sync';
+    const NEWDAY_BILL_EVENT = 'newday:bill-settle';
+    const NEWDAY_APPLIED_EVENT = 'newday:bill-applied';
+
+    // 金额清洗：沿用展示层同款规则（剥掉货币符号与千分位）
+    function toAmount(v) {
+        const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, ''));
+        return isNaN(n) ? 0 : n;
+    }
+
+    // ==================== 程序生成数字（LLM 不再输出这些字段） ====================
+
+    // 期号锚点：以此推算任意剧情日期对应的期号（日期来自 LLM，期号纯函数推导）
+    const ISSUE_ANCHOR = { vol: 'VOL. XLVIII', no: 142, date: '1925年1月16日' };
+
+    // 中文日期解析："1925年1月17日" → UTC 毫秒（解析失败 null）
+    function parseCnDate(s) {
+        const m = /(\d{4})年(\d{1,2})月(\d{1,2})日/.exec(String(s || ''));
+        if (!m) return null;
+        const d = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+        return isNaN(d) ? null : d;
+    }
+
+    function computeIssueNo(dateStr) {
+        const cur = parseCnDate(dateStr);
+        const anchor = parseCnDate(ISSUE_ANCHOR.date);
+        if (cur == null || anchor == null) return null;
+        const diff = Math.round((cur - anchor) / 86400000);
+        return ISSUE_ANCHOR.vol + ' No. ' + (ISSUE_ANCHOR.no + diff);
+    }
+
+    // 状态栏现金真值：从本楼向前找最近的消息变量 stat_data（含「现金」字段的固定模块）
+    function readStatusbarCash() {
+        try {
+            if (typeof getVariables !== 'function') return null;
+            const fid = getFloorId();
+            if (fid == null) return null;
+            for (let id = fid; id >= fid - 10 && id >= 0; id--) {
+                const vars = getVariables({ type: 'message', message_id: id });
+                const st = vars && vars.stat_data && vars.stat_data['状态栏'];
+                if (!st || typeof st !== 'object') continue;
+                const mk = Object.keys(st).find(function (k) {
+                    return st[k] && typeof st[k] === 'object' && st[k]['现金'] != null;
+                });
+                if (mk) return toAmount(st[mk]['现金']);
+            }
+        } catch (e) { return null; }
+        return null;
+    }
+
+    // 账单三数字：结余 = 状态栏真值（回退 LLM 值）；扣款 = 逐条求和；余额 = 相减
+    function computeCashFigures(data) {
+        const itemSum = (data.items || []).reduce(function (s, it) { return s + toAmount(it.cost); }, 0);
+        const deduct = (data.items && data.items.length) ? itemSum : toAmount(data.totalCost);
+        const statusCash = readStatusbarCash();
+        const before = statusCash != null ? statusCash : toAmount(data.cashBefore);
+        return { before: before, deduct: deduct, after: before - deduct, fromStatus: statusCash != null };
+    }
+
+    // 消费等级 × 金额宽松区间（含多间/多人总价的余量）：出界仅标红提示，不拦截结算
+    // （寒潮宰客等剧情性抬价完全合法，标红只是提醒玩家看一眼）
+    const TIER_COST_RANGE = {
+        '本地': [0.05, 4],
+        '经济': [0.3, 12],
+        '标准': [1, 40],
+        '高档': [8, 120],
+        '奢华': [60, Infinity],
+    };
+
+    function tierCostWarn(cost, cleanTier) {
+        const range = TIER_COST_RANGE[cleanTier];
+        if (!range) return false;
+        return cost < range[0] || cost > range[1];
+    }
+
+    // 简易字符串哈希（与 MiniMapStatus.hashStr 同算法，保证两端 id 一致）
+    function hashStr(str) {
+        let h = 5381;
+        const s = String(str || '');
+        for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+        return String(h);
+    }
+
+    function envReady() {
+        return typeof getVariables === 'function' && typeof insertOrAssignVariables === 'function';
+    }
+
+    function getFloorId() {
+        try {
+            const id = typeof getCurrentMessageId === 'function' ? getCurrentMessageId() : null;
+            return id != null ? id : null;
+        } catch (e) { return null; }
+    }
+
+    function isLastFloor() {
+        try {
+            return typeof getLastMessageId === 'function' && getFloorId() != null && getLastMessageId() <= getFloorId();
+        } catch (e) { return false; }
+    }
+
+    function readNewdaySync() {
+        try {
+            const chatVars = getVariables({ type: 'chat' }) || {};
+            const s = chatVars && chatVars[NEWDAY_SYNC_VAR];
+            return s && typeof s === 'object' ? s : {};
+        } catch (e) { return {}; }
+    }
+
+    function writeBillResult(bill) {
+        insertOrAssignVariables({ [NEWDAY_BILL_VAR]: bill }, { type: 'chat' });
+    }
+
+    function emitBillEvent(bill) {
+        try {
+            if (typeof eventEmit === 'function') eventEmit(NEWDAY_BILL_EVENT, bill);
+        } catch (e) { /* 状态栏靠 boot 对账兜底 */ }
+        try {
+            if (typeof BroadcastChannel !== 'undefined') {
+                const ch = new BroadcastChannel('newday-bill-bridge');
+                ch.postMessage({ type: 'bill-settle', bill: bill });
+                setTimeout(() => { try { ch.close(); } catch (e) {} }, 1000);
+            }
+        } catch (e) { /* 静默降级 */ }
+    }
+
+    function setSettleBtnState(btn, noteEl, state, text) {
+        if (btn) btn.disabled = state !== 'ready';
+        if (state === 'done' || state === 'synced') {
+            if (btn) btn.innerText = '✓ 已结算';
+            if (noteEl) { noteEl.className = 'newday-settle-note ok'; noteEl.innerText = text || '已写入状态栏'; }
+        } else if (state === 'stale') {
+            if (btn) btn.innerText = '⌛ 已失效';
+            if (noteEl) { noteEl.className = 'newday-settle-note err'; noteEl.innerText = text || '此账单非最新一期，只能结算最新一期'; }
+        } else if (state === 'noapi') {
+            if (noteEl) { noteEl.className = 'newday-settle-note err'; noteEl.innerText = text || '酒馆助手变量 API 不可用，无法结算'; }
+        } else {
+            if (btn) btn.innerText = '🪙 结算昨日账单';
+            if (noteEl) { noteEl.className = 'newday-settle-note'; noteEl.innerText = text || '未结算'; }
+        }
+    }
+
+    // 账单结算直连：组装载荷 → 写变量 → 事件通知；状态栏侧幂等应用并回执
+    function setupBillSettle(data) {
+        const btn = wrapper.querySelector('.btn-settle-bill');
+        const noteEl = wrapper.querySelector('.settle-note-val');
+        if (!btn || !noteEl) return;
+        if (!envReady()) {
+            setSettleBtnState(btn, noteEl, 'noapi');
+            return;
+        }
+
+        const floorId = getFloorId();
+        const dateKey = String(data.date || '').split(/[·\s]/)[0] || String(data.date || '');
+        const fig = computeCashFigures(data);
+        // 结算天数：本期与台账上次结算日期的差（同日=1；状态栏按 每日N% × 天数 累计恢复，封顶100%）
+        const sync = readNewdaySync();
+        const curMs = parseCnDate(data.date);
+        const prevMs = sync.lastDateMs;
+        const days = (curMs != null && prevMs != null && curMs > prevMs)
+            ? Math.round((curMs - prevMs) / 86400000)
+            : 1;
+        const bill = {
+            id: floorId != null ? 'nd-' + floorId + '-' + hashStr(dateKey) : 'nd-' + hashStr(rawText.slice(0, 200)),
+            floorId: floorId,
+            date: data.date,
+            dateMs: curMs,
+            days: days,
+            // 程序核算真值（结余=状态栏现金，扣款=逐条求和）；items 仅叙事留档
+            cashBefore: fig.before,
+            totalCost: fig.deduct,
+            items: (data.items || []).map(function (it) {
+                return { category: it.category, tier: it.tier, cost: toAmount(it.cost), details: it.details };
+            }),
+        };
+
+        // 回执：状态栏应用完成后按钮翻"已结算"
+        const onApplied = function (payload) {
+            if (!payload || payload.id !== bill.id) return;
+            setSettleBtnState(btn, noteEl, 'done',
+                payload.ok === false ? ('结算失败：' + (payload.error || '详见状态栏提示')) : undefined);
+        };
+        try {
+            if (typeof eventOn === 'function') eventOn(NEWDAY_APPLIED_EVENT, onApplied);
+        } catch (e) { /* 忽略 */ }
+
+        // 最新一期判定：非最新楼（往期报纸）不允许结算——幂等台账只记最近一期
+        const isCurrent = isLastFloor();
+        if (sync.lastId === bill.id) {
+            setSettleBtnState(btn, noteEl, 'synced');
+            return;
+        }
+        if (!isCurrent) {
+            setSettleBtnState(btn, noteEl, 'stale');
+            return;
+        }
+
+        const settle = function () {
+            try {
+                writeBillResult(bill);
+                emitBillEvent(bill);
+                if (noteEl) { noteEl.className = 'newday-settle-note'; noteEl.innerText = '结算中…等待状态栏写入'; }
+            } catch (e) {
+                if (noteEl) { noteEl.className = 'newday-settle-note err'; noteEl.innerText = '结算请求失败：' + (e && e.message ? e.message : e); }
+            }
+        };
+        btn.disabled = false;
+        btn.addEventListener('click', settle);
+
+        // 自动触发：仅最新楼自动结算（往期报纸只渲染只读视图）。
+        // 状态栏实例可能晚于本楼渲染（boot 顺序/刷新时序），先发一次；
+        // 4 秒内未收到回执再补发一次事件（载荷 id 幂等，重复投递不会重复扣款）。
+        setTimeout(function () {
+            if (btn.disabled) return; // 已收到回执
+            settle();
+            setTimeout(function () {
+                if (btn.disabled) return;
+                if (noteEl) {
+                    noteEl.className = 'newday-settle-note err';
+                    noteEl.innerText = '状态栏未响应，可点击重试或检查状态栏楼层';
+                }
+            }, 4000);
+        }, 600);
     }
 
     try {
@@ -468,14 +708,19 @@
         newsHTML += '</div>';
         wrapper.querySelector('.news-columns-val').innerHTML = newsHTML;
 
-        // Cash Summary (clean formatting)
-        const cBefore = parseFloat(String(data.cashBefore).replace(/[^0-9.]/g, '') || 0).toFixed(2);
-        const cDeduct = parseFloat(String(data.totalCost).replace(/[^0-9.]/g, '') || 0).toFixed(2);
-        const cAfter = parseFloat(String(data.cashAfter).replace(/[^0-9.]/g, '') || 0).toFixed(2);
-        
-        wrapper.querySelector('.cash-before-val').innerText = '$' + cBefore;
-        wrapper.querySelector('.cash-deduct-val').innerText = '-$' + cDeduct;
-        wrapper.querySelector('.cash-after-val').innerText = '$' + cAfter;
+        // Cash Summary：三个数字全部程序核算——结余读状态栏真值（回退 LLM 值）、扣款逐条求和、余额相减
+        const fig = computeCashFigures(data);
+        const cBefore = fig.before;
+        const cDeduct = fig.deduct;
+        const cAfter = fig.after;
+
+        wrapper.querySelector('.cash-before-val').innerText = '$' + cBefore.toFixed(2);
+        wrapper.querySelector('.cash-deduct-val').innerText = '-$' + cDeduct.toFixed(2);
+        wrapper.querySelector('.cash-after-val').innerText = '$' + cAfter.toFixed(2);
+        if (!fig.fromStatus) {
+            const beforeEl = wrapper.querySelector('.cash-before-val');
+            beforeEl.title = '未能读到状态栏现金，结余来自 LLM 账单（仅展示）';
+        }
 
         // Bill Items
         const tierMap = {
@@ -508,16 +753,30 @@
                 }
             }
             const icon = getIconForCategory(item.category);
-            const formattedCost = parseFloat(String(item.cost).replace(/[^0-9.]/g, '') || 0).toFixed(2);
+            const itemCost = toAmount(item.cost);
+            const formattedCost = itemCost.toFixed(2);
+            // 等级×金额区间哨兵：出界仅标红提示（宰客等剧情抬价合法，不拦截）
+            const costWarn = tierCostWarn(itemCost, cleanTier);
+            const costHtml = costWarn
+                ? '<div class="bill-cost bill-cost-warn" title="金额超出该等级常见区间，剧情抬价（如宰客）则忽略" style="color:var(--accent-red);text-decoration:underline wavy;">-$' + formattedCost + '</div>'
+                : '<div class="bill-cost">-$' + formattedCost + '</div>';
             billHTML += `<div class="bill-item">
                 <div class="bill-item-header">
                     <div class="bill-category"><span>${icon} ${item.category}</span><span class="tier-badge ${tierClass}">【${cleanTier}】</span></div>
-                    <div class="bill-cost">-$${formattedCost}</div>
+                    ${costHtml}
                 </div>
                 <div class="bill-details">${item.details}</div>
             </div>`;
         });
         wrapper.querySelector('.bill-list-val').innerHTML = billHTML;
+
+        // 结算按钮 + 自动触发（幂等：已记台账的账单不会再写入）
+        if (data.hasBill) {
+            setupBillSettle(data);
+        } else {
+            const row = wrapper.querySelector('.newday-settle-row');
+            if (row) row.style.display = 'none';
+        }
 
     } catch(e) {
         console.error("Newday Render Error:", e);
