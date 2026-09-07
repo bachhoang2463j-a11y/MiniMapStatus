@@ -8258,8 +8258,10 @@ window.MMS_IMAGE_DATA = {
     
 
       class StoryRenderer {
-        constructor(dataSourceId) {
+        constructor(dataSourceId, presetData) {
           this.dataSourceId = dataSourceId;
+          // 直通数据：提供时 init() 跳过 script 标签与 YAML 解析（渲染热路径省一次 dump + 两次 load）
+          this.presetData = presetData != null ? presetData : null;
           this.yamlData = null;
           this.rootNode = null;
           this.characterData = [];
@@ -8280,7 +8282,15 @@ window.MMS_IMAGE_DATA = {
 
         init() {
           try {
-            this.loadYamlFromScriptTag();
+            if (this.presetData != null) {
+              // 直通数据路径：状态对象直接渲染，不做 YAML 序列化/解析往返
+              this.yamlData = this.presetData;
+              if (Object.keys(this.yamlData).length === 0) {
+                throw new Error('状态数据为空，请检查状态内容');
+              }
+            } else {
+              this.loadYamlFromScriptTag();
+            }
 
             if (!this.yamlData) {
               return;
@@ -9319,8 +9329,14 @@ createCharacterEntry(text, categoryKey) {
         formatMainText(maintextContent);
       }
 
-      function reRenderStatusBar() {
+      function reRenderStatusBar(stateData) {
         try {
+          if (stateData != null) {
+            // 状态对象直通：跳过 YAML dump→script 标签→load 往返
+            const storyRenderer = new StoryRenderer('yaml-data-source', stateData);
+            storyRenderer.init();
+            return;
+          }
           const yamlScript = document.getElementById('yaml-data-source');
           if (!yamlScript || !yamlScript.textContent) return;
 
@@ -12454,8 +12470,8 @@ createCharacterEntry(text, categoryKey) {
             this.lastState = state;
             // 独立大地图：仅渲染层注入（显示副本），不写回变量、不进注入上下文
             const display = this.injectBigMapArt(state);
-            updateYamlDataSource(this.stateToYaml(display));
-            setTimeout(() => reRenderStatusBar(), 60);
+            // display 状态对象直通渲染（此前要 dump 成 YAML 写 script 标签再 load 回来）
+            setTimeout(() => reRenderStatusBar(display), 60);
             // 实时表单同步：名册/固定模块表单显示的实时值跟随最新状态
             try {
               this.renderModulesForm();
@@ -12619,8 +12635,7 @@ createCharacterEntry(text, categoryKey) {
         refreshBigMapCard() {
           if (!this.lastState) return;
           try {
-            const display = this.injectBigMapArt(this.lastState); // 同步 MMS_BIGMAP_ART_STATE
-            updateYamlDataSource(this.stateToYaml(display)); // 保持 YAML 数据源一致（供后续整栏渲染）
+            this.injectBigMapArt(this.lastState); // 同步 MMS_BIGMAP_ART_STATE（显示副本不再进 YAML 数据源）
             const bma = MMS_BIGMAP_ART_STATE;
             const oldBar = document.querySelector(
               '.character-panel .mms-bm-bar, .character-panel .mms-bm-placeholder',
