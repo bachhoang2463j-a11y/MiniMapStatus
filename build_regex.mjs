@@ -136,6 +136,11 @@ function buildMinifiedHtml(html) {
     if ((minified.match(/\/\* ==== MMS_IMAGE_DATA_START/g) || []).length !== 1) {
       fail('产物中 MMS_IMAGE_DATA_START 标记注释出现多次（疑似 serializeImageData 常量折叠）');
     }
+    // 拼接点安全：「保存到源码」整体替换 START→END 区间并以 ; 结尾。若 terser 把
+    // 语句合并的逗号落在 END 标记之后（区间外），拼接后会产出 ";," 语法错误
+    if (/\/\* ==== MMS_IMAGE_DATA_END ==== \*\/\s*,/.test(minified)) {
+      fail('MMS_IMAGE_DATA_END 标记后紧跟逗号（terser 逗号表达式合并落在标记区间外）——「保存到源码」拼接后会产生 ;, 语法错误');
+    }
     return minified;
   } finally {
     rmSync(TMP, { recursive: true, force: true });

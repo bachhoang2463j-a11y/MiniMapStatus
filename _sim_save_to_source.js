@@ -7,10 +7,12 @@ const j = JSON.parse(
 );
 let src = j.replaceString;
 
-// ===== 完全复刻页面运行时逻辑（MiniMapStatus.html:4279 / 16315-16319） =====
+// ===== 完全复刻页面运行时逻辑（MiniMapStatus.html serializeImageData，含实体加固） =====
 const MMS_IMG_BLOCK_RE = /\/\* ==== MMS_IMAGE_DATA_START[\s\S]*?MMS_IMAGE_DATA_END ==== \*\//;
 const serializeImageData = (data) => {
-  const json = JSON.stringify(data, null, 2).replace(/</g, '\\u003c');
+  const json = JSON.stringify(data, null, 2)
+    .replace(/</g, '\\u003c')
+    .replace(/&(?=(?:lt|gt|quot|amp|apos|#\d{1,5}|#x[0-9a-fA-F]{1,5});)/g, '\\u0026');
   const startMark = '/* ' + '==== MMS_IMAGE_DATA_START ==== */';
   const endMark = '/* ' + '==== MMS_IMAGE_DATA_END ==== */';
   return startMark + '\nwindow.MMS_IMAGE_DATA = ' + json + ';\n' + endMark;
@@ -93,4 +95,33 @@ for (const [name, d] of scenarios) {
   console.log('== 场景' + name + ' ==');
   check('回写后直接语法   ', out);
   check('回写后过管线解码 ', decodeEntities(out));
+  // 往返保真：回写块求值后，数据值必须与写入前完全一致（\u003c/\u0026 转义不改变值）
+  const blk = out.match(MMS_IMG_BLOCK_RE)[0];
+  const rt = new Function(
+    'return ' + blk.slice(blk.indexOf('{'), blk.lastIndexOf('}') + 1)
+  )();
+  const diffs = [];
+  for (const cat of Object.keys(d)) {
+    for (const k of Object.keys(d[cat])) {
+      if (rt[cat][k] !== d[cat][k]) diffs.push(cat + '「' + k + '」');
+    }
+  }
+  console.log(
+    diffs.length === 0
+      ? '  [OK  ] 往返保真 — ' + Object.values(d).reduce((n, c) => n + Object.keys(c).length, 0) + ' 项值全部一致'
+      : '  [FAIL] 往返失真: ' + diffs.join(', ')
+  );
+}
+
+// 名称 $ 记号：复刻新版 validateImageName，断言 $& 名称现在被入口拦截
+const validateImageName = (name) =>
+  !name ? '不能为空'
+  : /[<>"`]/.test(name) ? '不能包含 < > " ` 字符'
+  : /[\r\n\t]/.test(name) ? '不能包含换行或制表符'
+  : /\$(?:&|`|'|<|\d|\$)/.test(name) ? '包含 $&、$1 等 JS 替换特殊记号，会破坏页面注入'
+  : '';
+console.log('== 名称 $ 记号校验（新版 validateImageName 复刻） ==');
+for (const n of ['费$&兰克', '角色$1', '$`测试', '正常角色', '向震虎(投篮)']) {
+  const err = validateImageName(n);
+  console.log('  ' + (err ? '[拦截] ' : '[放行] ') + JSON.stringify(n) + (err ? ' — ' + err : ''));
 }

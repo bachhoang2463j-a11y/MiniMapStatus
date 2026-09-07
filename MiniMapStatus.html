@@ -16241,6 +16241,8 @@ createCharacterEntry(text, categoryKey) {
           if (!name) return '不能为空';
           if (/[<>"`]/.test(name)) return '不能包含 < > " ` 字符';
           if (/[\r\n\t]/.test(name)) return '不能包含换行或制表符';
+          // 名称作为 JSON 键同样进入正则替换串，$& 等记号会在酒馆套用替换时撕裂注入的 HTML
+          if (/\$(?:&|`|'|<|\d|\$)/.test(name)) return '包含 $&、$1 等 JS 替换特殊记号，会破坏页面注入';
           return '';
         },
 
@@ -16310,10 +16312,15 @@ createCharacterEntry(text, categoryKey) {
         },
 
         // 把图片数据序列化为带标记的源码块（< 转义为 \u003c，防止出现 script 闭合标签截断内联脚本）
+        // 实体加固对齐 build_regex.mjs：链接里的 &quot; 等实体形态若原样写入，酒馆管线
+        // 解码会把 &quot; 变成 " 撕裂字符串（&lt;/script&gt; 更会截断脚本）；
+        // & 前缀改写为 \u0026（字符串里语义等价）后，管线解码变空操作
         // 注意：标记用拼接构造——若以完整字面量出现在本函数里，源码中会存在第二处可被
         // MMS_IMG_BLOCK_RE 匹配的文本，导致「保存到源码」的唯一性校验永远失败
         serializeImageData(data) {
-          const json = JSON.stringify(data, null, 2).replace(/</g, '\\u003c');
+          const json = JSON.stringify(data, null, 2)
+            .replace(/</g, '\\u003c')
+            .replace(/&(?=(?:lt|gt|quot|amp|apos|#\d{1,5}|#x[0-9a-fA-F]{1,5});)/g, '\\u0026');
           const startMark = '/* ' + '==== MMS_IMAGE_DATA_START ==== */';
           const endMark = '/* ' + '==== MMS_IMAGE_DATA_END ==== */';
           return startMark + '\nwindow.MMS_IMAGE_DATA = ' + json + ';\n' + endMark;
