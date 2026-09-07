@@ -102,22 +102,10 @@ function buildMinifiedHtml(html) {
         { cwd: __dirname, stdio: 'pipe' }
       );
       const min = readFileSync(outFile, 'utf8');
-      // 实体加固（实测事故修复）：酒馆消息管线会对代码块内容做 HTML 实体解码
-      // （&quot;→" 等）。双引号字符串 "&quot;" 解码成 """ 直接炸脚本语法
-      // （missing ) after argument list → 小部件卡「加载中」）。
-      // 把实体模式的 & 前缀改写为 \u0026（字符串/正则/模板字面量里语义等价），
-      // 产物脚本零实体模式，管线解码变成空操作。
-      const hardened = min.replace(
-        /&(?=(?:lt|gt|quot|amp|apos|#\d{1,5}|#x[0-9a-fA-F]{1,5});)/g,
-        '\\u0026'
-      );
-      if (/&(?:lt|gt|quot|amp|apos|#\d{1,5}|#x[0-9a-fA-F]{1,5});/.test(hardened)) {
-        fail(`脚本块 #${i} 实体加固后仍残留实体模式`);
-      }
-      new Function(hardened); // 语法级断言
-      if (hardened.includes('</scr' + 'ipt')) fail(`脚本块 #${i} 压缩产物含 </script，会截断内联脚本`);
-      if (hardened.includes('```')) fail(`脚本块 #${i} 压缩产物含裸三反引号，违反围栏纪律`);
-      out = out.replace(`<!--__MINIFY_SLOT_${i}__-->`, () => '<script>' + hardened.trim() + '</script>');
+      new Function(min); // 语法级断言
+      if (min.includes('</scr' + 'ipt')) fail(`脚本块 #${i} 压缩产物含 </script，会截断内联脚本`);
+      if (min.includes('```')) fail(`脚本块 #${i} 压缩产物含裸三反引号，违反围栏纪律`);
+      out = out.replace(`<!--__MINIFY_SLOT_${i}__-->`, () => '<script>' + min.trim() + '</script>');
     }
 
     // 3) HTML 空白/注释 + CSS 压缩（不碰脚本内容）
@@ -141,7 +129,16 @@ function buildMinifiedHtml(html) {
     if (/\/\* ==== MMS_IMAGE_DATA_END ==== \*\/\s*,/.test(minified)) {
       fail('MMS_IMAGE_DATA_END 标记后紧跟逗号（terser 逗号表达式合并落在标记区间外）——「保存到源码」拼接后会产生 ;, 语法错误');
     }
-    return minified;
+
+    // 5) 全量 & 实体免疫：酒馆管线对代码块内容做 HTML 实体解码，且包含无分号旧式
+    //    实体（RpgCombat 实测：压缩后 &&notify 的 &not → ¬ 炸语法；此前 &quot;→"""
+    //    同族事故）。代码位置的 & 无法用 JS 转义规避，统一把产物内所有 & 改写为
+    //    &amp;：管线单遍解码后逐字符还原（代码/字符串/HTML 文本/属性/CSS 皆然），
+    //    解码结果与改写前逐字节一致（下方断言），从根上免疫任何实体解码行为。
+    const immune = minified.replace(/&/g, '&amp;');
+    if (/&(?!amp;)/.test(immune)) fail('全量 & 转义后仍存在非 &amp; 形式的 & 序列');
+    if (immune.replace(/&amp;/g, '&') !== minified) fail('&amp; 还原一致性校验失败');
+    return immune;
   } finally {
     rmSync(TMP, { recursive: true, force: true });
   }
