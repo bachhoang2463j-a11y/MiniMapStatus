@@ -12309,6 +12309,17 @@ createCharacterEntry(text, categoryKey) {
         writeState(floorId, state) {
           // 写入前统一规范化，确保存储的永远是干净的模块化格式（无旧用户列表残留）
           const normalized = mmsNormalizeState(state) || state;
+          // meta.hash 记目标楼正文哈希：代理更新（旧楼实例代跑新楼的更新）时
+          // this.messageText 是发起楼的文本，必须取目标楼文本才算"本楼数据与正文一致"
+          let floorText = this.messageText;
+          if (floorId !== this.floorId && typeof getChatMessages === 'function') {
+            try {
+              const arr = getChatMessages(floorId);
+              const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+              if (m && typeof m.message === 'string') floorText = m.message;
+            } catch (e) { /* 取不到就退回本楼文本（常规同楼写入不受影响） */ }
+          }
+          const floorHash = this.hashStr(floorText);
           // 用 replaceVariables 整体替换 stat_data（insertOrAssign 的深合并无法删除旧键，
           // 导致编辑器里删掉的模块/字段写不进去）
           try {
@@ -12319,7 +12330,7 @@ createCharacterEntry(text, categoryKey) {
                 stat_data: normalized,
                 // mesId：标记数据写入时的目标楼层——getVariables(message) 有向前继承语义，
                 // 后续楼层会原样读到本条 meta，靠 mesId 区分"本楼数据"与"继承的前楼数据"
-                $mms_meta: { hash: this.hashStr(this.messageText), ts: Date.now(), mesId: floorId },
+                $mms_meta: { hash: floorHash, ts: Date.now(), mesId: floorId },
               });
               replaceVariables(next, { type: 'message', message_id: floorId });
               this.broadcastSync('state', { floorId });
@@ -12330,7 +12341,7 @@ createCharacterEntry(text, categoryKey) {
           }
           // 降级：无 replaceVariables 时用 insertOrAssign（旧键可能残留）
           insertOrAssignVariables(
-            { stat_data: normalized, $mms_meta: { hash: this.hashStr(this.messageText), ts: Date.now(), mesId: floorId } },
+            { stat_data: normalized, $mms_meta: { hash: floorHash, ts: Date.now(), mesId: floorId } },
             { type: 'message', message_id: floorId },
           );
           this.broadcastSync('state', { floorId });
@@ -16602,9 +16613,37 @@ createCharacterEntry(text, categoryKey) {
               eventOn(newMsgEv, (messageId) => {
                 try {
                   if (messageId == null) return;
-                  if (messageId !== this.floorId) return; // 只处理自己楼层
-                  // 检查该楼是否已有本楼状态（有则不重复跑；getVariables(message) 的
-                  // 向前继承语义会把前楼数据带给本楼，靠 meta.mesId 区分归属）
+                  if (messageId !== this.floorId) {
+                    // 事件先于新楼 iframe 渲染发出，新楼实例此时不存在——由
+                    // "当前最后一个 AI 楼"实例代理触发新楼的更新（runUpdate 全程走
+                    // API 读写目标楼，不依赖新楼 iframe 存在；写盘后 BroadcastChannel
+                    // 通知新楼实例刷新 UI）
+                    if (!this.isLastAssistantFloor) return;
+                    if (!this.loadConfig().autoUpdate) return;
+                    if (typeof getChatMessages !== 'function') return;
+                    const arr = getChatMessages(messageId);
+                    const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+                    if (!m || m.role === 'user' || m.is_user) return;
+                    // 新楼已有归属自己的数据（理论上 boot 已跑过）则不重复
+                    const nv = this.readFloorVars(messageId);
+                    const nm = nv && nv.$mms_meta;
+                    if (nv && nv.stat_data && nm && nm.mesId === messageId) return;
+                    // 跨实例去重锁：多个旧楼实例同时收到同一事件，只代理一次
+                    if (this.env.hasVarsApi) {
+                      const chatVars = getVariables({ type: 'chat' }) || {};
+                      const lock = chatVars.$mms_agent_lock;
+                      if (lock && lock.mid === messageId && Date.now() - lock.ts < 120000) return;
+                      insertOrAssignVariables(
+                        { $mms_agent_lock: { mid: messageId, ts: Date.now() } },
+                        { type: 'chat' },
+                      );
+                    }
+                    setTimeout(() => this.runUpdate(messageId), 8000);
+                    return;
+                  }
+                  // 本楼收到事件（本楼实例在生成前就存在，如 continue/群聊）：
+                  // 已有归属自己的数据则不重复跑；getVariables(message) 的向前继承
+                  // 语义会把前楼数据带给本楼，靠 meta.mesId 区分归属
                   const vars = this.readFloorVars(this.floorId);
                   const meta = vars && vars.$mms_meta;
                   if (vars && vars.stat_data && (!meta || meta.mesId == null || meta.mesId === this.floorId)) return;
