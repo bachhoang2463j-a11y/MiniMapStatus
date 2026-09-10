@@ -9329,76 +9329,6 @@ createCharacterEntry(text, categoryKey) {
       }
 
 
-      // 结构化输出约束（宽松版：只约束主干形状，具体字段靠提示词与后置校验）
-      // v3：按名册动态生成——角色字段来自名册 fields 并集，固定模块来自 roster.modules
-      function mmsBuildJsonSchema(roster) {
-        const checkSet = [];
-        const freeSet = [];
-        for (const r of (roster && roster.characters) || []) {
-          for (const f of mmsCharFields(r)) {
-            if (!f.key) continue;
-            const bucket = f.mode === 'check' ? checkSet : freeSet;
-            if (bucket.indexOf(f.key) === -1) bucket.push(f.key);
-          }
-        }
-        const charProps = { 名字: { type: 'string' }, 属性: { type: 'string' } };
-        for (const k of checkSet.concat(freeSet)) charProps[k] = { type: 'string' };
-
-        const statusProps = {
-          日期和时间: { type: 'string' },
-          地点: { type: 'string' },
-          小地图: { type: 'object' },
-          角色列表: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                角色: {
-                  type: 'object',
-                  properties: charProps,
-                  required: ['名字'],
-                },
-              },
-            },
-          },
-          人物: { type: 'object' },
-          行动选项: {
-            type: 'object',
-            properties: {
-              名字: { type: 'string' },
-              选项: { type: 'array', items: { type: 'string' } },
-            },
-          },
-        };
-        if (roster && roster.maps && roster.maps.bigmap) {
-          statusProps.大地图 = { type: 'object' };
-        }
-        for (const m of mmsRosterModules(roster).filter((x) => x.enabled && x.name)) {
-          const props = {};
-          if (m.titleVal) props.名称 = { type: 'string' };
-          if (m.cash) props.现金 = { type: 'string' };
-          for (const f of m.fields || []) {
-            if (f && f.key) props[f.key] = { type: 'string' };
-          }
-          statusProps[m.name] = { type: 'object', properties: props };
-        }
-        return {
-          name: 'status_bar_state',
-          description: '跑团状态栏数据（模块化结构，校验字段为命令串）',
-          value: {
-            type: 'object',
-            properties: {
-              状态栏: {
-                type: 'object',
-                properties: statusProps,
-                required: ['日期和时间', '地点'],
-              },
-            },
-            required: ['状态栏'],
-          },
-        };
-      }
-
       // ---------- MMS 引擎本体 ----------
 
       // ---------- MMS v2：常量 ----------
@@ -13657,8 +13587,6 @@ createCharacterEntry(text, categoryKey) {
                   should_silence: true,
                   generation_id: 'mms-update-' + targetFloorId + '-' + Date.now(),
                 };
-                // 首次尝试带结构化约束（按名册动态生成）；部分端点不支持时自动降级为纯提示词
-                if (attempt === 0) config.json_schema = mmsBuildJsonSchema(roster);
 
                 const result = await generateRaw(config);
                 const raw = typeof result === 'string' ? result : (result && result.content) || '';
@@ -13712,7 +13640,7 @@ createCharacterEntry(text, categoryKey) {
               } catch (e) {
                 lastError = e;
                 console.warn('[MMS] 更新失败（第 ' + (attempt + 1) + ' 次）：', e);
-                if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+                if (attempt < 2) await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
               }
             }
             throw lastError || new Error('未知错误');
@@ -13734,7 +13662,8 @@ createCharacterEntry(text, categoryKey) {
           if (!cfg.autoUpdate) return false;
           if (!this.isLastAssistantFloor) return false;
           // 独立 API 未配置且未配置代理预设时也可运行（使用当前酒馆连接）
-          setTimeout(() => this.runUpdate(this.floorId), 300);
+          // 延时避开楼层刚结束时其他组件/中转的并发拥堵窗口（当时立即请求会被 400 拒掉，稍后重发即成功）
+          setTimeout(() => this.runUpdate(this.floorId), 8000);
           return true;
         },
 
