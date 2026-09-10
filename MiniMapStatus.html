@@ -16650,6 +16650,49 @@ createCharacterEntry(text, categoryKey) {
                   this.maybeAutoUpdate();
                 } catch (e) { /* 忽略 */ }
               });
+              // 直通通道（同"蚀心入魔·数据库"插件的稳定机制）：iframe 经
+              // window.parent.SillyTavern.getContext() 拿父页面（酒馆主上下文）
+              // 的 eventSource，直接监听 GENERATION_ENDED——不依赖 JS-Slash-Runner
+              // 的 iframe 事件转发（实测转发包装器易受宿主环境影响）。
+              // 仅由"最后一个 AI 楼"实例注册，内含跨实例去重锁，触发逻辑与上面一致
+              try {
+                const pw = typeof window.parent !== 'undefined' ? window.parent : null;
+                const ST = pw && pw.SillyTavern;
+                if (ST && typeof ST.getContext === 'function' && this.isLastAssistantFloor) {
+                  const ctx = ST.getContext();
+                  const es = ctx && ctx.eventSource;
+                  const et = ctx && ctx.eventTypes;
+                  if (es && et && et.GENERATION_ENDED && typeof es.on === 'function') {
+                    es.on(et.GENERATION_ENDED, () => {
+                      try {
+                        if (!this.loadConfig().autoUpdate) return;
+                        // 实例可能已被新楼取代（isLastAssistantFloor 是 boot 时的快照），
+                        // 实时复核：自己不再是最后一个 AI 楼就不动，让位给新实例
+                        if (!this.checkLastAssistantFloor(this.floorId)) return;
+                        const messageId = typeof getLastMessageId === 'function' ? getLastMessageId() : null;
+                        if (messageId == null || messageId === this.floorId) return;
+                        if (typeof getChatMessages !== 'function') return;
+                        const arr = getChatMessages(messageId);
+                        const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+                        if (!m || m.role === 'user' || m.is_user) return;
+                        const nv = this.readFloorVars(messageId);
+                        const nm = nv && nv.$mms_meta;
+                        if (nv && nv.stat_data && nm && nm.mesId === messageId) return;
+                        if (this.env.hasVarsApi) {
+                          const chatVars = getVariables({ type: 'chat' }) || {};
+                          const lock = chatVars.$mms_agent_lock;
+                          if (lock && lock.mid === messageId && Date.now() - lock.ts < 120000) return;
+                          insertOrAssignVariables(
+                            { $mms_agent_lock: { mid: messageId, ts: Date.now() } },
+                            { type: 'chat' },
+                          );
+                        }
+                        setTimeout(() => this.runUpdate(messageId), 8000);
+                      } catch (e) { /* 忽略 */ }
+                    });
+                  }
+                }
+              } catch (e) { /* 直通通道不可用时仍有转发通道兜底 */ }
               // 换聊天兜底：新空聊天无AI楼→无iframe→boot不跑，用CHAT_CHANGED事件禁用残留条目
               const chatChangedEv =
                 (typeof tavern_events !== 'undefined' && tavern_events && tavern_events.CHAT_CHANGED) ||
