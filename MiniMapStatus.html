@@ -16517,6 +16517,10 @@ createCharacterEntry(text, categoryKey) {
               if (prev) {
                 this.renderFromState(prev.state);
                 this.setIndicator('error', '状态更新中…点击或「立即更新」手动刷新');
+                // 正常聊天流的主要触发点：MESSAGE_RECEIVED 事件先于本 iframe 渲染发出
+                // （事件到达时本楼 iframe 尚不存在，旧楼 iframe 又不处理别楼 id），
+                // 所以"新AI楼渲染完成"这个时点由 boot 自己发起自动更新
+                this.maybeAutoUpdate();
               } else {
                 const t = document.getElementById('time-display');
                 const l = document.getElementById('location-display');
