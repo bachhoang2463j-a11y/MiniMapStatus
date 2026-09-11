@@ -11364,6 +11364,23 @@ createCharacterEntry(text, categoryKey) {
         return lines.join('\n');
       }
 
+      // 正文 AI 写入的行动选项校验（显示层即时生效与更新后补采共用口径）：
+      // 选项须为 1-6 条非空字符串且首条以数字编号起头——选项可点击发送，坏数据直接影响操作
+      function mmsValidStoryAction(act) {
+        if (!act || typeof act !== 'object' || Array.isArray(act)) return null;
+        const opts = act['选项'];
+        if (
+          !Array.isArray(opts) ||
+          opts.length < 1 ||
+          opts.length > 6 ||
+          !opts.every((s) => typeof s === 'string' && s.trim()) ||
+          !/^\s*1\s*[.、]/.test(opts[0])
+        ) {
+          return null;
+        }
+        return { 选项: opts.slice(), 名字: typeof act['名字'] === 'string' ? act['名字'].trim() : '' };
+      }
+
       const MMS = {
         floorId: null,
         messageText: '',
@@ -12486,9 +12503,48 @@ createCharacterEntry(text, categoryKey) {
 
         // ---------- 渲染 ----------
 
+        // 正文 AI 模式：本楼正文 Status_block 里的行动选项即时生效（仅显示层）——
+        // 编辑/swipe 后楼层重渲染即可见，不必等独立更新跑完（更新跑完后合并层补采
+        // 同一来源，幂等）。浅拷贝覆盖，不污染已写盘的 stat_data
+        applyStoryAction(state) {
+          try {
+            if (!state || typeof state !== 'object') return state;
+            if (!this.messageText) return state;
+            if (this.loadConfig().actionFromStory === false) return state;
+            let act = null;
+            const raw = extractStatusBlock(this.messageText);
+            if (raw) {
+              const parsed = jsyaml.load(raw);
+              const legacy = mmsNormalizeState(parsed) || parsed;
+              const b =
+                legacy && legacy['状态栏'] && typeof legacy['状态栏'] === 'object'
+                  ? legacy['状态栏']
+                  : legacy;
+              act = mmsValidStoryAction(b && typeof b === 'object' ? b['行动选项'] : null);
+            }
+            if (!act) return state;
+            const hasWrapper = state['状态栏'] && typeof state['状态栏'] === 'object';
+            const srcBucket = hasWrapper ? state['状态栏'] : state;
+            const nextBucket = Object.assign({}, srcBucket);
+            nextBucket['行动选项'] = {
+              选项: act['选项'],
+              名字:
+                act['名字'] ||
+                (srcBucket['行动选项'] && srcBucket['行动选项']['名字']) ||
+                '🧑 团队行动',
+            };
+            return hasWrapper
+              ? Object.assign({}, state, { 状态栏: nextBucket })
+              : nextBucket;
+          } catch (e) {
+            return state;
+          }
+        },
+
         renderFromState(state) {
           try {
             this.lastState = state;
+            state = this.applyStoryAction(state);
             // 独立大地图：仅渲染层注入（显示副本），不写回变量、不进注入上下文
             const display = this.injectBigMapArt(state);
             // display 状态对象直通渲染（此前要 dump 成 YAML 写 script 标签再 load 回来）
@@ -13736,23 +13792,18 @@ createCharacterEntry(text, categoryKey) {
                 // 上一楼旧值——从本楼正文 Status_block 补采正文 AI 刚写的最新选项
                 // （发给更新 LLM 的剧情文本会剔除 Status_block，它看不到这段数据）
                 if (cfg.actionFromStory !== false) {
-                  const storyAct = bucketOf(this.readLegacyState(targetFloorId) || {})['行动选项'];
-                  const storyOpts = storyAct && typeof storyAct === 'object' ? storyAct['选项'] : null;
-                  if (
-                    Array.isArray(storyOpts) &&
-                    storyOpts.length >= 1 &&
-                    storyOpts.length <= 6 &&
-                    storyOpts.every((s) => typeof s === 'string' && s.trim()) &&
-                    /^\s*1\s*[.、]/.test(storyOpts[0])
-                  ) {
+                  const storyAct = mmsValidStoryAction(
+                    bucketOf(this.readLegacyState(targetFloorId) || {})['行动选项'],
+                  );
+                  if (storyAct) {
                     const Rb = bucketOf(state);
-                    const prevName =
-                      (Rb['行动选项'] && Rb['行动选项']['名字']) || '🧑 团队行动';
-                    Rb['行动选项'] = { 选项: storyOpts.slice() };
-                    Rb['行动选项']['名字'] =
-                      typeof storyAct['名字'] === 'string' && storyAct['名字'].trim()
-                        ? storyAct['名字']
-                        : prevName;
+                    Rb['行动选项'] = {
+                      选项: storyAct['选项'],
+                      名字:
+                        storyAct['名字'] ||
+                        (Rb['行动选项'] && Rb['行动选项']['名字']) ||
+                        '🧑 团队行动',
+                    };
                   }
                 }
 
