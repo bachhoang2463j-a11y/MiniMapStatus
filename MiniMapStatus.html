@@ -3853,10 +3853,10 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <div class="mms-field">
                 <label for="mms-api-model">模型名称</label>
                 <div class="flex gap-1.5">
-                  <input id="mms-api-model" type="text" list="mms-api-model-list" placeholder="例：deepseek-chat" spellcheck="false" style="flex: 1" />
+                  <input id="mms-api-model" type="text" placeholder="例：deepseek-chat" spellcheck="false" style="flex: 1" />
                   <button id="mms-fetch-models" class="mms-btn" type="button" title="从 API 地址拉取可用模型列表（需先填写 API 地址）" style="padding: 2px 10px"><i class="fa fa-download"></i></button>
                 </div>
-                <datalist id="mms-api-model-list"></datalist>
+                <select id="mms-model-select" style="display: none; margin-top: 6px" title="点击选择拉取到的模型"></select>
               </div>
             </div>
             <div class="grid grid-cols-2 gap-2">
@@ -12314,13 +12314,15 @@ createCharacterEntry(text, categoryKey) {
         },
 
         // 拉取模型列表：走酒馆服务端代理 /api/backends/chat-completions/status（同源免 CORS，
-        // 请求头由酒馆注入 CSRF），机制对齐蚀心入魔·数据库插件
+        // 请求头由酒馆注入 CSRF），机制对齐蚀心入魔·数据库插件。
+        // 结果填入真实 <select>（datalist 在手机 WebView/部分 iframe 下点击不弹列表，不可靠）
         async fetchModels() {
           const urlEl = document.getElementById('mms-api-url');
           const keyEl = document.getElementById('mms-api-key');
           const btn = document.getElementById('mms-fetch-models');
-          const listEl = document.getElementById('mms-api-model-list');
-          if (!urlEl || !keyEl || !btn || !listEl) return;
+          const modelEl = document.getElementById('mms-api-model');
+          const selectEl = document.getElementById('mms-model-select');
+          if (!urlEl || !keyEl || !btn || !modelEl || !selectEl) return;
           const url = (urlEl.value || '').trim();
           const key = (keyEl.value || '').trim();
           if (!url) {
@@ -12363,13 +12365,24 @@ createCharacterEntry(text, categoryKey) {
               .map((m) => (typeof m === 'string' ? m : m && m.id ? m.id : null))
               .filter((m) => typeof m === 'string' && m.trim());
             if (!models.length) throw new Error('未能解析模型数据');
-            listEl.innerHTML = '';
+            // 已保存的模型仍在列表中则回显选中，否则停在占位提示上
+            const current = (modelEl.value || '').trim();
+            selectEl.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = '已拉取 ' + models.length + ' 个模型，点击选择…';
+            selectEl.appendChild(placeholder);
+            let hit = false;
             for (const m of models) {
               const opt = document.createElement('option');
               opt.value = m;
-              listEl.appendChild(opt);
+              opt.textContent = m;
+              if (m === current) hit = true;
+              selectEl.appendChild(opt);
             }
-            alert('已拉取 ' + models.length + ' 个模型，点击模型名称输入框即可下拉选择');
+            selectEl.value = hit ? current : '';
+            selectEl.style.display = 'block';
+            alert('已拉取 ' + models.length + ' 个模型，请在下拉列表中选择');
           } catch (e) {
             alert('拉取模型列表失败：' + (e && e.message ? e.message : e));
           } finally {
@@ -14572,6 +14585,17 @@ createCharacterEntry(text, categoryKey) {
           bindApiField('mms-api-model', 'model');
           const fetchModelsBtn = document.getElementById('mms-fetch-models');
           if (fetchModelsBtn) fetchModelsBtn.addEventListener('click', () => this.fetchModels());
+          // 拉取到的模型下拉：选中即写回模型输入框，并派发 change 走上面的预设保存链路
+          const modelSelectEl = document.getElementById('mms-model-select');
+          if (modelSelectEl) {
+            modelSelectEl.addEventListener('change', () => {
+              if (!modelSelectEl.value) return;
+              const input = document.getElementById('mms-api-model');
+              if (!input) return;
+              input.value = modelSelectEl.value;
+              input.dispatchEvent(new Event('change'));
+            });
+          }
           bindApiField('mms-api-preset', 'preset');
           bindApiField('mms-context-floors', 'contextFloors', (v) =>
             Math.min(10, Math.max(1, parseInt(v, 10) || 2)),
