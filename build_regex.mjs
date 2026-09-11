@@ -177,7 +177,10 @@ function makeRegexScript({ id, scriptName, findRegex, replaceString, markdownOnl
 
 // 显示正则：精准替换——最后一个【状态栏标记点】或最后一个 <Status_block> 块本身。
 // 标记之后的文本（如音乐 QR 触发词）不吞，格式控制交给用户侧流程。
-const displayRegex = `/(?:${MARKER}(?![\\s\\S]*${MARKER})|<Status_block>(?![\\s\\S]*?<Status_block>)[\\s\\S]*?<\\/Status_block>)/i`;
+// 同楼共存（正文AI 追加行动选项 Status_block）时：标记点分支让位（负向先行），
+// 由 Status_block 分支把紧邻前方的标记点连同空白一并吞掉——中间隔正文则只替换
+// Status_block 本身（不吞正文，标记点残留属可接受的罕见场景）。
+const displayRegex = `/(?:${MARKER}(?![\\s\\S]*${MARKER})(?![\\s\\S]*<Status_block>)|(?:${MARKER}\\s*)?<Status_block>(?![\\s\\S]*?<Status_block>)[\\s\\S]*?<\\/Status_block>)/i`;
 
 const displayScript = makeRegexScript({
   id: DISPLAY_ID,
