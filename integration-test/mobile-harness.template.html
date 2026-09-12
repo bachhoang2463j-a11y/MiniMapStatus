@@ -247,8 +247,10 @@
     } catch (e) { log('clipboard 覆写失败', e.message); }
     click(q('#mms-tags-copy'));
     await sleep(120);
-    assert('复制输出为 [标签] 连缀格式（以默认 18 个小地图标签开头）', () =>
-      typeof captured === 'string' && captured.startsWith('[昏暗室内][明亮室内][警局][街道][商场][健身房][废墟][荒野][地下][海边][雪地][沙漠][火山][餐厅][酒吧][茶馆][神殿][夜市]'));
+    assert('复制输出为标签池（未分配栏）的 [标签] 连缀格式', () =>
+      typeof captured === 'string' &&
+      captured.startsWith('[广场][操场][教室][医院][洞窟][坊市][小店][客栈][藏经阁][丹房][药园][洞府][论剑台][城市]') &&
+      captured.split('[').length - 1 === 24); // SVG 后段 13 + 底图图片 11
     // 开关：关掉小地图 → 状态栏回退普通列表
     const miniChk = q('#mms-map-minimap');
     miniChk.checked = false;

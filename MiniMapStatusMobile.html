@@ -3241,8 +3241,8 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </div>
           </div>
           <p class="settings-hint">
-            点击选择标签后一键迁入对应地图（标签在两栏间互斥，重置则回池）；「复制」把当前标签池复制为
-            [标签]连缀格式（如 [警局][街道][商场]…），粘贴进你的正文提示词（预设/世界书），让正文 AI 按这些标签输出地图字段；
+            点击选择标签后一键迁入对应地图（标签在两栏间互斥，重置则回池）；「复制」把当前标签池（未分配栏）复制为
+            [标签]连缀格式（如 [广场][操场][教室]…），粘贴进你的正文提示词（预设/世界书），让正文 AI 按这些标签输出地图字段；
             标签来源：SVG 矢量场景与底图图片库（带缩略图标记）
           </p>
         </div>
@@ -5627,19 +5627,19 @@ window.MMS_IMAGE_DATA = {
           this.saveMapTags(cfg);
         },
 
-        // 复制当前已分配给地图（小地图+大地图）的标签为 [标签] 连缀枚举，
+        // 复制当前标签池（未分配栏）为 [标签] 连缀枚举，
         // 供用户粘贴进自己的正文提示词（预设/世界书），让正文 AI 按这些标签输出地图字段
         async copyMapTags() {
           const cfg = this.loadRoster().mapTags;
-          const names = [...cfg.mini, ...cfg.big].filter(Boolean);
+          const names = (cfg.pool || []).filter(Boolean);
           if (!names.length) {
-            alert('当前没有已分配给地图的标签：请先在标签池中点选标签，再点「迁入小地图/大地图」');
+            alert('标签池为空：所有标签都已分配给小地图/大地图，可先在对应栏点标签退回池中');
             return;
           }
           const text = names.map((n) => '[' + n + ']').join('');
           const ok = await mmsCopyText(text);
           if (ok) {
-            alert('已复制 ' + names.length + ' 个标签（小地图+大地图白名单枚举），粘贴进你的正文提示词即可');
+            alert('已复制标签池中的 ' + names.length + ' 个标签，粘贴进你的正文提示词即可');
           } else {
             alert('复制失败，请手动记录标签：' + text);
           }
