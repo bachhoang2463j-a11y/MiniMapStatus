@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>手机版 · 原版基线回归 Harness</title>
+<style>
+  body { font-family: Consolas, monospace; font-size: 13px; max-width: 900px; margin: 24px auto; padding: 0 12px; }
+  h2 { border-bottom: 2px solid #333; padding-bottom: 4px; }
+  .grp { margin: 10px 0; }
+  .row { padding: 2px 6px; border-left: 3px solid #999; margin: 2px 0; background: #f6f6f6; }
+  .row.ok { border-color: #2e8b57; }
+  .row.bad { border-color: #d93025; background: #fdeceb; }
+  .total { font-weight: bold; font-size: 15px; margin-top: 14px; padding: 6px; background: #eee; }
+  #run { font-size: 14px; padding: 6px 16px; }
+  pre { background: #222; color: #9f9; padding: 8px; font-size: 11px; overflow: auto; max-height: 260px; }
+  iframe { width: 100%; height: 520px; border: 1px solid #888; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>手机版 · 原版基线回归 Harness</h1>
+<p>以「备份原版（8/26 基线）」在同一 mock 楼层上的渲染行为为预期，断言新版（MiniMapStatusMobile.html）不回归。mock 楼层 = 还星余火真机实测原始数据（<code>用户列表</code> 键，无 maintext）。双 iframe 同源同 mock 对比。</p>
+<button id="run" type="button">▶ 运行全部断言</button>
+<div id="out"></div>
+<pre id="log"></pre>
+<iframe id="stage-orig" title="原版基线"></iframe>
+<iframe id="stage-new" title="新版"></iframe>
+
+<script>
+(function () {
+  const ORIGINAL_HTML = /*__ORIGINAL_HTML_JSON__*/;
+  const WIDGET_HTML = /*__WIDGET_HTML_JSON__*/;
+
+  const out = document.getElementById('out');
+  const logEl = document.getElementById('log');
+  const log = (...a) => { logEl.innerText += a.join(' ') + '\n'; };
+  let passCount = 0, total = 0;
+
+  function assert(desc, fn) {
+    total++;
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.textContent = '… ' + desc;
+    out.appendChild(row);
+    try {
+      const ok = fn();
+      row.className = 'row ' + (ok ? 'ok' : 'bad');
+      row.textContent = (ok ? '✓ ' : '✗ ') + desc;
+      if (ok) passCount++;
+      else log('FAIL', desc);
+    } catch (e) {
+      row.className = 'row bad';
+      row.textContent = '✗ ' + desc + ' — 异常: ' + e.message;
+      log('EXC', desc, e.stack);
+    }
+  }
+  function group(name) {
+    const g = document.createElement('div');
+    g.className = 'grp';
+    const h = document.createElement('h2');
+    h.textContent = name;
+    g.appendChild(h);
+    out.appendChild(g);
+  }
+  const totalRow = document.createElement('div');
+  totalRow.className = 'total';
+  totalRow.textContent = '0 项通过';
+  out.appendChild(totalRow);
+  function finish() {
+    totalRow.textContent = passCount + ' / ' + total + ' 项通过' + (passCount === total ? '（全部通过）' : '（存在失败项）');
+  }
+
+  // ============ mock 酒馆数据：还星余火真机实测原始楼层（仅 Status_block，键名「用户列表」） ============
+  const mockMessage = [
+    '<Status_block>',
+    '状态栏:',
+    '  日期和时间: "⏰ 3088年 · 8月7日 · 09:35"',
+    '  地点: "📍 维兰城遗址 · 登陆舰底层车库"',
+    '  用户列表:',
+    '    - 用户:',
+    '        名字: " 🗺️小地图"',
+    '        营地:',
+    '           - "🧑【周云】 (30,28) 站在铁鬃车旁，面临组队选择"',
+    '           - "💀【Ghost】 (28,28) 紧随周云，警戒四周"',
+    '           - "🐻【伯兰】 (25,25) 抱臂旁观，等待命令"',
+    '           - "🦌【瑟维】 (32,26) 靠在车门上，疯狂暗示"',
+    '           - "🐯【列夫】 (34,30) 靠在门框上掰指关节，跃跃欲试"',
+    '           - "🐗【伊诺】 (40,40) 躺在修车滑板上，不满地看着众人"',
+    '           - "🐔【库恩】 (80,30) 主控区忙着直播"',
+    '           - "🐐【老加】 (70,20) 主控区看档案"',
+    '           - "🐮【图鲁】 (20,80) 物资区搬砖"',
+    '           - "🐇【阿维】 (80,80) 写小说中"',
+    '    - 用户:',
+    '        名字: " 🌏大地图"',
+    '        维兰城:',
+    '           - "⚓【钢铁气闸码头】 (80,50) 需步行1.5小时/乘车30分，长满海藻的栈桥"',
+    '           - "📍【偏转发生塔阵列】 (90,75) 需步行2小时/乘车45分，被藤蔓缠绕的纯白巨柱"',
+    '           - "⛺【水培农庄塔】 (30,15) 需步行1小时/乘车20分，茂盛雨林"',
+    '           - "🕍【纯白琉璃生活区】 (70,20) 需步行2.5小时/乘车1小时，蜂巢状建筑群"',
+    '           - "🗼【全息中央广场】 (50,50) 需步行2小时/乘车45分，水晶广场"',
+    '           - "🏛️【远征者静默丰碑】 (38,55) 需步行2.5小时/乘车1小时，刻满名单的荧光石墙"',
+    '    - 用户:',
+    '        名字: " 🧑 周云"',
+    '        属性: "[❤️HP:100/100][🔮MP:10/10][💥Atk:5][🛡️Armor:0][💨Speed:10]"',
+    '        外观: "🥻 穿着略显宽大的白色病号服，稍微扣紧了领口。"',
+    '        行动: "📝 看着眼前粗糙的皮卡车，思考外出人选。"',
+    '        内心: "💭 只能选四个人……除了必须要去的，还要带谁才能活下来？"',
+    '        武器: "[🔪][无]"',
+    '        装备: "[⛑️][无]"',
+    '        其它: "[📌][无]"',
+    '    - 用户:',
+    '        名字: " 💀 Ghost(同事)"',
+    '        立绘: "【立绘Ghost】"',
+    '        属性: "[🧑‍🤝‍🧑好感:10][❤️HP:100/100][🔮MP:20/20][💥Atk:85][🛡️Armor:50][💨Speed:75]"',
+    '        外观: "🥻 黑色战术迷彩，战术靴，骷髅面罩遮面。"',
+    '        行动: "📝 始终保持在周云身后一步的距离，视线扫过每一只靠近的亚人。"',
+    '        内心: "💭 破铜烂铁。不过总比靠这两条腿走在完全未知的废墟里强。"',
+    '        武器: "[🔪][重型步枪(无弹药)]"',
+    '        装备: "[⛑️][战术防弹衣]"',
+    '        其它: "[📌][战术匕首]"',
+    '    - 用户:',
+    '        名字: " 🐻 伯兰(同事)"',
+    '        立绘: "【立绘伯兰】"',
+    '        属性: "[🧑‍🤝‍🧑好感:5][❤️HP:150/150][🔮MP:30/30][💥Atk:60][🛡️Armor:40][💨Speed:30]"',
+    '        外观: "🥻 军绿色战术背心，油渍围裙，嘴里叼着雪茄。"',
+    '        行动: "📝 走到车库边缘，沉默地看着周云做决定。"',
+    '        内心: "💭 只要不出岔子，带谁去都行。还得赶紧回来熬汤。"',
+    '        武器: "[🔪][重型机枪(存放于武器库)]"',
+    '        装备: "[⛑️][重装防弹背心]"',
+    '        其它: "[📌][半根雪茄]"',
+    '    - 用户:',
+    '        名字: " 🐯 列夫(同事)"',
+    '        立绘: "【立绘列夫】"',
+    '        属性: "[🧑‍🤝‍🧑好感:0][❤️HP:120/120][🔮MP:15/15][💥Atk:75][🛡️Armor:25][💨Speed:65]"',
+    '        外观: "🥻 深橄榄绿战术服，破烂棕色背心，肌肉虬结。"',
+    '        行动: "📝 靠在门框上，冲着Ghost挑衅地呲了呲牙。"',
+    '        内心: "💭 终于要出去活动筋骨了！希望外面能有经打一点的猎物！"',
+    '        武器: "[🔪][重型手枪][战术微冲]"',
+    '        装备: "[⛑️][防弹护肘]"',
+    '        其它: "[📌][磨爪石]"',
+    '    - 用户:',
+    '        名字: " 🦌 瑟维(同事)"',
+    '        立绘: "【立绘瑟维】"',
+    '        属性: "[🧑‍🤝‍🧑好感:10][❤️HP:80/80][🔮MP:60/60][💥Atk:15][🛡️Armor:10][💨Speed:40]"',
+    '        外观: "🥻 松垮白大褂，鹿角缠着数据线，全息护目镜。"',
+    '        行动: "📝 敲击着全息平板，目光灼灼地暗示周云选自己。"',
+    '        内心: "💭 不带我？不可能的，你可是我最珍贵的盖亚共振样本！"',
+    '        武器: "[🔪][等离子手术刀]"',
+    '        装备: "[⛑️][全息护目镜][便携测算仪]"',
+    '        其它: "[📌][无菌采样管]"',
+    '    - 用户:',
+    '        名字: " 🏟️据点"',
+    '        总览: "[🏛️][地点: 磐石级登陆舰][🔥余火:0]"',
+    '        载具: "[🚙][铁鬃:Lv1][升级进度(调查度):0/50][已解锁能力:无]"',
+    '        武器: "[💣][无]"',
+    '        陷阱: "[⚓][无]"',
+    '        杂物: "[📦][无]"',
+    '  行动选项:',
+    '    名字: "🧑 周云 "',
+    '    选项:',
+    '      - "1. 🎲【说服检定】顺着瑟维的话头，确认选择：瑟维、伯兰、列夫和Ghost。并尝试让伊诺提供一点修车工具防身。"',
+    '      - "2. 🎯 点头同意瑟维的默认名单（瑟维、伯兰、列夫、Ghost），这是目前看来最兼顾医疗和武力的组合。"',
+    '      - "3. ⌛ 犹豫了一下，指向伊诺：“如果要开车，是不是应该带上懂车的人比较好？”尝试替换掉列夫。"',
+    '      - "4. 🦢 看向一直沉默的Ghost，低声询问他：“在你的战术判断里，我们应该带谁？”完全信任他的专业判断。"',
+    '</Status_block>',
+  ].join('\n');
+
+  // 与真机「还星余火」一致的空变量环境：无 $mms_roster / $mms_map_art，
+  // 新版 loadRoster 走 fallback（minimap 开 / bigmap 关 / bigmapArt 关），渲染输入与原版一致
+  const store = { chat: {}, global: {} };
+
+  // 注入到 iframe 头部的 mock 脚本（先于小部件脚本执行，含错误捕获）
+  const mockScript = `
+<script>
+(function () {
+  window.__errs = [];
+  window.addEventListener('error', function (e) { window.__errs.push(String(e.message || e.type)); });
+  var __origErr = console.error.bind(console);
+  console.error = function () { window.__errs.push(Array.prototype.map.call(arguments, String).join(' ')); __origErr.apply(null, arguments); };
+  var STORE = {
+    chat: ${JSON.stringify(store.chat)},
+    global: {}
+  };
+  window.__getStore = function () { return STORE; };
+  window.getCurrentMessageId = function () { return 0; };
+  window.getChatMessages = function (id) {
+    return [{ message: ${JSON.stringify(mockMessage)}, role: 'assistant', is_user: false }];
+  };
+  window.getVariables = function (opt) { return JSON.parse(JSON.stringify(opt && opt.type === 'global' ? STORE.global : STORE.chat)); };
+  window.insertOrAssignVariables = function (obj, opt) {
+    var t = opt && opt.type === 'global' ? STORE.global : STORE.chat;
+    Object.keys(obj).forEach(function (k) { t[k] = obj[k]; });
+  };
+  window.replaceVariables = function (obj, opt) {
+    if (opt && opt.type === 'global') STORE.global = obj; else STORE.chat = obj;
+  };
+  window.eventOn = function (name, cb) { };
+  window.eventEmit = function (name, data) { };
+  window.generateRawCalls = [];
+  window.generateRaw = function (config) {
+    window.generateRawCalls.push(config);
+    return Promise.resolve('{}');
+  };
+  window.alert = function (msg) { };
+  window.confirm = function (msg) { return true; };
+})();
+<\/script>
+`;
+
+  // 双 iframe：同一 mock 注入，仅产物不同
+  const stageOrig = document.getElementById('stage-orig');
+  const stageNew = document.getElementById('stage-new');
+
+  function qO(sel) { return stageOrig.contentDocument.querySelector(sel); }
+  function qaO(sel) { return Array.from(stageOrig.contentDocument.querySelectorAll(sel)); }
+  function qN(sel) { return stageNew.contentDocument.querySelector(sel); }
+  function qaN(sel) { return Array.from(stageNew.contentDocument.querySelectorAll(sel)); }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // 真机探查 A（手机原版）的页签集合（formatNodeName 去表情前缀后）
+  const EXPECTED_TABS = ['小地图', '大地图', '周云', 'Ghost(同事)', '伯兰(同事)', '列夫(同事)', '瑟维(同事)', '据点'];
+
+  function tabNames(qa) { return qa('.character-tab-btn').map((b) => b.textContent.trim()); }
+
+  async function runAll() {
+    out.innerHTML = '';
+    totalRow.textContent = '… 运行中';
+    passCount = 0; total = 0;
+    out.appendChild(totalRow);
+
+    stageOrig.srcdoc = ORIGINAL_HTML.replace('<head>', '<head>' + mockScript);
+    stageNew.srcdoc = WIDGET_HTML.replace('<head>', '<head>' + mockScript);
+    await sleep(2200); // 双方 DOMContentLoaded + reRenderStatusBar(100ms) + 地图引擎(50ms) + 立绘扫描
+
+    const winO = stageOrig.contentWindow;
+    const winN = stageNew.contentWindow;
+
+    group('A · 原版基线记录（预期 = 真机探查 A 的 8 页签）');
+    let origTabs = [];
+    assert('原版渲染出 8 个角色页签', () => { origTabs = tabNames(qaO); return origTabs.length === 8; });
+    assert('原版页签名称与真机探查 A 一致（小地图/大地图/周云/Ghost/伯兰/列夫/瑟维/据点）', () => {
+      if (!origTabs.length) return false;
+      return EXPECTED_TABS.every((n) => origTabs.some((t) => t.includes(n)));
+    });
+    assert('原版时间显示读取自 Status_block（3088年）', () => (qO('#time-display') || {}).textContent.includes('3088年'));
+    assert('原版地点显示读取自 Status_block（维兰城遗址）', () => (qO('#location-display') || {}).textContent.includes('维兰城遗址'));
+    assert('原版行动选项 4 条', () => qaO('#options-container li').length === 4);
+    assert('原版无渲染错误（console.error / onerror 为空）', () => (winO.__errs || []).length === 0);
+    assert('原版小地图/大地图卡片渲染出地图引擎（≥2 个容器）', () => qaO('.tactical-map-container').length >= 2);
+
+    group('B · 新版回归对比（通过与原版逐项比对）');
+    let newTabs = [];
+    assert('新版页签数量与原版一致（8）', () => { newTabs = tabNames(qaN); return newTabs.length === origTabs.length; });
+    assert('新版页签名称与原版逐一相同（含顺序）', () =>
+      newTabs.length === origTabs.length && newTabs.every((t, i) => t === origTabs[i]));
+    assert('新版时间显示与原版一致', () => (qN('#time-display') || {}).textContent === (qO('#time-display') || {}).textContent);
+    assert('新版地点显示与原版一致', () => (qN('#location-display') || {}).textContent === (qO('#location-display') || {}).textContent);
+    assert('新版行动选项条数与原版一致（4）', () => qaN('#options-container li').length === qaO('#options-container li').length);
+    assert('新版无渲染错误（console.error / onerror 为空）', () => (winN.__errs || []).length === 0);
+    assert('新版渲染过程零 AI 调用（generateRaw = 0，数据不经 LLM）', () => (winN.generateRawCalls || []).length === 0);
+    assert('新版首个页签自动激活（与原版一致）', () => {
+      const a = qaO('.character-tab-btn.active')[0];
+      const b = qaN('.character-tab-btn.active')[0];
+      return !!a && !!b && a.textContent.trim() === b.textContent.trim();
+    });
+
+    group('C · 地图展示层（原版行为：地图字段在卡片属性里渲染）');
+    assert('新版小地图/大地图卡片渲染出地图引擎（≥2 个容器，与原版对等）', () =>
+      qaO('.tactical-map-container').length > 0 && qaN('.tactical-map-container').length >= qaO('.tactical-map-container').length);
+
+    finish();
+  }
+
+  document.getElementById('run').addEventListener('click', runAll);
+})();
+</script>
+</body>
+</html>

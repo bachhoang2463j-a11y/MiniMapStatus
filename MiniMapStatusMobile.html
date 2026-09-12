@@ -9687,53 +9687,23 @@ window.MMS_IMAGE_DATA = {
         }
 
         renderCharacterTabs(rootData) {
-          // 模块化条目收集（自最新版移植的精简版）：小地图/大地图/角色列表/人物/自定义对象模块
+          // 主路径（原版行为）：动态探测角色列表键，「用户列表」「角色列表」等键名均可命中
+          const userListField = this.findFieldByKeywords(rootData, ['用户', '角色', '列表', 'user', 'role', 'list']);
+          const userList = userListField && Array.isArray(rootData[userListField]) ? rootData[userListField] : [];
+
+          // 附加条目（大地图展示层）：根级小地图/大地图对象模块拼在角色列表之前
           const entries = [];
-
-          if (rootData['小地图'] && typeof rootData['小地图'] === 'object' && !Array.isArray(rootData['小地图'])) {
-            const e = Object.assign({}, rootData['小地图']);
-            e['名字'] = e['名字'] || ' 🗺️小地图';
-            entries.push(e);
-          }
-
-          // 大地图模块（区域/全局场景图，数据格式与小地图一致）
-          if (rootData['大地图'] && typeof rootData['大地图'] === 'object' && !Array.isArray(rootData['大地图'])) {
-            const e = Object.assign({}, rootData['大地图']);
-            e['名字'] = e['名字'] || ' 🌍大地图';
-            entries.push(e);
-          }
-
-          if (Array.isArray(rootData['角色列表'])) {
-            for (const entry of rootData['角色列表']) {
-              if (entry && typeof entry === 'object') entries.push(entry);
-            }
-          }
-
-          if (rootData['人物'] && typeof rootData['人物'] === 'object' && !Array.isArray(rootData['人物'])) {
-            const e = Object.assign({}, rootData['人物']);
-            e['名字'] = e['名字'] || ' 👥人物';
-            entries.push(e);
-          }
-
-          // 自定义模块透传：根级普通对象字段（字符串/数组字段归头部信息与行动选项，不建卡）
-          const handledKeys = new Set(['小地图', '大地图', '角色列表', '人物']);
-          for (const k of Object.keys(rootData)) {
-            if (handledKeys.has(k)) continue;
+          const mapModuleNames = { '小地图': ' 🗺️小地图', '大地图': ' 🌏大地图' };
+          for (const k of Object.keys(mapModuleNames)) {
             const v = rootData[k];
             if (v && typeof v === 'object' && !Array.isArray(v)) {
               const e = Object.assign({}, v);
-              e['名字'] = e['名字'] != null ? e['名字'] : ' ' + k;
+              e['名字'] = e['名字'] != null ? e['名字'] : mapModuleNames[k];
               entries.push(e);
             }
           }
-
-          // 兜底：数据未含上述模块时回退旧版字段探测
-          if (entries.length === 0) {
-            const legacyField = this.findFieldByKeywords(rootData, ['用户', '角色', '列表', 'user', 'role', 'list']);
-            const legacyList = legacyField && Array.isArray(rootData[legacyField]) ? rootData[legacyField] : [];
-            for (const item of legacyList) {
-              if (item && typeof item === 'object') entries.push(item);
-            }
+          for (const item of userList) {
+            if (item && typeof item === 'object') entries.push(item);
           }
 
           this.elements.characterTabs.innerHTML = '';
