@@ -196,9 +196,24 @@ function makeRegexScript({ id, scriptName, findRegex, replaceString, markdownOnl
 //
 // 显示正则——手机版：沿用手机版原始正则，仅替换最后一个 <Status_block> 块本身
 // （手机轻量版数据从正文直读，无标记点/独立更新机制）。
+// 注意：保持与桌面版一致的「全非捕获组」纪律——产物代码含字面量 $&、$1 等 JS 替换
+// 特殊记号（校验提示文案），若 findRegex 带捕获组，酒馆套用替换时 $1 会被展开为
+// 捕获的正文 YAML，直接注入产物 JS 造成语法错误（真机已实测炸过）。
+const MOBILE_FIND_REGEX_SOURCE =
+  '<Status_block>(?![\\s\\S]*?<Status_block>)\\s*[\\s\\S]*?\\s*<\\/Status_block>';
+
 const displayRegex = IS_MOBILE
-  ? '/<Status_block>(?![\\s\\S]*?<Status_block>)\\s*([\\s\\S]*?)\\s*<\\/Status_block>/i'
+  ? '/' + MOBILE_FIND_REGEX_SOURCE + '/i'
   : `/(?:${MARKER}(?![\\s\\S]*${MARKER})(?![\\s\\S]*<Status_block>)|(?:${MARKER}\\s*)?<Status_block>(?![\\s\\S]*?<Status_block>)[\\s\\S]*?<\\/Status_block>)/i`;
+
+// 防回归：findRegex 不得含捕获组（产物内 $&、$1 等替换记号会被酒馆的替换套用展开）
+// （仅检查未转义且非 (?: / (?= / (?! / (?< 开头的裸 '(' ）
+for (const [name, re] of [['手机版', MOBILE_FIND_REGEX_SOURCE], ['桌面版', `(?:${MARKER}(?![\\s\\S]*${MARKER})(?![\\s\\S]*<Status_block>)|(?:${MARKER}\\s*)?<Status_block>(?![\\s\\S]*?<Status_block>)[\\s\\S]*?<\\/Status_block>)`]]) {
+  const bare = re.replace(/\\\(/g, '').replace(/\(\??[:=!<]/g, '');
+  if (/\(/.test(bare)) {
+    fail(`${name} findRegex 含捕获组：产物中的 $&/$1 等替换记号会被展开注入，请改用非捕获组 (?:...)`);
+  }
+}
 
 const displayScript = makeRegexScript({
   id: DISPLAY_ID,
