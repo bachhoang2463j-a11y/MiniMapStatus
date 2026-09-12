@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>手机 LLM 地图版 · 回归 Harness</title>
+<style>
+  body { font-family: Consolas, monospace; font-size: 13px; max-width: 900px; margin: 24px auto; padding: 0 12px; }
+  h2 { border-bottom: 2px solid #333; padding-bottom: 4px; }
+  .grp { margin: 10px 0; }
+  .row { padding: 2px 6px; border-left: 3px solid #999; margin: 2px 0; background: #f6f6f6; }
+  .row.ok { border-color: #2e8b57; }
+  .row.bad { border-color: #d93025; background: #fdeceb; }
+  .total { font-weight: bold; font-size: 15px; margin-top: 14px; padding: 6px; background: #eee; }
+  #run { font-size: 14px; padding: 6px 16px; }
+  pre { background: #222; color: #9f9; padding: 8px; font-size: 11px; overflow: auto; max-height: 260px; }
+  iframe { width: 100%; height: 640px; border: 1px solid #888; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>手机 LLM 地图版 · 回归 Harness</h1>
+<p>内嵌 MiniMapStatusMobileLLM.html（srcdoc iframe + mock 酒馆 API），覆盖：内置 SVG 模板删除断言 / 设置面板三 tab（地图开关融入 LLM地图）/ 图片管理仅立绘+头像 / 双地图占位卡与 AI 生成（mock generateRaw，大小地图各一张）/ 增量状态与风格切换 / 开关回退列表 / 立绘 / 徽章折叠。</p>
+<button id="run" type="button">▶ 运行全部断言</button>
+<div id="out"></div>
+<pre id="log"></pre>
+<iframe id="stage"></iframe>
+
+<script>
+(function () {
+  const WIDGET_HTML = /*__WIDGET_HTML_JSON__*/;
+
+  const out = document.getElementById('out');
+  const logEl = document.getElementById('log');
+  const log = (...a) => { logEl.innerText += a.join(' ') + '\n'; };
+  let passCount = 0, total = 0;
+
+  function assert(desc, fn) {
+    total++;
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.textContent = '… ' + desc;
+    out.appendChild(row);
+    try {
+      const ok = fn();
+      row.className = 'row ' + (ok ? 'ok' : 'bad');
+      row.textContent = (ok ? '✓ ' : '✗ ') + desc;
+      if (ok) passCount++;
+      else log('FAIL', desc);
+    } catch (e) {
+      row.className = 'row bad';
+      row.textContent = '✗ ' + desc + ' — 异常: ' + e.message;
+      log('EXC', desc, e.stack);
+    }
+  }
+  function group(name) {
+    const g = document.createElement('div');
+    g.className = 'grp';
+    const h = document.createElement('h2');
+    h.textContent = name;
+    g.appendChild(h);
+    out.appendChild(g);
+  }
+  const totalRow = document.createElement('div');
+  totalRow.className = 'total';
+  totalRow.textContent = '0 项通过';
+  out.appendChild(totalRow);
+  function finish() {
+    totalRow.textContent = passCount + ' / ' + total + ' 项通过' + (passCount === total ? '（全部通过）' : '（存在失败项）');
+  }
+
+  // ============ mock 酒馆数据 ============
+  const mockMessage = [
+    '<maintext>',
+    '正文测试段落，带引号对话"你好"与【📍悉尼·澳大利亚酒店-总督套房】地点行。',
+    '【立绘弗兰克】',
+    '</maintext>',
+    '<Status_block>',
+    '状态栏:',
+    '  日期: 第1天',
+    '  时间: 08:00',
+    '  地点: 酒店套房',
+    '  角色列表:',
+    '    - 名字: 弗兰克',
+    '      立绘: 【立绘弗兰克】',
+    "      属性: \"[❤️HP:80/100][🛡️防:5][💥攻:12][⚡速:8][🎯命中:75][🍀幸运:60][🔫武器:步枪][🧪物品:绷带][💊药品:止痛药][📖情报:地图][🔑钥匙:房卡][💰现金:120美元]\"",
+    '    - 名字: 埃利奥特',
+    "      属性: '[❤️HP:50/50]'",
+    '  小地图:',
+    '    当前场景:',
+    '      - "🛏️【床铺】(20, 80) 可以休息"',
+    '      - "🚪【房门】(50, 90) 通往走廊"',
+    '</Status_block>',
+  ].join('\n');
+
+  // mock 绘图 AI 的语义 JSON 输出（大小地图共用）
+  const mockMapJson = {
+    name: '测试场景',
+    ground: 'field',
+    markers: [
+      { emoji: '🏰', name: '城堡', x: 50, y: 25, desc: '测试地标' },
+      { emoji: '⛵', name: '港口', x: 20, y: 80, desc: '海边' },
+    ],
+    features: [{ type: 'castle', at: [500, 258] }],
+  };
+
+  // 新版 roster schema：双开关默认开 + 每图 note/style
+  const store = {
+    chat: {
+      $mms_roster: {
+        maps: { minimap: true, bigmap: true },
+        miniArt: { note: '', style: 'flat' },
+        bigArt: { note: '', style: 'flat' },
+      },
+    },
+    global: {},
+  };
+
+  // 注入到 iframe 头部的 mock 脚本（先于小部件脚本执行）
+  const mockScript = `
+<script>
+(function () {
+  window.__harnessLog = [];
+  var STORE = {
+    chat: ${JSON.stringify(store.chat)},
+    global: {}
+  };
+  window.__getStore = function () { return STORE; };
+  window.getCurrentMessageId = function () { return 0; };
+  window.getChatMessages = function (id) {
+    return [{ message: ${JSON.stringify(mockMessage)}, role: 'assistant', is_user: false }];
+  };
+  window.getVariables = function (opt) { return JSON.parse(JSON.stringify(opt && opt.type === 'global' ? STORE.global : STORE.chat)); };
+  window.insertOrAssignVariables = function (obj, opt) {
+    var t = opt && opt.type === 'global' ? STORE.global : STORE.chat;
+    Object.keys(obj).forEach(function (k) { t[k] = obj[k]; });
+  };
+  window.replaceVariables = function (obj, opt) {
+    if (opt && opt.type === 'global') STORE.global = obj; else STORE.chat = obj;
+  };
+  window.eventOn = function (name, cb) { window.__harnessLog.push('eventOn:' + name); };
+  window.eventEmit = function (name, data) { window.__harnessLog.push('eventEmit:' + name); };
+  window.generateRawCalls = [];
+  window.generateRaw = function (config) {
+    window.generateRawCalls.push(config);
+    return Promise.resolve(JSON.stringify(${JSON.stringify(mockMapJson)}));
+  };
+  window.alert = function (msg) { window.__harnessLog.push('alert:' + String(msg).slice(0, 80)); };
+  window.confirm = function (msg) { window.__harnessLog.push('confirm:' + String(msg).slice(0, 40)); return true; };
+})();
+<\/script>
+`;
+
+  // 组装 iframe srcdoc：mock 脚本插在 <head> 最前
+  const staged = WIDGET_HTML.replace('<head>', '<head>' + mockScript);
+  const stage = document.getElementById('stage');
+
+  function q(sel) { return stage.contentDocument.querySelector(sel); }
+  function qa(sel) { return Array.from(stage.contentDocument.querySelectorAll(sel)); }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+  async function runAll() {
+    out.innerHTML = '';
+    totalRow.textContent = '… 运行中';
+    passCount = 0; total = 0;
+    out.appendChild(totalRow);
+
+    group('〇、删减断言（内置 SVG 模板 / 标签池 / 底图外链已移除）');
+    assert('源码无 env- 场景类残留', () => !WIDGET_HTML.includes('env-'));
+    assert('源码无标签池芯片样式残留', () => !WIDGET_HTML.includes('map-tag-chip'));
+    assert('源码无 BACKGROUND_MAP 残留', () => !WIDGET_HTML.includes('BACKGROUND_MAP'));
+    assert('源码含中性网格兜底（唯一保留的内置底图）', () => WIDGET_HTML.includes('neutral-grid'));
+
+    stage.srcdoc = staged;
+    await sleep(1800); // 等 DOMContentLoaded + reRenderStatusBar(100ms) + 引擎(50ms) + 立绘扫描
+
+    const win = stage.contentWindow;
+    const doc = stage.contentDocument;
+
+    group('一、基础渲染（正文直读管线）');
+    assert('时间显示读取自 Status_block', () => q('#time-display').textContent.includes('第1天'));
+    assert('地点显示读取自 Status_block', () => q('#location-display').textContent.includes('酒店套房'));
+    assert('正文已渲染（maintext）', () => q('#maintext-container').textContent.includes('正文测试段落'));
+    assert('角色标签页 ≥4（弗兰克/埃利奥特/小地图/大地图）', () => qa('.character-tab-btn').length >= 4);
+
+    group('二、双地图初始态（默认开 + 未生成占位卡）');
+    assert('小地图与大地图各渲染出占位卡', () => qa('.mms-bm-placeholder').length === 2);
+    assert('占位卡带 kind 标记（mini/big 各一）', () =>
+      !!q('li[data-mms-map-kind="mini"]') && !!q('li[data-mms-map-kind="big"]'));
+    assert('未生成时不实例化地图引擎', () => qa('.tactical-map-container').length === 0);
+    assert('YAML 小地图数据被注入覆盖（可见面板无床铺普通列表）', () => {
+      const panel = q('.character-panel');
+      return !!panel && !panel.textContent.includes('可以休息');
+    });
+
+    group('三、立绘渲染（原版引擎整幅替换，非双栏小图）');
+    // 立绘引擎首轮扫描在启动后 ~1200ms；IAB 中 iframe 定时器可能被节流，轮询等待
+    for (let i = 0; i < 12 && !qa('[data-pt-wrapper="1"]').length; i++) await sleep(600);
+    (function () {
+      const wrappers = qa('[data-pt-wrapper="1"]');
+      if (!wrappers.length) return assert('弗兰克立绘由引擎渲染（data-pt-wrapper）', () => false);
+      const w = wrappers[0];
+      const isMobileUA = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent);
+      assert('弗兰克立绘由原版立绘引擎渲染（data-pt-wrapper）', () => true);
+      assert('立绘显示范围照搬原版引擎（height/min-height 分支与 UA 一致）', () => {
+        const s = w.getAttribute('style') || '';
+        const h = isMobileUA ? 'height: 24vh' : 'height: 40vh';
+        const mh = isMobileUA ? 'min-height: 140px' : 'min-height: 240px';
+        const img = w.querySelector('img');
+        return s.includes(h) && s.includes(mh) && !!img && (img.getAttribute('style') || '').includes('object-fit: cover');
+      });
+      assert('立绘底部渐变羽化（mask-image 含 linear-gradient）', () => {
+        const cs = win.getComputedStyle(w);
+        return (cs.maskImage || cs.webkitMaskImage || '').includes('linear-gradient');
+      });
+      assert('卡片无双栏立绘结构（pc-portrait-box 已移除）', () => qa('.pc-portrait-box').length === 0);
+      assert('立绘灯箱已移除（无 #pc-portrait-lightbox）', () => !q('#pc-portrait-lightbox'));
+    })();
+
+    group('四、徽章折叠（字符数阈值）');
+    assert('超长徽章串折叠出 +N 按钮', () => !!q('.item-expand-btn'));
+    assert('折叠按钮文案为 +N 形式', () => /^\+\d+$|收起/.test(q('.item-expand-btn').textContent.trim()));
+    (function () {
+      const btn = q('.item-expand-btn');
+      if (!btn) return;
+      click(btn);
+      assert('点击 +N 展开全部徽章', () => btn.textContent.trim() === '收起');
+      click(btn);
+      assert('再次点击收起', () => /^\+\d+$/.test(btn.textContent.trim()));
+    })();
+
+    group('五、设置面板（三 tab，地图开关融入 LLM地图）');
+    click(q('#settings-btn'));
+    await sleep(100);
+    assert('设置面板就地展开（主视图隐藏）', () => q('#settings-panel').style.display === 'block' && q('#mms-main-view').style.display === 'none');
+    assert('恰好 3 个页签', () => qa('.setting-tab-btn').length === 3);
+    assert('页签名：界面与交互/LLM地图/图片管理', () =>
+      ['界面与交互', 'LLM地图', '图片管理'].every((n) => qa('.setting-tab-btn').some((b) => b.textContent.includes(n))));
+    assert('主题圆点 6 个', () => qa('.theme-dot-btn').length === 6);
+    click(q('#tab-btn-ai'));
+    await sleep(120);
+    assert('LLM地图页签含小地图/大地图开关', () => !!q('#mms-map-minimap') && !!q('#mms-map-bigmap'));
+    assert('双开关默认开启（mock 名册）', () => q('#mms-map-minimap').checked === true && q('#mms-map-bigmap').checked === true);
+    assert('每图风格与备注表单齐全', () =>
+      !!q('#mms-miniart-style') && !!q('#mms-miniart-note') && !!q('#mms-bigart-style') && !!q('#mms-bigart-note'));
+    (function () {
+      const dayDot = qa('.theme-dot-btn').find((b) => b.getAttribute('data-theme') === 'day');
+      click(dayDot);
+      assert('主题圆点切换：白天模式生效', () => doc.body.classList.contains('day-mode'));
+      const romanDot = qa('.theme-dot-btn').find((b) => b.getAttribute('data-theme') === 'romantic');
+      click(romanDot);
+      assert('切回修仙模式', () => doc.body.classList.contains('romantic-mode'));
+    })();
+
+    group('六、图片管理（底图分类已随 LLM 地图版移除）');
+    click(q('#tab-btn-images'));
+    await sleep(120);
+    assert('切到图片管理 tab（面包屑更新）', () => q('#settings-current-tab-name').textContent.includes('图片管理'));
+    assert('分类只剩 2 个（立绘/头像，无底图）', () => qa('.mms-img-cat-btn').length === 2);
+    assert('无 background 分类按钮', () => !qa('.mms-img-cat-btn').some((b) => b.getAttribute('data-cat') === 'background'));
+    assert('立绘分类渲染出条目行（68 条）', () => qa('.mms-img-row').length === 68);
+    (function () {
+      const avBtn = qa('.mms-img-cat-btn').find((b) => b.getAttribute('data-cat') === 'avatar');
+      click(avBtn);
+      assert('切到头像分类（53 条）', () => qa('.mms-img-row').length === 53);
+      const pBtn = qa('.mms-img-cat-btn').find((b) => b.getAttribute('data-cat') === 'portrait');
+      click(pBtn);
+    })();
+
+    group('七、双地图 AI 生成（mock generateRaw，各一张独立缓存）');
+    click(q('#settings-close'));
+    await sleep(100);
+    const miniGen = qa('.mms-bm-btn').find((b) => b.textContent.includes('生成小地图'));
+    assert('小地图占位卡上有「生成小地图」按钮', () => !!miniGen);
+    if (miniGen) {
+      click(miniGen);
+      await sleep(900);
+      assert('generateRaw 被调用 1 次（小地图独立绘图）', () => win.generateRawCalls.length === 1);
+      assert('小地图写入聊天变量 $mms_map_mini_art', () => {
+        const s = win.__getStore().chat;
+        return s.$mms_map_mini_art && s.$mms_map_mini_art.json && s.$mms_map_mini_art.json.markers.length === 2;
+      });
+      assert('小地图卡片原地刷新（mini kind 卡片含工具栏）', () => !!q('li[data-mms-map-kind="mini"] .mms-bm-bar'));
+      assert('小地图 AI 底图渲染为 SVG', () => qa('li[data-mms-map-kind="mini"] svg').length >= 1);
+      assert('小地图当前位置徽标显示（匹配/未匹配提示）', () => !!q('li[data-mms-map-kind="mini"] .mms-bm-badge'));
+    }
+    const bigGen = qa('.mms-bm-btn').find((b) => b.textContent.includes('生成大地图'));
+    assert('大地图占位卡上有「生成大地图」按钮', () => !!bigGen);
+    if (bigGen) {
+      click(bigGen);
+      await sleep(900);
+      assert('generateRaw 累计调用 2 次（两图互不影响）', () => win.generateRawCalls.length === 2);
+      assert('大地图写入聊天变量 $mms_map_art（沿用旧变量名，老聊天继承）', () => {
+        const s = win.__getStore().chat;
+        return s.$mms_map_art && s.$mms_map_art.json && s.$mms_map_art.json.markers.length === 2;
+      });
+      assert('大地图卡片原地刷新（big kind 卡片含工具栏）', () => !!q('li[data-mms-map-kind="big"] .mms-bm-bar'));
+      assert('两图引擎并存（tactical-map-container ≥2）', () => qa('.tactical-map-container').length >= 2);
+    }
+
+    group('八、风格切换与开关回退');
+    { // 风格切换：本地重绘（不产生新的 AI 调用）
+      const before = win.generateRawCalls.length;
+      const styleBtn = qa('li[data-mms-map-kind="mini"] .mms-bm-btn').find((b) => b.textContent.includes('换'));
+      if (!styleBtn) {
+        assert('小地图卡片上有风格切换按钮', () => false);
+      } else {
+        click(styleBtn);
+        await sleep(400);
+        assert('风格切换零 AI 调用（本地重绘）', () => win.generateRawCalls.length === before);
+        assert('小地图风格切为羊皮纸（mms-miniart-style 同步）', () => q('#mms-miniart-style').value === 'parchment');
+      }
+    }
+    { // 开关：关掉小地图 → 注入停止，YAML 小地图回退普通列表
+      click(q('#settings-btn'));
+      await sleep(100);
+      click(q('#tab-btn-ai'));
+      await sleep(120);
+      const miniChk = q('#mms-map-minimap');
+      miniChk.checked = false;
+      miniChk.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(400);
+      assert('关闭小地图：AI 卡片消失，YAML 数据回退普通列表', () =>
+        !q('li[data-mms-map-kind="mini"]') && q('.character-panel').textContent.includes('可以休息'));
+      assert('关闭小地图不影响大地图卡片', () => !!q('li[data-mms-map-kind="big"]'));
+      miniChk.checked = true;
+      miniChk.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(400);
+      assert('重新开启小地图：AI 卡片恢复（读缓存零 AI 调用）', () =>
+        !!q('li[data-mms-map-kind="mini"]') && win.generateRawCalls.length === 2);
+    }
+
+    finish();
+  }
+
+  document.getElementById('run').addEventListener('click', runAll);
+})();
+</script>
+</body>
+</html>

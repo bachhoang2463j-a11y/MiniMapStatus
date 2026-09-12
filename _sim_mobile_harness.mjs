@@ -1,5 +1,6 @@
-// _sim_mobile_harness.mjs — 生成 integration-test/mobile-harness.html 与 mobile-baseline.html
-// 前者：新功能断言（mock「角色列表」键）；后者：原版基线回归断言（mock 真机「用户列表」键楼层，双 iframe 对比备份原版）
+// _sim_mobile_harness.mjs — 生成 integration-test/mobile-harness.html、mobile-llm-harness.html 与 mobile-baseline.html
+// mobile-harness：新功能断言（mock「角色列表」键）；mobile-llm-harness：LLM 地图版断言（双地图 AI 生成）；
+// mobile-baseline：原版基线回归断言（mock 真机「用户列表」键楼层，双 iframe 对比备份原版）
 // 用法：node _sim_mobile_harness.mjs
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -26,6 +27,17 @@ inject(
   '/*__WIDGET_HTML_JSON__*/',
   widgetHtml,
   'D:/Project/MiniMapStatus/integration-test/mobile-harness.html',
+);
+
+// —— LLM 地图版 harness（内嵌 MiniMapStatusMobileLLM.html：双地图 AI 生成回归）——
+const widgetLLM = readFileSync('D:/Project/MiniMapStatus/MiniMapStatusMobileLLM.html', 'utf8');
+const widgetLLMHtml = stripFences(widgetLLM);
+if (!/<\/html>/i.test(widgetLLMHtml)) throw new Error('MiniMapStatusMobileLLM.html 内容异常');
+inject(
+  'D:/Project/MiniMapStatus/integration-test/mobile-llm-harness.template.html',
+  '/*__WIDGET_HTML_JSON__*/',
+  widgetLLMHtml,
+  'D:/Project/MiniMapStatus/integration-test/mobile-llm-harness.html',
 );
 
 // —— 原版基线 harness（备份 8/26 原版 + 新版，同 mock 楼层对比）——

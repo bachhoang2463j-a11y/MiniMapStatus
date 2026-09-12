@@ -6,7 +6,9 @@
  *   node build_regex.mjs [源文件名]
  *     （默认 MiniMapStatus.html → 生成独立更新版双 JSON；
  *       传 MiniMapStatusMobile.html → 仅生成 regex-美化状态栏[手机专用].json，
- *       沿用手机版原 UUID 与 findRegex，覆盖更新同 id 脚本）
+ *       沿用手机版原 UUID 与 findRegex，覆盖更新同 id 脚本；
+ *       传 MiniMapStatusMobileLLM.html → 生成 regex-美化状态栏[手机专用LLM地图].json，
+ *       新 UUID 新脚本名，与手机专用版共存互不覆盖）
  *
  * 产物（每次运行重新生成，保持与 HTML 源码同步）：
  *   1. regex-美化状态栏[独立更新].json
@@ -17,6 +19,8 @@
  *      提示词用正则（仅格式提示词）：从发给 AI 的上下文中剥离标记点，节省 token。
  *   3. regex-美化状态栏[手机专用].json（源为 MiniMapStatusMobile.html 时）
  *      手机轻量版显示正则：仅替换最后一个 <Status_block> 块，数据从正文直读。
+ *   4. regex-美化状态栏[手机专用LLM地图].json（源为 MiniMapStatusMobileLLM.html 时）
+ *      手机 LLM 地图版显示正则：删除内置 SVG 地图模板，大小地图均由 LLM 手动生成。
  *
  * 嵌入前会压缩产物（源码保持可读）：内联脚本过 terser、HTML/CSS 过
  * html-minifier-terser；MMS_IMAGE_DATA 标记块与「保存到源码」机制在产物上保留。
@@ -35,18 +39,24 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// 目标源文件：默认桌面版；传 MiniMapStatusMobile.html 走手机轻量版分支
+// 目标源文件：默认桌面版；传 MiniMapStatusMobile.html 走手机轻量版分支；
+// 传 MiniMapStatusMobileLLM.html 走手机 LLM 地图版分支（独立 UUID 与脚本名，与手机专用版共存）
 const SRC_NAME = process.argv[2] || 'MiniMapStatus.html';
 const IS_MOBILE = SRC_NAME === 'MiniMapStatusMobile.html';
+const IS_MOBILE_LLM = SRC_NAME === 'MiniMapStatusMobileLLM.html';
 const SRC = join(__dirname, SRC_NAME);
-const OUT_DISPLAY = IS_MOBILE
+const OUT_DISPLAY = IS_MOBILE_LLM
+  ? join(__dirname, 'regex-美化状态栏[手机专用LLM地图].json')
+  : IS_MOBILE
   ? join(__dirname, 'regex-美化状态栏[手机专用].json')
   : join(__dirname, 'regex-美化状态栏[独立更新].json');
 const OUT_STRIP = join(__dirname, 'regex-状态栏标记清理[上下文].json');
 const TMP = join(__dirname, '_minify_tmp');
 
 // 固定 id：重复导入时保持同一身份，避免多副本
-const DISPLAY_ID = IS_MOBILE
+const DISPLAY_ID = IS_MOBILE_LLM
+  ? 'f7d93e53-a3b3-4f25-8199-6822f7665ff2' // 手机 LLM 地图版 UUID，与手机专用版共存
+  : IS_MOBILE
   ? '1fe27bc2-f26b-4946-a60e-5ad7c1a7766e' // 手机版原 UUID，覆盖更新既有导入
   : '43f2c434-708b-467e-b9fd-dac04dc1d80e';
 const STRIP_ID = '3288eda7-da4d-4021-9b85-02f6f1026b42';
@@ -202,7 +212,7 @@ function makeRegexScript({ id, scriptName, findRegex, replaceString, markdownOnl
 const MOBILE_FIND_REGEX_SOURCE =
   '<Status_block>(?![\\s\\S]*?<Status_block>)\\s*[\\s\\S]*?\\s*<\\/Status_block>';
 
-const displayRegex = IS_MOBILE
+const displayRegex = IS_MOBILE || IS_MOBILE_LLM
   ? '/' + MOBILE_FIND_REGEX_SOURCE + '/i'
   : `/(?:${MARKER}(?![\\s\\S]*${MARKER})(?![\\s\\S]*<Status_block>)|(?:${MARKER}\\s*)?<Status_block>(?![\\s\\S]*?<Status_block>)[\\s\\S]*?<\\/Status_block>)/i`;
 
@@ -217,7 +227,11 @@ for (const [name, re] of [['手机版', MOBILE_FIND_REGEX_SOURCE], ['桌面版',
 
 const displayScript = makeRegexScript({
   id: DISPLAY_ID,
-  scriptName: IS_MOBILE ? '美化状态栏[手机专用]' : '美化状态栏[独立更新]',
+  scriptName: IS_MOBILE_LLM
+    ? '美化状态栏[手机专用LLM地图]'
+    : IS_MOBILE
+    ? '美化状态栏[手机专用]'
+    : '美化状态栏[独立更新]',
   findRegex: displayRegex,
   replaceString: buildWidgetReplacement(),
   markdownOnly: true,
@@ -229,7 +243,7 @@ console.log(`[build_regex] 已生成: ${OUT_DISPLAY}`);
 console.log(`  显示正则: ${displayRegex}`);
 console.log(`  嵌入HTML大小: ${displayScript.replaceString.length} 字符`);
 
-if (!IS_MOBILE) {
+if (!IS_MOBILE && !IS_MOBILE_LLM) {
   const stripScript = makeRegexScript({
     id: STRIP_ID,
     scriptName: '状态栏标记清理[上下文]',
