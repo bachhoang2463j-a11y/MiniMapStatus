@@ -2378,8 +2378,6 @@ function buildPortraitHTML(roleName, portraitUrl) {
         .map-marker.here .marker-emoji { filter: drop-shadow(0px 0px 8px #ffd35c); }
         @keyframes mms-here-ring { 0% { transform: scale(0.82); opacity: 1; } 75% { transform: scale(1.5); opacity: 0; } 100% { transform: scale(1.5); opacity: 0; } }
 
-        .mms-bm-badge { font-size: 0.65rem; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
-        .mms-bm-badge.hit { background: rgba(255, 200, 60, 0.14); color: #ffd35c; border: 1px solid rgba(255, 200, 60, 0.35); }
         .mms-bm-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
         .mms-bm-btn {
             border: 1px solid #2c3542; background: #232a35; color: #c9d4e3; border-radius: 8px;
@@ -6228,16 +6226,13 @@ createMapArtItem(kind, key, markersData, bma) {
   const li = document.createElement('li');
   li.setAttribute('data-mms-map-kind', kind);
 
-  // 头部：地图名 + 当前位置徽标（匹配到剧情地点才显示，未匹配保持静默）
+  // 头部：地图名（当前位置仅以地图上的标记高亮呈现，不做任何文字提醒）
   const head = document.createElement('div');
   head.className = 'flex items-center justify-between gap-2 mb-1 flex-wrap';
-  const badgeHtml = !bma.empty && bma.hereMatched
-    ? '<span class="mms-bm-badge hit">📍 当前：' + bma.hereName + '</span>'
-    : '';
   head.innerHTML =
     '<span class="font-medium text-primary" style="font-family: monospace;"> ' +
     (kind === 'mini' ? '🗺️小地图：' : '🌍大地图：') +
-    this.formatNodeName(key) + '</span>' + badgeHtml;
+    this.formatNodeName(key) + '</span>';
   li.appendChild(head);
 
   // 尚未生成：占位 + 生成按钮
