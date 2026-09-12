@@ -3,7 +3,10 @@
  * build_regex.mjs — 从 MiniMapStatus.html 自动生成 SillyTavern 正则脚本 JSON
  *
  * 用法：
- *   node build_regex.mjs
+ *   node build_regex.mjs [源文件名]
+ *     （默认 MiniMapStatus.html → 生成独立更新版双 JSON；
+ *       传 MiniMapStatusMobile.html → 仅生成 regex-美化状态栏[手机专用].json，
+ *       沿用手机版原 UUID 与 findRegex，覆盖更新同 id 脚本）
  *
  * 产物（每次运行重新生成，保持与 HTML 源码同步）：
  *   1. regex-美化状态栏[独立更新].json
@@ -12,6 +15,8 @@
  *      小部件 HTML 代码块，由酒馆助手渲染为 iframe。
  *   2. regex-状态栏标记清理[上下文].json
  *      提示词用正则（仅格式提示词）：从发给 AI 的上下文中剥离标记点，节省 token。
+ *   3. regex-美化状态栏[手机专用].json（源为 MiniMapStatusMobile.html 时）
+ *      手机轻量版显示正则：仅替换最后一个 <Status_block> 块，数据从正文直读。
  *
  * 嵌入前会压缩产物（源码保持可读）：内联脚本过 terser、HTML/CSS 过
  * html-minifier-terser；MMS_IMAGE_DATA 标记块与「保存到源码」机制在产物上保留。
@@ -29,13 +34,21 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SRC = join(__dirname, 'MiniMapStatus.html');
-const OUT_DISPLAY = join(__dirname, 'regex-美化状态栏[独立更新].json');
+
+// 目标源文件：默认桌面版；传 MiniMapStatusMobile.html 走手机轻量版分支
+const SRC_NAME = process.argv[2] || 'MiniMapStatus.html';
+const IS_MOBILE = SRC_NAME === 'MiniMapStatusMobile.html';
+const SRC = join(__dirname, SRC_NAME);
+const OUT_DISPLAY = IS_MOBILE
+  ? join(__dirname, 'regex-美化状态栏[手机专用].json')
+  : join(__dirname, 'regex-美化状态栏[独立更新].json');
 const OUT_STRIP = join(__dirname, 'regex-状态栏标记清理[上下文].json');
 const TMP = join(__dirname, '_minify_tmp');
 
 // 固定 id：重复导入时保持同一身份，避免多副本
-const DISPLAY_ID = '43f2c434-708b-467e-b9fd-dac04dc1d80e';
+const DISPLAY_ID = IS_MOBILE
+  ? '1fe27bc2-f26b-4946-a60e-5ad7c1a7766e' // 手机版原 UUID，覆盖更新既有导入
+  : '43f2c434-708b-467e-b9fd-dac04dc1d80e';
 const STRIP_ID = '3288eda7-da4d-4021-9b85-02f6f1026b42';
 
 const MARKER = '【状态栏标记点】';
@@ -149,7 +162,7 @@ function buildWidgetReplacement() {
   // 剥离源文件首尾可能残留的 markdown 围栏，避免破坏外层代码块
   html = html.replace(/^```[^\n]*\n/, '').replace(/\n```\s*$/, '');
   if (!/<\/html>/i.test(html)) {
-    throw new Error('MiniMapStatus.html 内容异常：未找到 </html>');
+    throw new Error(`${SRC_NAME} 内容异常：未找到 </html>`);
   }
   checkFaSubset(html);
   const minified = buildMinifiedHtml(html);
@@ -175,36 +188,43 @@ function makeRegexScript({ id, scriptName, findRegex, replaceString, markdownOnl
   };
 }
 
-// 显示正则：精准替换——最后一个【状态栏标记点】或最后一个 <Status_block> 块本身。
+// 显示正则——桌面版：精准替换最后一个【状态栏标记点】或最后一个 <Status_block> 块本身。
 // 标记之后的文本（如音乐 QR 触发词）不吞，格式控制交给用户侧流程。
 // 同楼共存（正文AI 追加行动选项 Status_block）时：标记点分支让位（负向先行），
 // 由 Status_block 分支把紧邻前方的标记点连同空白一并吞掉——中间隔正文则只替换
 // Status_block 本身（不吞正文，标记点残留属可接受的罕见场景）。
-const displayRegex = `/(?:${MARKER}(?![\\s\\S]*${MARKER})(?![\\s\\S]*<Status_block>)|(?:${MARKER}\\s*)?<Status_block>(?![\\s\\S]*?<Status_block>)[\\s\\S]*?<\\/Status_block>)/i`;
+//
+// 显示正则——手机版：沿用手机版原始正则，仅替换最后一个 <Status_block> 块本身
+// （手机轻量版数据从正文直读，无标记点/独立更新机制）。
+const displayRegex = IS_MOBILE
+  ? '/<Status_block>(?![\\s\\S]*?<Status_block>)\\s*([\\s\\S]*?)\\s*<\\/Status_block>/i'
+  : `/(?:${MARKER}(?![\\s\\S]*${MARKER})(?![\\s\\S]*<Status_block>)|(?:${MARKER}\\s*)?<Status_block>(?![\\s\\S]*?<Status_block>)[\\s\\S]*?<\\/Status_block>)/i`;
 
 const displayScript = makeRegexScript({
   id: DISPLAY_ID,
-  scriptName: '美化状态栏[独立更新]',
+  scriptName: IS_MOBILE ? '美化状态栏[手机专用]' : '美化状态栏[独立更新]',
   findRegex: displayRegex,
   replaceString: buildWidgetReplacement(),
   markdownOnly: true,
   promptOnly: false,
 });
 
-const stripScript = makeRegexScript({
-  id: STRIP_ID,
-  scriptName: '状态栏标记清理[上下文]',
-  findRegex: `/${MARKER}/g`,
-  replaceString: '',
-  markdownOnly: false,
-  promptOnly: true,
-});
-
 writeFileSync(OUT_DISPLAY, JSON.stringify(displayScript, null, 2), 'utf8');
-writeFileSync(OUT_STRIP, JSON.stringify(stripScript, null, 2), 'utf8');
-
 console.log(`[build_regex] 已生成: ${OUT_DISPLAY}`);
 console.log(`  显示正则: ${displayRegex}`);
 console.log(`  嵌入HTML大小: ${displayScript.replaceString.length} 字符`);
-console.log(`[build_regex] 已生成: ${OUT_STRIP}`);
-console.log(`  清理正则: ${stripScript.findRegex}`);
+
+if (!IS_MOBILE) {
+  const stripScript = makeRegexScript({
+    id: STRIP_ID,
+    scriptName: '状态栏标记清理[上下文]',
+    findRegex: `/${MARKER}/g`,
+    replaceString: '',
+    markdownOnly: false,
+    promptOnly: true,
+  });
+
+  writeFileSync(OUT_STRIP, JSON.stringify(stripScript, null, 2), 'utf8');
+  console.log(`[build_regex] 已生成: ${OUT_STRIP}`);
+  console.log(`  清理正则: ${stripScript.findRegex}`);
+}

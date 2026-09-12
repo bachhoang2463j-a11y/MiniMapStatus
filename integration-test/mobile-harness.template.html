@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>手机轻量版 · 移植回归 Harness</title>
+<style>
+  body { font-family: Consolas, monospace; font-size: 13px; max-width: 900px; margin: 24px auto; padding: 0 12px; }
+  h2 { border-bottom: 2px solid #333; padding-bottom: 4px; }
+  .grp { margin: 10px 0; }
+  .row { padding: 2px 6px; border-left: 3px solid #999; margin: 2px 0; background: #f6f6f6; }
+  .row.ok { border-color: #2e8b57; }
+  .row.bad { border-color: #d93025; background: #fdeceb; }
+  .total { font-weight: bold; font-size: 15px; margin-top: 14px; padding: 6px; background: #eee; }
+  #run { font-size: 14px; padding: 6px 16px; }
+  pre { background: #222; color: #9f9; padding: 8px; font-size: 11px; overflow: auto; max-height: 260px; }
+  iframe { width: 100%; height: 640px; border: 1px solid #888; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>手机轻量版 · 移植回归 Harness</h1>
+<p>内嵌 MiniMapStatusMobile.html（srcdoc iframe + mock 酒馆 API），覆盖：设置面板四 tab / 主题圆点 / 图片管理 / 标签池与复制 / 地图开关 / 独立大地图（AI 生成 mock）/ 卡片立绘无框渐变 / 徽章折叠 / 灯箱。</p>
+<button id="run" type="button">▶ 运行全部断言</button>
+<div id="out"></div>
+<pre id="log"></pre>
+<iframe id="stage"></iframe>
+
+<script>
+(function () {
+  const WIDGET_HTML = /*__WIDGET_HTML_JSON__*/;
+
+  const out = document.getElementById('out');
+  const logEl = document.getElementById('log');
+  const log = (...a) => { logEl.innerText += a.join(' ') + '\n'; };
+  let passCount = 0, total = 0;
+
+  function assert(desc, fn) {
+    total++;
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.textContent = '… ' + desc;
+    out.appendChild(row);
+    try {
+      const ok = fn();
+      row.className = 'row ' + (ok ? 'ok' : 'bad');
+      row.textContent = (ok ? '✓ ' : '✗ ') + desc;
+      if (ok) passCount++;
+      else log('FAIL', desc);
+    } catch (e) {
+      row.className = 'row bad';
+      row.textContent = '✗ ' + desc + ' — 异常: ' + e.message;
+      log('EXC', desc, e.stack);
+    }
+  }
+  function group(name) {
+    const g = document.createElement('div');
+    g.className = 'grp';
+    const h = document.createElement('h2');
+    h.textContent = name;
+    g.appendChild(h);
+    out.appendChild(g);
+  }
+  const totalRow = document.createElement('div');
+  totalRow.className = 'total';
+  totalRow.textContent = '0 项通过';
+  out.appendChild(totalRow);
+  function finish() {
+    totalRow.textContent = passCount + ' / ' + total + ' 项通过' + (passCount === total ? '（全部通过）' : '（存在失败项）');
+  }
+
+  // ============ mock 酒馆数据 ============
+  const mockMessage = [
+    '<maintext>',
+    '正文测试段落，带引号对话"你好"与【📍悉尼·澳大利亚酒店-总督套房】地点行。',
+    '【立绘弗兰克】',
+    '</maintext>',
+    '<Status_block>',
+    '状态栏:',
+    '  日期: 第1天',
+    '  时间: 08:00',
+    '  地点: 酒店套房',
+    '  角色列表:',
+    '    - 名字: 弗兰克',
+    '      立绘: 【立绘弗兰克】',
+    "      属性: \"[❤️HP:80/100][🛡️防:5][💥攻:12][⚡速:8][🎯命中:75][🍀幸运:60][🔫武器:步枪][🧪物品:绷带][💊药品:止痛药][📖情报:地图][🔑钥匙:房卡][💰现金:120美元]\"",
+    '    - 名字: 埃利奥特',
+    "      属性: '[❤️HP:50/50]'",
+    '  小地图:',
+    '    当前场景:',
+    '      - "🛏️【床铺】(20, 80) 可以休息"',
+    '      - "🚪【房门】(50, 90) 通往走廊"',
+    '</Status_block>',
+  ].join('\n');
+
+  // mock 绘图 AI 的大地图 JSON 输出
+  const mockMapJson = {
+    name: '测试大陆',
+    ground: 'field',
+    markers: [
+      { emoji: '🏰', name: '城堡', x: 50, y: 25, desc: '测试地标' },
+      { emoji: '⛵', name: '港口', x: 20, y: 80, desc: '海边' },
+    ],
+    features: [{ type: 'castle', at: [500, 258] }],
+  };
+
+  const store = {
+    chat: {
+      $mms_roster: { bigmapArt: { enabled: true, note: '', style: 'flat' }, maps: { minimap: true, bigmap: true } },
+    },
+    global: {},
+  };
+
+  // 注入到 iframe 头部的 mock 脚本（先于小部件脚本执行）
+  const mockScript = `
+<script>
+(function () {
+  window.__harnessLog = [];
+  var STORE = {
+    chat: ${JSON.stringify(store.chat)},
+    global: {}
+  };
+  window.__getStore = function () { return STORE; };
+  window.getCurrentMessageId = function () { return 0; };
+  window.getChatMessages = function (id) {
+    return [{ message: ${JSON.stringify(mockMessage)}, role: 'assistant', is_user: false }];
+  };
+  window.getVariables = function (opt) { return JSON.parse(JSON.stringify(opt && opt.type === 'global' ? STORE.global : STORE.chat)); };
+  window.insertOrAssignVariables = function (obj, opt) {
+    var t = opt && opt.type === 'global' ? STORE.global : STORE.chat;
+    Object.keys(obj).forEach(function (k) { t[k] = obj[k]; });
+  };
+  window.replaceVariables = function (obj, opt) {
+    if (opt && opt.type === 'global') STORE.global = obj; else STORE.chat = obj;
+  };
+  window.eventOn = function (name, cb) { window.__harnessLog.push('eventOn:' + name); };
+  window.eventEmit = function (name, data) { window.__harnessLog.push('eventEmit:' + name); };
+  window.generateRawCalls = [];
+  window.generateRaw = function (config) {
+    window.generateRawCalls.push(config);
+    return Promise.resolve(JSON.stringify(${JSON.stringify(mockMapJson)}));
+  };
+  window.alert = function (msg) { window.__harnessLog.push('alert:' + String(msg).slice(0, 80)); };
+  window.confirm = function (msg) { window.__harnessLog.push('confirm:' + String(msg).slice(0, 40)); return true; };
+})();
+<\/script>
+`;
+
+  // 组装 iframe srcdoc：mock 脚本插在 <head> 最前
+  const staged = WIDGET_HTML.replace('<head>', '<head>' + mockScript);
+  const stage = document.getElementById('stage');
+
+  function q(sel) { return stage.contentDocument.querySelector(sel); }
+  function qa(sel) { return Array.from(stage.contentDocument.querySelectorAll(sel)); }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+  async function runAll() {
+    out.innerHTML = '';
+    totalRow.textContent = '… 运行中';
+    passCount = 0; total = 0;
+    out.appendChild(totalRow);
+
+    stage.srcdoc = staged;
+    await sleep(1800); // 等 DOMContentLoaded + reRenderStatusBar(100ms) + 引擎(50ms) + 立绘扫描
+
+    const win = stage.contentWindow;
+    const doc = stage.contentDocument;
+
+    group('一、基础渲染（正文直读管线）');
+    assert('时间显示读取自 Status_block', () => q('#time-display').textContent.includes('第1天'));
+    assert('地点显示读取自 Status_block', () => q('#location-display').textContent.includes('酒店套房'));
+    assert('正文已渲染（maintext）', () => q('#maintext-container').textContent.includes('正文测试段落'));
+    assert('角色标签页 ≥3（弗兰克/埃利奥特/小地图）', () => qa('.character-tab-btn').length >= 3);
+
+    group('二、卡片立绘（无框渐变骨架）');
+    (function () {
+      const boxes = qa('.pc-portrait-box');
+      const withImg = boxes.filter((b) => b.querySelector('img'));
+      if (!withImg.length) return assert('弗兰克卡片渲染出立绘', () => false);
+      const cs = win.getComputedStyle(withImg[0]);
+      assert('弗兰克卡片渲染出立绘（PORTRAIT_MAP 命中）', () => true);
+      assert('立绘无边框（border-width = 0）', () => cs.borderTopWidth === '0px');
+      assert('立绘无底色（background 透明）', () => cs.backgroundColor === 'rgba(0, 0, 0, 0)' || cs.backgroundColor === 'transparent');
+      assert('立绘底部渐变羽化（mask-image 含 linear-gradient）', () => (cs.maskImage || cs.webkitMaskImage || '').includes('linear-gradient'));
+    })();
+
+    group('三、徽章折叠（字符数阈值）');
+    assert('超长徽章串折叠出 +N 按钮', () => !!q('.item-expand-btn'));
+    assert('折叠按钮文案为 +N 形式', () => /^\+\d+$|收起/.test(q('.item-expand-btn').textContent.trim()));
+    (function () {
+      const btn = q('.item-expand-btn');
+      if (!btn) return;
+      click(btn);
+      assert('点击 +N 展开全部徽章', () => btn.textContent.trim() === '收起');
+      click(btn);
+      assert('再次点击收起', () => /^\+\d+$/.test(btn.textContent.trim()));
+    })();
+
+    group('四、设置面板（四 tab 仪表盘）');
+    click(q('#settings-btn'));
+    await sleep(100);
+    assert('设置面板就地展开（主视图隐藏）', () => q('#settings-panel').style.display === 'block' && q('#mms-main-view').style.display === 'none');
+    assert('恰好 4 个页签', () => qa('.setting-tab-btn').length === 4);
+    assert('页签名：界面与交互/独立LLM更新/地图管理/图片管理', () =>
+      ['界面与交互', '独立LLM更新', '地图管理', '图片管理'].every((n) => qa('.setting-tab-btn').some((b) => b.textContent.includes(n))));
+    assert('主题圆点 6 个', () => qa('.theme-dot-btn').length === 6);
+    (function () {
+      const dayDot = qa('.theme-dot-btn').find((b) => b.getAttribute('data-theme') === 'day');
+      click(dayDot);
+      assert('主题圆点切换：白天模式生效', () => doc.body.classList.contains('day-mode'));
+      const romanDot = qa('.theme-dot-btn').find((b) => b.getAttribute('data-theme') === 'romantic');
+      click(romanDot);
+      assert('切回修仙模式', () => doc.body.classList.contains('romantic-mode'));
+    })();
+
+    group('五、图片管理（完整移植）');
+    click(q('#tab-btn-images'));
+    await sleep(120);
+    assert('切到图片管理 tab（面包屑更新）', () => q('#settings-current-tab-name').textContent.includes('图片管理'));
+    assert('立绘分类渲染出条目行（68 条）', () => qa('.mms-img-row').length === 68);
+    assert('分类计数徽标显示 68', () => q('#mms-img-count-portrait').textContent === '68');
+    assert('未保存徽标隐藏（无差异时）', () => q('#mms-img-dirty').style.display === 'none');
+    (function () {
+      const bgBtn = qa('.mms-img-cat-btn').find((b) => b.getAttribute('data-cat') === 'background');
+      click(bgBtn);
+      assert('切到底图分类（11 条）', () => qa('.mms-img-row').length === 11);
+      const avBtn = qa('.mms-img-cat-btn').find((b) => b.getAttribute('data-cat') === 'avatar');
+      click(avBtn);
+      assert('切到头像分类（53 条，含手机版独有 4 条）', () => qa('.mms-img-row').length === 53);
+      const pBtn = qa('.mms-img-cat-btn').find((b) => b.getAttribute('data-cat') === 'portrait');
+      click(pBtn);
+    })();
+
+    group('六、地图管理（标签池 + 复制按钮 + 开关）');
+    click(q('#tab-btn-maps'));
+    await sleep(120);
+    assert('小地图默认标签 18 个（与桌面版默认白名单一致）', () => qa('#mms-tags-mini .map-tag-chip').length === 18);
+    assert('标签池有余量（SVG 后段 + 底图图片标签）', () => qa('#mms-tags-pool .map-tag-chip').length >= 20);
+    assert('独立大地图开关默认开启（mock 名册）', () => q('#mms-bigart-enabled').checked === true);
+    assert('大地图表单展开（风格 + 备注）', () => q('#mms-bigart-form').style.display === 'block');
+    // 复制按钮：捕获剪贴板写入
+    let captured = null;
+    try {
+      Object.defineProperty(win.navigator, 'clipboard', {
+        value: { writeText: (t) => { captured = t; return Promise.resolve(); } },
+        configurable: true,
+      });
+    } catch (e) { log('clipboard 覆写失败', e.message); }
+    click(q('#mms-tags-copy'));
+    await sleep(120);
+    assert('复制输出为 [标签] 连缀格式（以默认 18 个小地图标签开头）', () =>
+      typeof captured === 'string' && captured.startsWith('[昏暗室内][明亮室内][警局][街道][商场][健身房][废墟][荒野][地下][海边][雪地][沙漠][火山][餐厅][酒吧][茶馆][神殿][夜市]'));
+    // 开关：关掉小地图 → 状态栏回退普通列表
+    const miniChk = q('#mms-map-minimap');
+    miniChk.checked = false;
+    miniChk.dispatchEvent(new Event('change', { bubbles: true }));
+    await sleep(400);
+    assert('关闭小地图开关：场景字段回退普通列表（无地图引擎）', () => qa('.tactical-map-container').length === 0 && doc.body.textContent.includes('床铺'));
+    miniChk.checked = true;
+    miniChk.dispatchEvent(new Event('change', { bubbles: true }));
+    await sleep(400);
+    assert('重新开启小地图：地图引擎恢复渲染', () => qa('.tactical-map-container').length >= 1);
+
+    group('七、独立大地图（AI 绘制，mock generateRaw）');
+    click(q('#settings-close'));
+    await sleep(100);
+    assert('大地图面板渲染出未生成占位卡', () => !!q('.mms-bm-placeholder'));
+    const genBtn = qa('.mms-bm-btn').find((b) => b.textContent.includes('生成大地图'));
+    assert('占位卡上有「生成大地图」按钮', () => !!genBtn);
+    if (genBtn) {
+      click(genBtn);
+      await sleep(900); // 等 mock generateRaw + 解析 + 保存 + 卡片原地刷新
+      assert('generateRaw 被调用 1 次（独立绘图请求）', () => win.generateRawCalls.length === 1);
+      assert('生成结果写入聊天变量 $mms_map_art', () => {
+        const s = win.__getStore().chat;
+        return s.$mms_map_art && s.$mms_map_art.json && s.$mms_map_art.json.markers.length === 2;
+      });
+      assert('大地图卡片原地刷新出工具栏（mms-bm-bar）', () => !!q('.character-panel .mms-bm-bar'));
+      assert('AI 底图渲染为 SVG（customSVG 注入引擎）', () => !!q('.character-panel .mms-bm-bar') && qa('.character-panel svg').length >= 1);
+      assert('当前位置徽标显示（匹配/未匹配提示）', () => !!q('.mms-bm-badge'));
+      // 风格切换：本地重绘（不产生新的 AI 调用）
+      const before = win.generateRawCalls.length;
+      const styleBtn = qa('.mms-bm-btn').find((b) => b.textContent.includes('换'));
+      click(styleBtn);
+      await sleep(400);
+      assert('风格切换零 AI 调用（本地重绘）', () => win.generateRawCalls.length === before);
+      assert('风格切换后羊皮纸/平面互切', () => q('#mms-bigart-style').value === 'parchment');
+    }
+
+    group('八、立绘灯箱');
+    (function () {
+      const box = qa('.pc-portrait-box').filter((b) => b.querySelector('img'))[0];
+      if (!box) return assert('存在卡片立绘可开灯箱', () => false);
+      click(box);
+      assert('点击立绘打开灯箱（active）', () => q('#pc-portrait-lightbox').classList.contains('active'));
+      assert('灯箱变体条渲染（弗兰克/弗兰克脱衣等候选）', () => qa('.pc-lightbox-variant-btn').length >= 1);
+      q('#pc-portrait-lightbox').classList.remove('active');
+    })();
+
+    finish();
+  }
+
+  document.getElementById('run').addEventListener('click', runAll);
+})();
+</script>
+</body>
+</html>

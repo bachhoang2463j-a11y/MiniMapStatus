@@ -8,7 +8,7 @@
  * base/components/utilities 产物 CSS，注入到标记区块内。
  *
  * 用法：
- *   node build_tailwind.mjs
+ *   node build_tailwind.mjs [源文件名]   （默认 MiniMapStatus.html，手机版传 MiniMapStatusMobile.html）
  *
  * 何时需要重跑：改动源 HTML 里的 Tailwind 工具类（class="..."），
  * 或修改 tailwind.config.js 主题色/字体之后。跑完再 node build_regex.mjs 重建正则 JSON。
@@ -21,7 +21,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SRC = join(__dirname, 'MiniMapStatus.html');
+const SRC_NAME = process.argv[2] || 'MiniMapStatus.html';
+const SRC = join(__dirname, SRC_NAME);
 const CONFIG = join(__dirname, 'tailwind.config.js');
 const TMP = join(__dirname, '_tailwind_tmp');
 // 与原 cdn.tailwindcss.com（v3 系列）保持同代语义
@@ -45,7 +46,7 @@ function main() {
   const startIdx = html.indexOf(START_TOKEN);
   const endIdx = html.indexOf(END_TOKEN);
   if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
-    fail('未找到 TAILWIND BUILD OUTPUT 标记区块，请检查 MiniMapStatus.html');
+    fail(`未找到 TAILWIND BUILD OUTPUT 标记区块，请检查 ${SRC_NAME}`);
   }
 
   // 扫描用副本：剔除标记区块（含上一次注入的产物 CSS），避免把产物选择器文本当作类名候选
@@ -87,7 +88,7 @@ function main() {
     writeFileSync(SRC, injected);
 
     console.log(`[build_tailwind] 产物 CSS: ${css.length} 字符（${(css.length / 1024).toFixed(1)} KB，已 minify）`);
-    console.log(`[build_tailwind] MiniMapStatus.html 现大小: ${(Buffer.byteLength(injected, 'utf8') / 1024).toFixed(1)} KB`);
+    console.log(`[build_tailwind] ${SRC_NAME} 现大小: ${(Buffer.byteLength(injected, 'utf8') / 1024).toFixed(1)} KB`);
     console.log('[build_tailwind] 完成。请接着运行 node build_regex.mjs 重建正则 JSON。');
   } finally {
     rmSync(TMP, { recursive: true, force: true });

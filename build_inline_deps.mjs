@@ -8,7 +8,7 @@
  *     只保留用到的 CSS 规则，字体以 base64 data-URI 内嵌（42 图标约 8KB，全量需 134KB）
  *
  * 用法：
- *   node build_inline_deps.mjs
+ *   node build_inline_deps.mjs [源文件名]   （默认 MiniMapStatus.html，手机版传 MiniMapStatusMobile.html）
  *
  * 何时重跑：源文件新增了 fa 图标/类之后（build_regex.mjs 的 FA_SUBSET 断言会拦截报错）。
  * 依赖：node ≥18（内置 fetch）+ python（fonttools[woff]）+ 网络（下载下方 pinned 版本）。
@@ -20,7 +20,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SRC = join(__dirname, 'MiniMapStatus.html');
+const SRC_NAME = process.argv[2] || 'MiniMapStatus.html';
+const SRC = join(__dirname, SRC_NAME);
 const TMP = join(__dirname, '_inline_tmp');
 
 const JSYAML_URL = 'https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js';
@@ -81,7 +82,7 @@ async function main() {
     '</script>';
   if (html.includes(JSYAML_TAG)) html = html.replace(JSYAML_TAG, jsyamlBlock);
   else if (JSYAML_BLOCK_RE.test(html)) html = html.replace(JSYAML_BLOCK_RE, jsyamlBlock);
-  else fail('未找到 js-yaml 的 CDN 标签或既有内联块，请检查 MiniMapStatus.html');
+  else fail(`未找到 js-yaml 的 CDN 标签或既有内联块，请检查 ${SRC_NAME}`);
 
   // ---------- 2. font-awesome 子集内联 ----------
   const faCss = (await download(FA_CSS_URL, join(TMP, 'font-awesome.min.css'))).toString('utf8').trim();
@@ -156,7 +157,7 @@ async function main() {
     '</style>';
   if (html.includes(FA_TAG)) html = html.replace(FA_TAG, faBlock);
   else if (FA_BLOCK_RE.test(html)) html = html.replace(FA_BLOCK_RE, faBlock);
-  else fail('未找到 font-awesome 的 CDN link 或既有内联块，请检查 MiniMapStatus.html');
+  else fail(`未找到 font-awesome 的 CDN link 或既有内联块，请检查 ${SRC_NAME}`);
 
   // ---------- 3. 校验与写出 ----------
   if (html.includes(JSYAML_URL) || html.includes(FA_CSS_URL)) fail('内联后仍残留 CDN 引用');
@@ -166,7 +167,7 @@ async function main() {
   const kb = (n) => (n / 1024).toFixed(1) + 'KB';
   console.log(`[build_inline_deps] js-yaml 内联: ${kb(jsyamlJs.length)}`);
   console.log(`[build_inline_deps] font-awesome 子集: ${icons.length} 图标 + ${modifiers.length} 行为类(${modifiers.join(',')}); 字体 ${kb(fontB64.length)} base64; CSS 规则 ${kept.length} 条`);
-  console.log(`[build_inline_deps] MiniMapStatus.html 现大小: ${kb(Buffer.byteLength(html, 'utf8'))}`);
+  console.log(`[build_inline_deps] ${SRC_NAME} 现大小: ${kb(Buffer.byteLength(html, 'utf8'))}`);
 }
 
 main().catch((e) => fail(e && e.message ? e.message : e));
