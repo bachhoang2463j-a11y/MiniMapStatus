@@ -266,6 +266,8 @@
     group('C · 地图展示层（原版行为：地图字段在卡片属性里渲染）');
     assert('新版小地图/大地图卡片渲染出地图引擎（≥2 个容器，与原版对等）', () =>
       qaO('.tactical-map-container').length > 0 && qaN('.tactical-map-container').length >= qaO('.tactical-map-container').length);
+    assert('新版立绘渲染与原版一致（data-pt-wrapper 数量相同）', () =>
+      qaN('[data-pt-wrapper="1"]').length === qaO('[data-pt-wrapper="1"]').length);
 
     finish();
   }

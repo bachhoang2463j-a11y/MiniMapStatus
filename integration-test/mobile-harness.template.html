@@ -18,7 +18,7 @@
 </head>
 <body>
 <h1>手机轻量版 · 移植回归 Harness</h1>
-<p>内嵌 MiniMapStatusMobile.html（srcdoc iframe + mock 酒馆 API），覆盖：设置面板四 tab / 主题圆点 / 图片管理 / 标签池与复制 / 地图开关 / 独立大地图（AI 生成 mock）/ 卡片立绘无框渐变 / 徽章折叠 / 灯箱。</p>
+<p>内嵌 MiniMapStatusMobile.html（srcdoc iframe + mock 酒馆 API），覆盖：设置面板四 tab / 主题圆点 / 图片管理 / 标签池与复制 / 地图开关 / 独立大地图（AI 生成 mock）/ 立绘（原版引擎整幅渲染，无双栏无灯箱）/ 徽章折叠。</p>
 <button id="run" type="button">▶ 运行全部断言</button>
 <div id="out"></div>
 <pre id="log"></pre>
@@ -171,16 +171,29 @@
     assert('正文已渲染（maintext）', () => q('#maintext-container').textContent.includes('正文测试段落'));
     assert('角色标签页 ≥3（弗兰克/埃利奥特/小地图）', () => qa('.character-tab-btn').length >= 3);
 
-    group('二、卡片立绘（无框渐变骨架）');
+    group('二、立绘渲染（原版引擎整幅替换，非双栏小图）');
+    // 立绘引擎首轮扫描在启动后 ~1200ms；IAB 中 iframe 定时器可能被节流，轮询等待
+    for (let i = 0; i < 12 && !qa('[data-pt-wrapper="1"]').length; i++) await sleep(600);
     (function () {
-      const boxes = qa('.pc-portrait-box');
-      const withImg = boxes.filter((b) => b.querySelector('img'));
-      if (!withImg.length) return assert('弗兰克卡片渲染出立绘', () => false);
-      const cs = win.getComputedStyle(withImg[0]);
-      assert('弗兰克卡片渲染出立绘（PORTRAIT_MAP 命中）', () => true);
-      assert('立绘无边框（border-width = 0）', () => cs.borderTopWidth === '0px');
-      assert('立绘无底色（background 透明）', () => cs.backgroundColor === 'rgba(0, 0, 0, 0)' || cs.backgroundColor === 'transparent');
-      assert('立绘底部渐变羽化（mask-image 含 linear-gradient）', () => (cs.maskImage || cs.webkitMaskImage || '').includes('linear-gradient'));
+      const wrappers = qa('[data-pt-wrapper="1"]');
+      if (!wrappers.length) return assert('弗兰克立绘由引擎渲染（data-pt-wrapper）', () => false);
+      const w = wrappers[0];
+      // 引擎按 UA 分支设定显示范围（harness 与 iframe 同 UA）
+      const isMobileUA = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent);
+      assert('弗兰克立绘由原版立绘引擎渲染（data-pt-wrapper）', () => true);
+      assert('立绘显示范围照搬原版引擎（height/min-height 分支与 UA 一致）', () => {
+        const s = w.getAttribute('style') || '';
+        const h = isMobileUA ? 'height: 24vh' : 'height: 40vh';
+        const mh = isMobileUA ? 'min-height: 140px' : 'min-height: 240px';
+        const img = w.querySelector('img');
+        return s.includes(h) && s.includes(mh) && !!img && (img.getAttribute('style') || '').includes('object-fit: cover');
+      });
+      assert('立绘底部渐变羽化（mask-image 含 linear-gradient）', () => {
+        const cs = win.getComputedStyle(w);
+        return (cs.maskImage || cs.webkitMaskImage || '').includes('linear-gradient');
+      });
+      assert('卡片无双栏立绘结构（pc-portrait-box 已移除）', () => qa('.pc-portrait-box').length === 0);
+      assert('立绘灯箱已移除（无 #pc-portrait-lightbox）', () => !q('#pc-portrait-lightbox'));
     })();
 
     group('三、徽章折叠（字符数阈值）');
@@ -287,16 +300,6 @@
       assert('风格切换零 AI 调用（本地重绘）', () => win.generateRawCalls.length === before);
       assert('风格切换后羊皮纸/平面互切', () => q('#mms-bigart-style').value === 'parchment');
     }
-
-    group('八、立绘灯箱');
-    (function () {
-      const box = qa('.pc-portrait-box').filter((b) => b.querySelector('img'))[0];
-      if (!box) return assert('存在卡片立绘可开灯箱', () => false);
-      click(box);
-      assert('点击立绘打开灯箱（active）', () => q('#pc-portrait-lightbox').classList.contains('active'));
-      assert('灯箱变体条渲染（弗兰克/弗兰克脱衣等候选）', () => qa('.pc-lightbox-variant-btn').length >= 1);
-      q('#pc-portrait-lightbox').classList.remove('active');
-    })();
 
     finish();
   }
