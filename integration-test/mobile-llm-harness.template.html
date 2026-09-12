@@ -281,7 +281,7 @@
       });
       assert('小地图卡片原地刷新（mini kind 卡片含工具栏）', () => !!q('li[data-mms-map-kind="mini"] .mms-bm-bar'));
       assert('小地图 AI 底图渲染为 SVG', () => qa('li[data-mms-map-kind="mini"] svg').length >= 1);
-      assert('小地图当前位置徽标显示（匹配/未匹配提示）', () => !!q('li[data-mms-map-kind="mini"] .mms-bm-badge'));
+      assert('剧情地点未匹配时无徽标（保持静默）', () => !q('li[data-mms-map-kind="mini"] .mms-bm-badge'));
     }
     const bigGen = qa('.mms-bm-btn').find((b) => b.textContent.includes('生成大地图'));
     assert('大地图占位卡上有「生成大地图」按钮', () => !!bigGen);
