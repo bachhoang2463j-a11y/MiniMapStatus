@@ -2758,10 +2758,10 @@ function buildPortraitHTML(roleName, portraitUrl) {
             <div class="min-w-[140px]">
               <span class="text-xs font-bold text-gray-300 flex items-center gap-1.5">
                 <i class="fa fa-picture-o text-primary"></i> 内置图片库
-                <span id="mms-img-dirty" class="mms-count-badge" style="display: none">未保存 0 项</span>
+                <span id="mms-img-dirty" class="mms-count-badge" style="display: none">未写回源码 0 项</span>
               </span>
               <p class="text-[10px] text-gray-400 mt-0.5">
-                立绘 / 头像链接内置于页面源码，修改立即生效；点「保存到源码」写回正则，随正则一起导出迁移
+                增删改自动保存在本设备（刷新不丢）；「保存到源码」仅用于写回正则源码、随正则一起导出迁移
               </p>
             </div>
             <div class="flex items-center gap-1.5 flex-shrink-0">
@@ -2775,6 +2775,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <button id="mms-img-copy" class="mms-btn" type="button" title="复制标记块代码，可粘贴回本地 MiniMapStatusMobileLLM.html 同步">复制配置</button>
               <button id="mms-img-export" class="mms-btn" type="button" title="导出为 JSON 文件备份">导出</button>
               <button id="mms-img-import" class="mms-btn" type="button" title="从 JSON 文件导入">导入</button>
+              <button id="mms-img-reset" class="mms-btn" type="button" title="清除本机保存的改动，恢复源码内置图片表">恢复内置</button>
             </div>
           </div>
 
@@ -2803,14 +2804,14 @@ function buildPortraitHTML(roleName, portraitUrl) {
           <p id="mms-img-status" class="text-[10px] text-primary" style="display: none"></p>
           <p class="settings-hint">
             立绘按角色名匹配（含「弗兰克脱衣」等状态变体）；小头像按角色名匹配小地图标记。
-            链接需以 http(s):// 开头；保存前刷新页面即可撤销全部修改。
+            链接需以 http(s):// 开头；改动即时自动保存（本设备），「恢复内置」可重置，「导出/导入」可跨设备迁移。
           </p>
         </div>
       </div>
     </div>
 
     <script>
-      // [扩展] 内置图片表：立绘 portrait / 小头像 avatar
+      // [扩展] 内置图片表：立绘 portrait / 小头像 avatar（出厂默认；运行时被本机 localStorage 快照覆盖）
       // 由「设置 → 图片管理」页签维护；「保存到源码」会整体重写标记块之间的内容，请勿改动两行标记注释
       /* ==== MMS_IMAGE_DATA_START ==== */
 window.MMS_IMAGE_DATA = {
@@ -2853,6 +2854,19 @@ window.MMS_IMAGE_DATA = {
 
       // 源码载入时的原始快照：图片管理页签据此计算未保存差异（必须先于任何 UI 代码捕获）
       window.MMS_IMAGE_DATA_BASE = JSON.parse(JSON.stringify(window.MMS_IMAGE_DATA));
+
+      // 本机持久层：图片表快照存 localStorage——不依赖酒馆正则 API（手机端该 API 写入
+      // 不可靠），增删改自动落盘，刷新/换聊天/换角色都在。命中即整表覆盖内置表（快照
+      // 语义，源码内置表退为出厂默认）；快照损坏或存储不可用时静默用内置表。
+      window.MMS_IMG_STORE_KEY = 'mms_img_data_llm_v1';
+      try {
+        const mmsStoredImages = JSON.parse(localStorage.getItem(window.MMS_IMG_STORE_KEY));
+        if (mmsStoredImages && typeof mmsStoredImages === 'object' && mmsStoredImages.portrait && mmsStoredImages.avatar) {
+          window.MMS_IMAGE_DATA = mmsStoredImages;
+        }
+      } catch (e) {
+        /* 快照损坏：弃用，走内置表 */
+      }
 
       // 图片数据标记块定位（供「保存到源码」精确替换；惰性匹配到第一处 END 标记即止）
       const MMS_IMG_BLOCK_RE = /\/\* ==== MMS_IMAGE_DATA_START[\s\S]*?MMS_IMAGE_DATA_END ==== \*\//;
@@ -2920,9 +2934,9 @@ window.MMS_IMAGE_DATA = {
         },
 
         initImageUI() {
-          const base = window.MMS_IMAGE_DATA_BASE || window.MMS_IMAGE_DATA;
-          this.imageBase = base;
-          this.imageData = JSON.parse(JSON.stringify(base));
+          // imageBase＝源码内置基线（「未写回源码」差异用）；imageData＝生效表（本机快照或内置）
+          this.imageBase = window.MMS_IMAGE_DATA_BASE || window.MMS_IMAGE_DATA;
+          this.imageData = JSON.parse(JSON.stringify(window.MMS_IMAGE_DATA));
 
           const list = document.getElementById('mms-img-list');
           if (list) {
@@ -2956,6 +2970,8 @@ window.MMS_IMAGE_DATA = {
           if (expBtn) expBtn.addEventListener('click', () => this.exportPresetFile(this.imageData, 'mms-images.json'));
           const impBtn = document.getElementById('mms-img-import');
           if (impBtn) impBtn.addEventListener('click', () => this.importImageData());
+          const resetBtn = document.getElementById('mms-img-reset');
+          if (resetBtn) resetBtn.addEventListener('click', () => this.resetImageTable());
 
           this.syncImageUI();
         },
@@ -3055,6 +3071,7 @@ window.MMS_IMAGE_DATA = {
               }
               this.renameImageKey(cat, oldName, newName);
               this.syncImageUI();
+              this.persistLocal();
               this.setImageStatus('已重命名为「' + newName + '」');
             }
           } else if (e.target.classList.contains('mms-img-url')) {
@@ -3066,6 +3083,7 @@ window.MMS_IMAGE_DATA = {
             this.applyImageEntry(cat, oldName, url);
             this.updateImageCounts();
             this.updateImageDirty();
+            this.persistLocal();
           }
         },
 
@@ -3075,6 +3093,38 @@ window.MMS_IMAGE_DATA = {
           if (!live) return;
           if (url == null) delete live[name];
           else live[name] = url;
+        },
+
+        // 本机持久化：增删改自动写入 localStorage（防抖合并）。写失败（隐私模式/配额）时
+        // 本会话内改动仍生效，仅不跨刷新——持久化不依赖任何酒馆 API。
+        persistLocal() {
+          clearTimeout(this._persistTimer);
+          this._persistTimer = setTimeout(() => {
+            if (!this.imageData) return;
+            try {
+              localStorage.setItem(window.MMS_IMG_STORE_KEY, JSON.stringify(this.imageData));
+            } catch (e) {
+              /* 存储不可用：跳过 */
+            }
+          }, 250);
+        },
+
+        // 恢复源码内置表：清本机快照并原位回填运行时表（保持对象引用，别名继续有效）
+        resetImageTable() {
+          if (!this.imageData) return;
+          if (!confirm('恢复为源码内置图片表？本机保存的图片改动（含自动保存的增删改）将被清除。')) return;
+          try {
+            localStorage.removeItem(window.MMS_IMG_STORE_KEY);
+          } catch (e) {
+            /* 存储不可用：忽略 */
+          }
+          const base = window.MMS_IMAGE_DATA_BASE || window.MMS_IMAGE_DATA;
+          this.imageCats.forEach((c) => {
+            this.replaceMapInPlace(window.MMS_IMAGE_DATA[c.key], base[c.key] || {});
+            this.imageData[c.key] = Object.assign({}, base[c.key] || {});
+          });
+          this.syncImageUI();
+          this.setImageStatus('已恢复内置图片表（本机快照已清除）');
         },
 
         // 原位替换（保持对象引用，PORTRAIT_MAP/AVATAR_MAP 等别名继续有效）
@@ -3103,8 +3153,9 @@ window.MMS_IMAGE_DATA = {
           if (!this.imageData || !(name in this.imageData[this.imageCat])) return;
           delete this.imageData[this.imageCat][name];
           this.applyImageEntry(this.imageCat, name, null);
+          this.persistLocal();
           this.syncImageUI();
-          this.setImageStatus('已删除「' + name + '」（保存前刷新页面可撤销）');
+          this.setImageStatus('已删除「' + name + '」（已自动保存在本设备）');
         },
 
         addImageEntry() {
@@ -3129,6 +3180,7 @@ window.MMS_IMAGE_DATA = {
           }
           this.imageData[this.imageCat][name] = url;
           this.applyImageEntry(this.imageCat, name, url);
+          this.persistLocal();
           if (nameEl) nameEl.value = '';
           if (urlEl) urlEl.value = '';
           this.syncImageUI();
@@ -3190,7 +3242,7 @@ window.MMS_IMAGE_DATA = {
           const saveBtn = document.getElementById('mms-img-save');
           if (badge) {
             badge.style.display = n ? '' : 'none';
-            badge.textContent = '未保存 ' + n + ' 项';
+            badge.textContent = '未写回源码 ' + n + ' 项';
           }
           if (saveBtn) saveBtn.disabled = n === 0;
         },
@@ -3278,7 +3330,7 @@ window.MMS_IMAGE_DATA = {
           }
 
           if (!this.hasRegexApi()) {
-            alert('当前环境没有酒馆助手正则 API，无法写回源码。\n可先「导出」JSON 备份，或「复制配置」后手动粘贴回 MiniMapStatusMobile.html。');
+            alert('当前环境没有酒馆助手正则 API，无法写回源码（不影响使用：改动已自动保存在本设备）。\n迁移可「导出」JSON，或「复制配置」后手动粘贴回 MiniMapStatusMobileLLM.html。');
             return;
           }
 
@@ -3317,7 +3369,7 @@ window.MMS_IMAGE_DATA = {
             this.setImageStatus('已写回源码，页面即将自动刷新');
           } catch (e) {
             console.error('[MMS] 图片配置写回失败:', e);
-            alert('写回失败：' + (e && e.message ? e.message : e) + '\n数据未丢失（仍在编辑中），可「导出」先备份。');
+            alert('写回失败：' + (e && e.message ? e.message : e) + '\n改动已自动保存在本设备，仅本次未写入正则源码；可「导出」备份。');
           } finally {
             restoreBtn();
           }
@@ -3359,7 +3411,7 @@ window.MMS_IMAGE_DATA = {
         importImageData() {
           if (!this.imageData) return;
           this.importPresetFile('application/json', (data) => {
-            const errMsg = 'JSON 格式不对：应为「导出」产生的 { portrait, background, avatar } 结构';
+            const errMsg = 'JSON 格式不对：应为「导出」产生的 { portrait, avatar } 结构';
             if (!data || typeof data !== 'object' || Array.isArray(data)) {
               alert(errMsg);
               return;
@@ -3379,18 +3431,19 @@ window.MMS_IMAGE_DATA = {
               }
               next[c.key] = Object.assign({}, src);
             }
-            if (!confirm('导入将覆盖当前编辑中的两张图片表（未保存的修改会丢失），继续？')) return;
+            if (!confirm('导入将覆盖当前图片表，继续？')) return;
             this.imageData = next;
             for (const c of this.imageCats) {
               this.replaceMapInPlace(window.MMS_IMAGE_DATA[c.key], next[c.key]);
             }
             this.syncImageUI();
+            this.persistLocal();
             this.setImageStatus(
               '导入完成（立绘 ' +
                 Object.keys(next.portrait).length +
                 ' / 头像 ' +
                 Object.keys(next.avatar).length +
-                ' 项），记得「保存到源码」',
+                ' 项，已自动保存在本设备）',
             );
           });
         },

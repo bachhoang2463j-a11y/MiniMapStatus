@@ -18,7 +18,7 @@
 </head>
 <body>
 <h1>手机 LLM 地图版 · 回归 Harness</h1>
-<p>内嵌 MiniMapStatusMobileLLM.html（srcdoc iframe + mock 酒馆 API），覆盖：内置 SVG 模板删除断言 / 设置面板三 tab（地图开关融入 LLM地图）/ 图片管理仅立绘+头像 / 双地图占位卡与 AI 生成（mock generateRaw，大小地图各一张）/ 增量状态与风格切换 / 开关回退列表 / 立绘 / 徽章折叠。</p>
+<p>内嵌 MiniMapStatusMobileLLM.html（srcdoc iframe + mock 酒馆 API），覆盖：内置 SVG 模板删除断言 / 设置面板三 tab（地图开关融入 LLM地图）/ 图片管理仅立绘+头像 / 双地图占位卡与 AI 生成（mock generateRaw，大小地图各一张）/ 增量状态与风格切换 / 开关回退列表 / 立绘 / 徽章折叠 / 图片表 localStorage 本机持久化。</p>
 <button id="run" type="button">▶ 运行全部断言</button>
 <div id="out"></div>
 <pre id="log"></pre>
@@ -163,6 +163,8 @@
     totalRow.textContent = '… 运行中';
     passCount = 0; total = 0;
     out.appendChild(totalRow);
+    // 图片表本机快照清零，保证每次运行从源码内置表出发
+    try { localStorage.removeItem('mms_img_data_llm_v1'); } catch (e) {}
 
     group('〇、删减断言（内置 SVG 模板 / 标签池 / 底图外链已移除）');
     assert('源码无 env- 场景类残留', () => !WIDGET_HTML.includes('env-'));
@@ -327,6 +329,45 @@
       await sleep(400);
       assert('重新开启小地图：AI 卡片恢复（读缓存零 AI 调用）', () =>
         !!q('li[data-mms-map-kind="mini"]') && win.generateRawCalls.length === 2);
+    }
+
+    group('九、图片表本机持久化（localStorage，不依赖正则 API）');
+    { // 组八末尾设置面板开着（LLM地图页签），直接切图片管理
+      click(q('#tab-btn-images'));
+      await sleep(150);
+      assert('初始为内置表（立绘 20 条）', () => qa('.mms-img-row').length === 20);
+      const rows = qa('.mms-img-row');
+      const delBtn = rows.length ? rows[rows.length - 1].querySelector('.mms-img-del') : null;
+      if (!delBtn) {
+        assert('删除一条立绘', () => false);
+      } else {
+        click(delBtn);
+        await sleep(450); // persistLocal 防抖 250ms
+        assert('删除后立绘 19 条', () => qa('.mms-img-row').length === 19);
+        assert('本机快照已落盘（立绘 19 / 头像 10）', () => {
+          const s = JSON.parse(localStorage.getItem('mms_img_data_llm_v1'));
+          return !!s && Object.keys(s.portrait).length === 19 && Object.keys(s.avatar).length === 10;
+        });
+        assert('「未写回源码」徽标计数为 1', () => q('#mms-img-dirty').textContent.includes('1'));
+      }
+    }
+    { // 重建 iframe（等效刷新）：快照应覆盖内置表；再验证「恢复内置」
+      stage.srcdoc = staged;
+      await sleep(1800);
+      click(q('#settings-btn'));
+      await sleep(150);
+      click(q('#tab-btn-images'));
+      await sleep(150);
+      assert('重建后立绘仍 19 条（本机持久化生效）', () => qa('.mms-img-row').length === 19);
+      const resetBtn = q('#mms-img-reset');
+      if (!resetBtn) {
+        assert('存在「恢复内置」按钮', () => false);
+      } else {
+        click(resetBtn);
+        await sleep(200);
+        assert('恢复内置后立绘回到 20 条', () => qa('.mms-img-row').length === 20);
+        assert('本机快照已清除', () => localStorage.getItem('mms_img_data_llm_v1') === null);
+      }
     }
 
     finish();
