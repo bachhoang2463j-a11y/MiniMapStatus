@@ -3316,8 +3316,8 @@ window.MMS_IMAGE_DATA = {
 
         // 定位承载本页面的正则（build_regex.mjs 的固定 UUID 优先，其次标记块，最后脚本名）
         async findSelfRegex() {
-          const SELF_ID = '1fe27bc2-f26b-4946-a60e-5ad7c1a7766e';
-          const SELF_NAME = '美化状态栏[手机专用]';
+          const SELF_ID = 'f7d93e53-a3b3-4f25-8199-6822f7665ff2';
+          const SELF_NAME = '美化状态栏[手机专用LLM地图]';
           const options = [{ type: 'global' }, { type: 'character', name: 'current' }];
           for (const option of options) {
             let regexes;
@@ -3383,7 +3383,7 @@ window.MMS_IMAGE_DATA = {
           try {
             const found = await this.findSelfRegex();
             if (!found) {
-              alert('未找到承载本页面的正则脚本（美化状态栏[手机专用]）。\n请确认该正则未被删除或改名；数据仍在编辑中，可「导出」先备份。');
+              alert('未找到承载本页面的正则脚本（美化状态栏[手机专用LLM地图]）。\n请确认该正则未被删除或改名；数据仍在编辑中，可「导出」先备份。');
               return;
             }
             const { option, regexes, index } = found;
