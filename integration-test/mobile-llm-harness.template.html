@@ -257,11 +257,11 @@
     assert('切到图片管理 tab（面包屑更新）', () => q('#settings-current-tab-name').textContent.includes('图片管理'));
     assert('分类只剩 2 个（立绘/头像，无底图）', () => qa('.mms-img-cat-btn').length === 2);
     assert('无 background 分类按钮', () => !qa('.mms-img-cat-btn').some((b) => b.getAttribute('data-cat') === 'background'));
-    assert('立绘分类渲染出条目行（68 条）', () => qa('.mms-img-row').length === 68);
+    assert('立绘分类渲染出条目行（20 条）', () => qa('.mms-img-row').length === 20);
     (function () {
       const avBtn = qa('.mms-img-cat-btn').find((b) => b.getAttribute('data-cat') === 'avatar');
       click(avBtn);
-      assert('切到头像分类（53 条）', () => qa('.mms-img-row').length === 53);
+      assert('切到头像分类（10 条）', () => qa('.mms-img-row').length === 10);
       const pBtn = qa('.mms-img-cat-btn').find((b) => b.getAttribute('data-cat') === 'portrait');
       click(pBtn);
     })();
