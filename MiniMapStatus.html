@@ -4044,10 +4044,10 @@ function buildPortraitHTML(roleName, portraitUrl) {
             <div class="min-w-[140px]">
               <span class="text-xs font-bold text-gray-300 flex items-center gap-1.5">
                 <i class="fa fa-picture-o text-primary"></i> 内置图片库
-                <span id="mms-img-dirty" class="mms-count-badge" style="display: none">未保存 0 项</span>
+                <span id="mms-img-dirty" class="mms-count-badge" style="display: none">未写回源码 0 项</span>
               </span>
               <p class="text-[10px] text-gray-400 mt-0.5">
-                立绘 / 底图 / 头像链接内置于页面源码，修改立即生效；点「保存到源码」写回正则，随正则一起导出迁移
+                增删改自动保存在本设备（刷新不丢，与「手机专用LLM地图」版共享、改动互通）；「保存到源码」仅用于写回正则源码、随正则一起导出迁移
               </p>
             </div>
             <div class="flex items-center gap-1.5 flex-shrink-0">
@@ -4061,6 +4061,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <button id="mms-img-copy" class="mms-btn" type="button" title="复制标记块代码，可粘贴回本地 MiniMapStatus.html 同步">复制配置</button>
               <button id="mms-img-export" class="mms-btn" type="button" title="导出为 JSON 文件备份">导出</button>
               <button id="mms-img-import" class="mms-btn" type="button" title="从 JSON 文件导入">导入</button>
+              <button id="mms-img-reset" class="mms-btn" type="button" title="清除本机保存的改动，恢复源码内置图片表">恢复内置</button>
             </div>
           </div>
 
@@ -4093,7 +4094,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
           <p class="settings-hint">
             立绘按角色名匹配（含「弗兰克脱衣」等状态变体）；底图按地图名匹配，新增后会自动进入「地图管理」页签的标签池；
             小头像按角色名匹配小地图标记。名册角色自带的头像只在运行时覆盖同名条目（不写入源码）。
-            链接需以 http(s):// 开头；保存前刷新页面即可撤销全部修改。
+            链接需以 http(s):// 开头；改动即时自动保存（本设备），「恢复内置」可重置，「导出/导入」可跨设备迁移。
           </p>
         </div>
       </div>
@@ -4282,6 +4283,29 @@ window.MMS_IMAGE_DATA = {
       // 源码载入时的原始快照：图片管理页签据此计算未保存差异。
       // 必须在任何 UI 代码运行前捕获（名册头像会在启动时合并进运行时表，不应污染基线）
       window.MMS_IMAGE_DATA_BASE = JSON.parse(JSON.stringify(window.MMS_IMAGE_DATA));
+
+      // 本机持久层：图片表快照存 localStorage——不依赖酒馆正则 API，增删改自动落盘，
+      // 刷新/换聊天/换角色都在。命中即整表覆盖内置表（快照语义，源码内置表退为出厂默认）；
+      // 快照损坏或存储不可用时静默用内置表。与「手机专用LLM地图」版共用同一 key（酒馆
+      // 同源 iframe 共享 localStorage），任一版本里的增删改互通，外部插件（如 ShopBlock）
+      // 亦可直接读此 key 拿最新头像/立绘表。
+      window.MMS_IMG_STORE_KEY = 'mms_img_data_llm_v1';
+      try {
+        const mmsStoredImages = JSON.parse(localStorage.getItem(window.MMS_IMG_STORE_KEY));
+        if (mmsStoredImages && typeof mmsStoredImages === 'object' && mmsStoredImages.portrait && mmsStoredImages.avatar) {
+          window.MMS_IMAGE_DATA = mmsStoredImages;
+          // LLM 地图版写出的两键快照无底图分类：回退源码内置 background 表
+          if (!mmsStoredImages.background || typeof mmsStoredImages.background !== 'object') {
+            window.MMS_IMAGE_DATA.background = window.MMS_IMAGE_DATA_BASE.background;
+          }
+        }
+      } catch (e) {
+        /* 快照损坏：弃用，走内置表 */
+      }
+
+      // 生效表（快照或内置）的干净副本：供图片管理初始化工作副本（须在名册头像
+      // boot 期合并进运行时表之前捕获，否则名册头像会混入编辑表并被写进本机快照）
+      window.MMS_IMAGE_DATA_EFFECTIVE = JSON.parse(JSON.stringify(window.MMS_IMAGE_DATA));
 
       // 图片数据标记块定位（供「保存到源码」精确替换；惰性匹配到第一处 END 标记即止）
       const MMS_IMG_BLOCK_RE = /\/\* ==== MMS_IMAGE_DATA_START[\s\S]*?MMS_IMAGE_DATA_END ==== \*\//;
@@ -16178,9 +16202,10 @@ createCharacterEntry(text, categoryKey) {
         imageSearch: '',
 
         initImageUI() {
-          const base = window.MMS_IMAGE_DATA_BASE || window.MMS_IMAGE_DATA;
-          this.imageBase = base;
-          this.imageData = JSON.parse(JSON.stringify(base));
+          // imageBase＝源码内置基线（「未写回源码」差异用）；imageData＝生效表（本机快照
+          // 或内置，EFFECTIVE 于名册头像合并前捕获，名册头像只在运行时表生效、不入快照）
+          this.imageBase = window.MMS_IMAGE_DATA_BASE || window.MMS_IMAGE_DATA;
+          this.imageData = JSON.parse(JSON.stringify(window.MMS_IMAGE_DATA_EFFECTIVE || window.MMS_IMAGE_DATA));
 
           const list = document.getElementById('mms-img-list');
           if (list) {
@@ -16214,6 +16239,8 @@ createCharacterEntry(text, categoryKey) {
           if (expBtn) expBtn.addEventListener('click', () => this.exportPresetFile(this.imageData, 'mms-images.json'));
           const impBtn = document.getElementById('mms-img-import');
           if (impBtn) impBtn.addEventListener('click', () => this.importImageData());
+          const resetBtn = document.getElementById('mms-img-reset');
+          if (resetBtn) resetBtn.addEventListener('click', () => this.resetImageTable());
 
           this.syncImageUI();
         },
@@ -16313,6 +16340,7 @@ createCharacterEntry(text, categoryKey) {
               }
               this.renameImageKey(cat, oldName, newName);
               this.syncImageUI();
+              this.persistLocal();
               this.setImageStatus('已重命名为「' + newName + '」');
             }
           } else if (e.target.classList.contains('mms-img-url')) {
@@ -16321,10 +16349,11 @@ createCharacterEntry(text, categoryKey) {
             // 就地更新缩略图并同步运行时表
             this.fillImageThumb(row.querySelector('.mms-img-thumb'), url);
             row.classList.toggle('invalid', !!(this.validateImageName(oldName) || this.validateImageUrl(url)));
-            this.applyImageEntry(cat, oldName, url);
-            this.updateImageCounts();
-            this.updateImageDirty();
-            if (typeof this.fillImageDatalists === 'function') this.fillImageDatalists();
+              this.applyImageEntry(cat, oldName, url);
+              this.updateImageCounts();
+              this.updateImageDirty();
+              this.persistLocal();
+              if (typeof this.fillImageDatalists === 'function') this.fillImageDatalists();
           }
         },
 
@@ -16335,6 +16364,44 @@ createCharacterEntry(text, categoryKey) {
           if (url == null) delete live[name];
           else live[name] = url;
           if (cat === 'background' && typeof mmsRebuildMapTags === 'function') mmsRebuildMapTags();
+        },
+
+        // 本机持久化：增删改自动写入 localStorage（防抖合并；与 LLM 地图版共享同一 key，
+        // 两版改动互通）。写失败（隐私模式/配额）时本会话内改动仍生效，仅不跨刷新——
+        // 持久化不依赖任何酒馆 API。
+        persistLocal() {
+          clearTimeout(this._persistTimer);
+          this._persistTimer = setTimeout(() => {
+            if (!this.imageData) return;
+            try {
+              localStorage.setItem(window.MMS_IMG_STORE_KEY, JSON.stringify(this.imageData));
+            } catch (e) {
+              /* 存储不可用：跳过 */
+            }
+          }, 250);
+        },
+
+        // 恢复源码内置表：清本机快照（与 LLM 地图版共享，一并恢复）并原位回填运行时表
+        // （保持对象引用，别名继续有效），最后重套名册头像覆盖
+        resetImageTable() {
+          if (!this.imageData) return;
+          if (!confirm('恢复为源码内置图片表？本机保存的图片改动（含自动保存的增删改，及与「手机专用LLM地图」版共享的全部改动）将被清除。')) return;
+          try {
+            localStorage.removeItem(window.MMS_IMG_STORE_KEY);
+          } catch (e) {
+            /* 存储不可用：忽略 */
+          }
+          const base = window.MMS_IMAGE_DATA_BASE || window.MMS_IMAGE_DATA;
+          this.imageCats.forEach((c) => {
+            this.replaceMapInPlace(window.MMS_IMAGE_DATA[c.key], base[c.key] || {});
+            this.imageData[c.key] = Object.assign({}, base[c.key] || {});
+          });
+          if (typeof mmsRebuildMapTags === 'function') mmsRebuildMapTags();
+          if (this.env && this.env.hasVarsApi && typeof this.applyRosterAvatars === 'function') {
+            this.applyRosterAvatars(this.loadRoster());
+          }
+          this.syncImageUI();
+          this.setImageStatus('已恢复内置图片表（本机快照已清除）');
         },
 
         // 原位替换（保持对象引用，PORTRAIT_MAP/BACKGROUND_MAP/AVATAR_MAP 等别名继续有效）
@@ -16365,7 +16432,8 @@ createCharacterEntry(text, categoryKey) {
           delete this.imageData[this.imageCat][name];
           this.applyImageEntry(this.imageCat, name, null);
           this.syncImageUI();
-          this.setImageStatus('已删除「' + name + '」（保存前刷新页面可撤销）');
+          this.persistLocal();
+          this.setImageStatus('已删除「' + name + '」（已自动保存在本设备）');
         },
 
         addImageEntry() {
@@ -16393,6 +16461,7 @@ createCharacterEntry(text, categoryKey) {
           if (nameEl) nameEl.value = '';
           if (urlEl) urlEl.value = '';
           this.syncImageUI();
+          this.persistLocal();
           this.setImageStatus('已添加「' + name + '」');
         },
 
@@ -16452,7 +16521,7 @@ createCharacterEntry(text, categoryKey) {
           const saveBtn = document.getElementById('mms-img-save');
           if (badge) {
             badge.style.display = n ? '' : 'none';
-            badge.textContent = '未保存 ' + n + ' 项';
+            badge.textContent = '未写回源码 ' + n + ' 项';
           }
           if (saveBtn) saveBtn.disabled = n === 0;
         },
@@ -16535,7 +16604,7 @@ createCharacterEntry(text, categoryKey) {
           }
 
           if (!this.env.hasRegexApi) {
-            alert('当前环境没有酒馆助手正则 API，无法写回源码。\n可先「导出」JSON 备份，或「复制配置」后手动粘贴回 MiniMapStatus.html。');
+            alert('当前环境没有酒馆助手正则 API，无法写回源码。\n改动已自动保存在本设备（刷新不丢）；如需跨设备迁移可「导出」JSON，或「复制配置」后手动粘贴回 MiniMapStatus.html。');
             return;
           }
 
@@ -16554,7 +16623,7 @@ createCharacterEntry(text, categoryKey) {
           try {
             const found = await this.findSelfRegex();
             if (!found) {
-              alert('未找到承载本页面的正则脚本（美化状态栏[独立更新]）。\n请确认该正则未被删除或改名；数据仍在编辑中，可「导出」先备份。');
+              alert('未找到承载本页面的正则脚本（美化状态栏[独立更新]）。\n请确认该正则未被删除或改名；改动已自动保存在本设备，可「导出」先备份。');
               return;
             }
             const { option, regexes, index } = found;
@@ -16574,7 +16643,7 @@ createCharacterEntry(text, categoryKey) {
             this.setImageStatus('已写回源码，页面即将自动刷新');
           } catch (e) {
             console.error('[MMS] 图片配置写回失败:', e);
-            alert('写回失败：' + (e && e.message ? e.message : e) + '\n数据未丢失（仍在编辑中），可「导出」先备份。');
+            alert('写回失败：' + (e && e.message ? e.message : e) + '\n改动已自动保存在本设备（刷新不丢），可「导出」先备份。');
           } finally {
             restoreBtn();
           }
@@ -16643,6 +16712,7 @@ createCharacterEntry(text, categoryKey) {
             }
             if (typeof mmsRebuildMapTags === 'function') mmsRebuildMapTags();
             this.syncImageUI();
+            this.persistLocal();
             this.setImageStatus(
               '导入完成（立绘 ' +
                 Object.keys(next.portrait).length +
@@ -16650,7 +16720,7 @@ createCharacterEntry(text, categoryKey) {
                 Object.keys(next.background).length +
                 ' / 头像 ' +
                 Object.keys(next.avatar).length +
-                ' 项），记得「保存到源码」',
+                ' 项），已自动保存在本设备',
             );
           });
         },

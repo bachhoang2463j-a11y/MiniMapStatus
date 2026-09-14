@@ -2761,7 +2761,7 @@ function buildPortraitHTML(roleName, portraitUrl) {
                 <span id="mms-img-dirty" class="mms-count-badge" style="display: none">未写回源码 0 项</span>
               </span>
               <p class="text-[10px] text-gray-400 mt-0.5">
-                增删改自动保存在本设备（刷新不丢）；「保存到源码」仅用于写回正则源码、随正则一起导出迁移
+                增删改自动保存在本设备（刷新不丢，与「独立更新」桌面版共享、改动互通）；「保存到源码」仅用于写回正则源码、随正则一起导出迁移
               </p>
             </div>
             <div class="flex items-center gap-1.5 flex-shrink-0">
@@ -3102,7 +3102,18 @@ window.MMS_IMAGE_DATA = {
           this._persistTimer = setTimeout(() => {
             if (!this.imageData) return;
             try {
-              localStorage.setItem(window.MMS_IMG_STORE_KEY, JSON.stringify(this.imageData));
+              // 共享 key 与桌面完整版互通：background（大地图底图）属完整版分类，旧快照
+              // 带有则透传保留，避免本版编辑把完整版写进共享快照的底图表抹掉
+              let payload = this.imageData;
+              try {
+                const prev = JSON.parse(localStorage.getItem(window.MMS_IMG_STORE_KEY));
+                if (prev && prev.background && typeof prev.background === 'object') {
+                  payload = Object.assign({}, this.imageData, { background: prev.background });
+                }
+              } catch (e2) {
+                /* 旧快照损坏：按本版两键写 */
+              }
+              localStorage.setItem(window.MMS_IMG_STORE_KEY, JSON.stringify(payload));
             } catch (e) {
               /* 存储不可用：跳过 */
             }
@@ -3112,7 +3123,7 @@ window.MMS_IMAGE_DATA = {
         // 恢复源码内置表：清本机快照并原位回填运行时表（保持对象引用，别名继续有效）
         resetImageTable() {
           if (!this.imageData) return;
-          if (!confirm('恢复为源码内置图片表？本机保存的图片改动（含自动保存的增删改）将被清除。')) return;
+          if (!confirm('恢复为源码内置图片表？本机保存的图片改动（含自动保存的增删改，及与「独立更新」桌面版共享的全部改动）将被清除。')) return;
           try {
             localStorage.removeItem(window.MMS_IMG_STORE_KEY);
           } catch (e) {
