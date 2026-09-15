@@ -18,7 +18,7 @@
 </head>
 <body>
 <h1>手机 LLM 地图版 · 回归 Harness</h1>
-<p>内嵌 MiniMapStatusMobileLLM.html（srcdoc iframe + mock 酒馆 API），覆盖：内置 SVG 模板删除断言 / 设置面板三 tab（地图开关融入 LLM地图）/ 图片管理仅立绘+头像 / 双地图占位卡与 AI 生成（mock generateRaw，大小地图各一张）/ 增量状态与风格切换 / 开关回退列表 / 立绘 / 徽章折叠 / 图片表 localStorage 本机持久化。</p>
+<p>内嵌 MiniMapStatusMobileLLM.html（srcdoc iframe + mock 酒馆 API），覆盖：内置 SVG 模板删除断言 / 设置面板三 tab（地图开关融入 LLM地图）/ 图片管理仅立绘+头像 / 双地图占位卡与 AI 生成（mock generateRaw，小地图=室内近景样例、大地图=城堡样例）/ 小地图近景材质渲染直测（木地板/雪原/街道/健身房/羊皮纸/罗盘区分/rot）/ 增量状态与风格切换 / 开关回退列表 / 立绘 / 徽章折叠 / 图片表 localStorage 本机持久化。</p>
 <button id="run" type="button">▶ 运行全部断言</button>
 <div id="out"></div>
 <pre id="log"></pre>
@@ -91,8 +91,27 @@
     '</Status_block>',
   ].join('\n');
 
-  // mock 绘图 AI 的语义 JSON 输出（大小地图共用）
-  const mockMapJson = {
+  // mock 绘图 AI 的语义 JSON 输出：小地图=室内近景样例（近景材质+家具），大地图=城堡地理样例
+  const mockMiniJson = {
+    name: '总督套房',
+    ground: 'wood',
+    outline: { shape: 'roundRect', at: [90, 110], size: [820, 780], r: 24, wall: true },
+    gates: [[500, 880]],
+    terrain: [{ type: 'carpet', shape: 'rect', at: [330, 380], size: [340, 260] }],
+    features: [
+      { type: 'wall', at: [430, 110], size: [16, 240] },
+      { type: 'door', at: [446, 380] },
+      { type: 'bed', at: [150, 190], size: [80, 110], rot: 90 },
+      { type: 'table', at: [640, 520] },
+      { type: 'lantern', at: [500, 300] },
+    ],
+    markers: [
+      { emoji: '🛏️', name: '床铺', x: 20, y: 26, desc: '可以休息' },
+      { emoji: '🚪', name: '房门', x: 50, y: 88, desc: '通往走廊' },
+      { emoji: '🪑', name: '会客桌', x: 64, y: 52, desc: '桌面散着文件' },
+    ],
+  };
+  const mockBigJson = {
     name: '测试场景',
     ground: 'field',
     markers: [
@@ -141,7 +160,8 @@
   window.generateRawCalls = [];
   window.generateRaw = function (config) {
     window.generateRawCalls.push(config);
-    return Promise.resolve(JSON.stringify(${JSON.stringify(mockMapJson)}));
+    var isMini = /-mini-/.test(String(config.generation_id || ''));
+    return Promise.resolve(JSON.stringify(isMini ? ${JSON.stringify(mockMiniJson)} : ${JSON.stringify(mockBigJson)}));
   };
   window.alert = function (msg) { window.__harnessLog.push('alert:' + String(msg).slice(0, 80)); };
   window.confirm = function (msg) { window.__harnessLog.push('confirm:' + String(msg).slice(0, 40)); return true; };
@@ -277,12 +297,23 @@
       click(miniGen);
       await sleep(900);
       assert('generateRaw 被调用 1 次（小地图独立绘图）', () => win.generateRawCalls.length === 1);
-      assert('小地图写入聊天变量 $mms_map_mini_art', () => {
+      assert('小地图写入聊天变量 $mms_map_mini_art（近景样例 3 地标）', () => {
         const s = win.__getStore().chat;
-        return s.$mms_map_mini_art && s.$mms_map_mini_art.json && s.$mms_map_mini_art.json.markers.length === 2;
+        return s.$mms_map_mini_art && s.$mms_map_mini_art.json && s.$mms_map_mini_art.json.markers.length === 3;
+      });
+      assert('小地图 ground=wood 通过 sanitize（近景材质保留）', () => {
+        const s = win.__getStore().chat;
+        return s.$mms_map_mini_art && s.$mms_map_mini_art.json.ground === 'wood';
+      });
+      assert('小地图系统提示词：近景绘制师 + 近景词表 + 场景判定引导', () => {
+        const c = win.generateRawCalls[0].ordered_prompts[0].content;
+        return c.includes('近景场景绘制师') && c.includes('crystal') && c.includes('machine') && c.includes('rubber');
       });
       assert('小地图卡片原地刷新（mini kind 卡片含工具栏）', () => !!q('li[data-mms-map-kind="mini"] .mms-bm-bar'));
-      assert('小地图 AI 底图渲染为 SVG', () => qa('li[data-mms-map-kind="mini"] svg').length >= 1);
+      assert('小地图 AI 底图渲染为 SVG（含木地板材质 pattern）', () => {
+        const svg = q('li[data-mms-map-kind="mini"] svg');
+        return !!svg && qa('li[data-mms-map-kind="mini"] svg').length >= 1 && svg.innerHTML.includes('mms-mini-wood');
+      });
       assert('无文字位置徽标（匹配与否均静默，当前位置仅地图高亮）', () => !q('li[data-mms-map-kind="mini"] .mms-bm-badge'));
     }
     const bigGen = qa('.mms-bm-btn').find((b) => b.textContent.includes('生成大地图'));
@@ -295,11 +326,61 @@
         const s = win.__getStore().chat;
         return s.$mms_map_art && s.$mms_map_art.json && s.$mms_map_art.json.markers.length === 2;
       });
+      assert('大地图系统提示词：地理词表、不含近景词', () => {
+        const c = win.generateRawCalls[1].ordered_prompts[0].content;
+        return c.includes('大地图绘制师') && !c.includes('crystal') && !c.includes('machine') && !c.includes('近景');
+      });
       assert('大地图卡片原地刷新（big kind 卡片含工具栏）', () => !!q('li[data-mms-map-kind="big"] .mms-bm-bar'));
       assert('两图引擎并存（tactical-map-container ≥2）', () => qa('.tactical-map-container').length >= 2);
     }
 
-    group('八、风格切换与开关回退');
+    group('八、小地图近景材质渲染（直接调用渲染器：室内/野外/现代/图纸）');
+    {
+      const R = win.mmsRenderMapArt;
+      assert('渲染器暴露在 window（kind 参数化）', () => typeof R === 'function');
+      if (typeof R === 'function') {
+        assert('室内：木地板 pattern 铺底 + 轻晕影', () => {
+          const s = R({ name: '总督套房', ground: 'wood', markers: [] }, 'flat', 'mini');
+          return s.includes('mms-mini-wood') && s.includes('mms-mini-vig');
+        });
+        assert('室内：ground 非法值回退木地板', () => R({ ground: 'xxx' }, 'flat', 'mini').includes('mms-mini-wood'));
+        assert('雪原：雪纹 pattern + 晶体冷光晕 + 近景大树', () => {
+          const s = R({ ground: 'snow', features: [{ type: 'crystal', at: [500, 400] }, { type: 'tree', at: [300, 620] }], markers: [] }, 'flat', 'mini');
+          return s.includes('mms-mini-snow') && s.includes('mms-mini-cold') && /rect[^>]*width="7"/.test(s);
+        });
+        assert('街道：沥青 pattern + 现代导引线 + 塑料凳/金属栅栏（现代材质系）', () => {
+          const s = R({ ground: 'street', roads: ['M 100 800 C 300 700, 600 700, 900 800'], features: [{ type: 'fence', at: [180, 260] }, { type: 'stool', at: [600, 480] }], markers: [] }, 'flat', 'mini');
+          return s.includes('mms-mini-street') && s.includes('#5eead4') && s.includes('#dc2626') && s.includes('#78909c');
+        });
+        assert('健身房：橡胶地垫 + 器械发光屏', () => {
+          const s = R({ ground: 'rubber', features: [{ type: 'machine', at: [300, 300] }, { type: 'screen', at: [620, 220] }], markers: [] }, 'flat', 'mini');
+          return s.includes('mms-mini-rubber') && s.includes('#10b981');
+        });
+        assert('室内分区：红毯 carpet pattern', () => {
+          const s = R({ ground: 'wood', terrain: [{ type: 'carpet', shape: 'rect', at: [300, 350], size: [400, 300] }], markers: [] }, 'flat', 'mini');
+          return s.includes('mms-mini-carpet');
+        });
+        assert('厚墙体：outline 画双线墙 + 门洞开口', () => {
+          const s = R({ ground: 'wood', outline: { shape: 'roundRect', at: [90, 110], size: [820, 780], r: 24, wall: true }, gates: [[500, 880]], markers: [] }, 'flat', 'mini');
+          return s.includes('stroke-width="20"') && s.includes('mms-mini-brick') && s.includes('stroke-dasharray="5 4"');
+        });
+        assert('rot 朝向生效（床绕 at 旋转 90°）', () => {
+          const s = R({ ground: 'wood', features: [{ type: 'bed', at: [200, 200], size: [70, 100], rot: 90 }], markers: [] }, 'flat', 'mini');
+          return s.includes('rotate(90 200 200)');
+        });
+        assert('手绘图纸：羊皮纸底 + 材质 tint（无 flat pattern）', () => {
+          const s = R({ ground: 'wood', markers: [] }, 'parchment', 'mini');
+          return s.includes('mms-map-pn') && !s.includes('mms-mini-wood');
+        });
+        assert('小地图不画罗盘（近景场景无方位符号）', () => !R({ ground: 'wood', markers: [] }, 'flat', 'mini').includes('>N<'));
+        assert('大地图仍画罗盘且不带 mini 材质', () => {
+          const s = R({ ground: 'field', markers: [] }, 'flat', 'big');
+          return s.includes('>N<') && !s.includes('mms-mini-');
+        });
+      }
+    }
+
+    group('九、风格切换与开关回退');
     { // 风格切换：本地重绘（不产生新的 AI 调用）
       const before = win.generateRawCalls.length;
       const styleBtn = qa('li[data-mms-map-kind="mini"] .mms-bm-btn').find((b) => b.textContent.includes('换'));
@@ -331,7 +412,7 @@
         !!q('li[data-mms-map-kind="mini"]') && win.generateRawCalls.length === 2);
     }
 
-    group('九、图片表本机持久化（localStorage，不依赖正则 API）');
+    group('十、图片表本机持久化（localStorage，不依赖正则 API）');
     { // 组八末尾设置面板开着（LLM地图页签），直接切图片管理
       click(q('#tab-btn-images'));
       await sleep(150);
