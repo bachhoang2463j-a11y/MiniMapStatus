@@ -4343,6 +4343,56 @@ window.MMS_IMAGE_DATA = {
       const BACKGROUND_MAP = window.MMS_IMAGE_DATA.background;
       const AVATAR_MAP = window.MMS_IMAGE_DATA.avatar;
 
+      // 跨 iframe 共享生效头像表（商店等其它前端直读）：getter 保活、始终指向运行时表，
+      // 名册覆盖等原位写键无需重新注册即可见；缺 initializeGlobal（旧版酒馆助手）时静默跳过。
+      // 硬约束：本块内不得出现图片数据标记字面量，否则「保存到源码」的唯一性校验会失效。
+      (function () {
+        window.MMS_AVATAR_EXPORT_KEY = 'mms_avatar_export_v1';
+        let exportTimer = null;
+        // 只读导出键：与图片管理的本机快照分开，避免名册头像混入编辑表（见上方 EFFECTIVE 注释）
+        const persistAvatarExport = () => {
+          clearTimeout(exportTimer);
+          exportTimer = setTimeout(() => {
+            try {
+              localStorage.setItem(
+                window.MMS_AVATAR_EXPORT_KEY,
+                JSON.stringify({ avatar: AVATAR_MAP, ts: Date.now() }),
+              );
+            } catch (e) {
+              /* 存储不可用：跳过 */
+            }
+          }, 250);
+        };
+        window.MMSImagesPersist = persistAvatarExport;
+        if (typeof initializeGlobal === 'function') {
+          try {
+            initializeGlobal('MMSImages', {
+              get avatarMap() {
+                return AVATAR_MAP;
+              },
+              // 名称/网址 → 头像 URL（与 resolveAvatarUrl 同语义），供外部按名册原值解析
+              resolveAvatar(input) {
+                const s = String(input || '').trim();
+                if (!s) return '';
+                if (/^https?:\/\//i.test(s)) return s;
+                const plain = (typeof mmsPlainName === 'function'
+                  ? mmsPlainName(s)
+                  : String(s).replace(/^[^\u4e00-\u9fa5A-Za-z0-9]+/, '')
+                ).trim();
+                const keys = Object.keys(AVATAR_MAP);
+                const hit =
+                  keys.find((k) => k === s || k === plain) ||
+                  keys.find((k) => plain.includes(k) || k.includes(plain));
+                return hit ? AVATAR_MAP[hit] : '';
+              },
+            });
+          } catch (e) {
+            /* 旧版酒馆助手无此接口 / 同名已注册：静默跳过 */
+          }
+        }
+        persistAvatarExport();
+      })();
+
       const triggerQuickReply = text => {
         if (!text || ['…', '...'].includes(text.trim()) || text.trim().length === 0) return;
         if (typeof triggerSlash === 'function') {
@@ -16308,6 +16358,8 @@ createCharacterEntry(text, categoryKey) {
             const plain = mmsPlainName(r.name);
             if (url && plain) map[plain] = url;
           }
+          // 覆盖后刷新只读导出键（供商店等外部前端消费）
+          if (typeof window.MMSImagesPersist === 'function') window.MMSImagesPersist();
         },
 
         // 把名册增量合并进当前楼层状态：只插入缺失的固定角色，绝不改动/删除其他角色
@@ -16966,6 +17018,8 @@ createCharacterEntry(text, categoryKey) {
             } catch (e) {
               /* 存储不可用：跳过 */
             }
+            // 图片表变更后刷新只读导出键
+            if (typeof window.MMSImagesPersist === 'function') window.MMSImagesPersist();
           }, 250);
         },
 

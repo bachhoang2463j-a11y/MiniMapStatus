@@ -2875,6 +2875,56 @@ window.MMS_IMAGE_DATA = {
       window.PORTRAIT_MAP = window.MMS_IMAGE_DATA.portrait;
       const AVATAR_MAP = window.MMS_IMAGE_DATA.avatar;
 
+      // 跨 iframe 共享生效头像表（商店等其它前端直读）：getter 保活、始终指向运行时表，
+      // 图片管理原位写键无需重新注册即可见；缺 initializeGlobal（旧版酒馆助手）时静默跳过。
+      // 硬约束：本块内不得出现图片数据标记字面量，否则「保存到源码」的唯一性校验会失效。
+      (function () {
+        window.MMS_AVATAR_EXPORT_KEY = 'mms_avatar_export_v1';
+        let exportTimer = null;
+        // 只读导出键：与图片管理的本机快照分开，避免编辑中的临时改动混入
+        const persistAvatarExport = () => {
+          clearTimeout(exportTimer);
+          exportTimer = setTimeout(() => {
+            try {
+              localStorage.setItem(
+                window.MMS_AVATAR_EXPORT_KEY,
+                JSON.stringify({ avatar: AVATAR_MAP, ts: Date.now() }),
+              );
+            } catch (e) {
+              /* 存储不可用：跳过 */
+            }
+          }, 250);
+        };
+        window.MMSImagesPersist = persistAvatarExport;
+        if (typeof initializeGlobal === 'function') {
+          try {
+            initializeGlobal('MMSImages', {
+              get avatarMap() {
+                return AVATAR_MAP;
+              },
+              // 名称/网址 → 头像 URL（与桌面版 resolveAvatarUrl 同语义）
+              resolveAvatar(input) {
+                const s = String(input || '').trim();
+                if (!s) return '';
+                if (/^https?:\/\//i.test(s)) return s;
+                const plain = (typeof mmsPlainName === 'function'
+                  ? mmsPlainName(s)
+                  : String(s).replace(/^[^\u4e00-\u9fa5A-Za-z0-9]+/, '')
+                ).trim();
+                const keys = Object.keys(AVATAR_MAP);
+                const hit =
+                  keys.find((k) => k === s || k === plain) ||
+                  keys.find((k) => plain.includes(k) || k.includes(plain));
+                return hit ? AVATAR_MAP[hit] : '';
+              },
+            });
+          } catch (e) {
+            /* 旧版酒馆助手无此接口 / 同名已注册：静默跳过 */
+          }
+        }
+        persistAvatarExport();
+      })();
+
       // ---------- 图片管理（设置 → 图片管理页签；自最新版移植） ----------
       // imageData：编辑工作副本（保存时写回正则源码）
       // imageBase：源码载入基线（MMS_IMAGE_DATA_BASE，仅保存成功后更新），两者差异 = 未保存项
@@ -3117,6 +3167,8 @@ window.MMS_IMAGE_DATA = {
             } catch (e) {
               /* 存储不可用：跳过 */
             }
+            // 图片表变更后刷新只读导出键
+            if (typeof window.MMSImagesPersist === 'function') window.MMSImagesPersist();
           }, 250);
         },
 
