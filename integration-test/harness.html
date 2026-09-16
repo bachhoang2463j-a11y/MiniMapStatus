@@ -139,6 +139,8 @@ yesterday_bill:
       testBuild();
       group('幂等与触发（模拟引擎状态机）');
       testIdempotency();
+      group('独立小地图（miniArt，从独立LLM地图版移植）');
+      testMiniArt();
       group('NewDay.html 渲染与解析');
       testNewdayParse();
       finish();
@@ -157,7 +159,8 @@ yesterday_bill:
       'jsyaml', 'window', 'document',
       mmsScript + '\n;return {' +
       ' mmsBuildNewdayResult, mmsParseAttrList, mmsIsCurMax, mmsApplyAttrCommands,' +
-      ' mmsNormalizeName, mmsMatchOne, mmsCashCompute, mmsFindNameField, mmsAttrsToString };',
+      ' mmsNormalizeName, mmsMatchOne, mmsCashCompute, mmsFindNameField, mmsAttrsToString,' +
+      ' mmsApplyRosterToState, mmsMergeState, mmsBuildSystemPrompt, mmsRenderMapArt };',
     );
     return sandbox(() => ({}), {}, docStub);
   }
@@ -278,6 +281,122 @@ yesterday_bill:
     });
     assert('常量与 NewDay.html 一致（$newday_bill_result / newday:bill-settle / newday-bill-bridge）', () => {
       return mmsScript.includes('$newday_bill_result') && mmsScript.includes('newday:bill-settle') && mmsScript.includes('newday-bill-bridge');
+    });
+  }
+
+  // 独立小地图（miniArt）：从独立LLM地图版（MiniMapStatusMobileLLM.html）移植到桌面完整版。
+  // 断言三件事：① 状态栏更新 LLM 的提示词三闸门（系统提示词/合并/名册应用）
+  // ② 近景材质渲染器 mini 分支 ③ 管线接线存在性（与独立大地图 bigmapArt 对称）。
+  function testMiniArt() {
+    if (!fns) return;
+
+    const mkRoster = (miniEnabled) => ({
+      characters: [], modules: [],
+      maps: { minimap: true, bigmap: false },
+      mapTags: { pool: [], mini: ['客厅', '卧室'], big: [] },
+      bigmapArt: { enabled: false, note: '', style: 'flat' },
+      miniArt: { enabled: miniEnabled, note: '', style: 'flat' },
+    });
+    // 老档兼容：无 miniArt 键（升级前的 $mms_roster）等价于未开启
+    const legacyRoster = mkRoster(false);
+    delete legacyRoster.miniArt;
+
+    // ---------- ① 提示词三闸门（用户核心要求：与独立大地图逻辑一致） ----------
+    assert('系统提示词：miniArt.enabled=true → 全文不再出现"小地图"（章节/自由字段/JSON参照/人物分工全部去掉）', () => {
+      const p = fns.mmsBuildSystemPrompt(mkRoster(true));
+      log('prompt(miniArt on) 含小地图 →', p.includes('小地图'));
+      return !p.includes('小地图');
+    });
+    assert('系统提示词：miniArt.enabled=false（含老档无键） → 小地图章节照常保留（对照）', () => {
+      const p1 = fns.mmsBuildSystemPrompt(mkRoster(false));
+      const p2 = fns.mmsBuildSystemPrompt(legacyRoster);
+      return p1.includes('🗺️ 小地图') && p1.includes('与小地图的分工') && p2.includes('🗺️ 小地图');
+    });
+    assert('系统提示词：miniArt 不影响大地图闸门（bigmapArt.enabled=true 时大地图章节同样去掉）', () => {
+      const r = mkRoster(true);
+      r.maps.bigmap = true;
+      r.bigmapArt.enabled = true;
+      const p = fns.mmsBuildSystemPrompt(r);
+      return !p.includes('大地图') && !p.includes('小地图');
+    });
+    assert('mmsApplyRosterToState：miniArt.enabled=true → 状态里的小地图模块被移除', () => {
+      const state = { 状态栏: { 小地图: { 客厅: ['🪑【书桌】(35, 40) 掩体'] }, 日期和时间: '⏰ 1921年' } };
+      const out = fns.mmsApplyRosterToState(state, mkRoster(true), '');
+      return !out['状态栏']['小地图'] && out['状态栏']['日期和时间'] === '⏰ 1921年';
+    });
+    assert('mmsApplyRosterToState：miniArt.enabled=false → 小地图模块保留（对照）', () => {
+      const state = { 状态栏: { 小地图: { 客厅: ['🪑【书桌】(35, 40) 掩体'] } } };
+      const out = fns.mmsApplyRosterToState(state, mkRoster(false), '');
+      return !!out['状态栏']['小地图'];
+    });
+    assert('mmsMergeState：miniArt.enabled=true → AI 输出的小地图不合并进状态', () => {
+      const prev = { 状态栏: { 小地图: { 客厅: ['🪑【书桌】(35, 40) 掩体'] } } };
+      const aiOut = { 状态栏: { 小地图: { 卧室: ['🛏️【床铺】(20, 80) 可以休息'] } } };
+      const out = fns.mmsMergeState(prev, aiOut, mkRoster(true), '');
+      return !out['状态栏']['小地图'];
+    });
+    assert('mmsMergeState：miniArt.enabled=false → 小地图照常合并（AI 输出优先）', () => {
+      const prev = { 状态栏: { 小地图: { 客厅: ['🪑【书桌】(35, 40) 掩体'] } } };
+      const aiOut = { 状态栏: { 小地图: { 卧室: ['🛏️【床铺】(20, 80) 可以休息'] } } };
+      const out = fns.mmsMergeState(prev, aiOut, mkRoster(false), '');
+      return !!out['状态栏']['小地图'] && !!out['状态栏']['小地图']['卧室'];
+    });
+
+    // ---------- ② 近景材质渲染器（mini 分支） ----------
+    const miniJson = {
+      name: '总督套房', ground: 'wood',
+      terrain: [{ type: 'carpet', shape: 'rect', at: [330, 380], size: [340, 260] }],
+      outline: { shape: 'roundRect', at: [90, 110], size: [820, 780], r: 24 },
+      gates: [[500, 880]],
+      roads: [],
+      features: [
+        { type: 'wall', at: [430, 110], size: [16, 240] },
+        { type: 'bed', at: [150, 190], size: [80, 110], rot: 90 },
+        { type: 'lantern', at: [500, 300] },
+      ],
+      houses: [], trees: [],
+      labels: [{ at: [500, 950], text: '客栈大堂' }],
+      markers: [{ emoji: '🛏️', name: '床铺', x: 20, y: 26, desc: '可以休息' }],
+    };
+    assert('渲染器：ground=wood → 木地板材质 pattern 铺底；carpet 地毯分区生效', () => {
+      const svg = fns.mmsRenderMapArt(miniJson, 'flat', 'mini');
+      return svg.includes('url(#mms-mini-wood)') && svg.includes('url(#mms-mini-carpet)');
+    });
+    assert('渲染器：outline → 平面图厚墙体（宽边 20 + 砖纹墙 14）；gates → 门洞开口', () => {
+      const svg = fns.mmsRenderMapArt(miniJson, 'flat', 'mini');
+      return svg.includes('stroke-width="20"') && svg.includes('url(#mms-mini-brick)') && svg.includes('stroke-dasharray="5 4"');
+    });
+    assert('渲染器：bed 近景画法 + rot=90 朝向旋转；lantern 光晕', () => {
+      const svg = fns.mmsRenderMapArt(miniJson, 'flat', 'mini');
+      return svg.includes('rotate(90 150 190)') && svg.includes('url(#mms-mini-glow)');
+    });
+    assert('渲染器：mini 不画罗盘/比例尺（大地图专属地理符号）', () => {
+      const svg = fns.mmsRenderMapArt(miniJson, 'flat', 'mini');
+      return !svg.includes('>N<');
+    });
+    assert('渲染器：kind 缺省（大地图）回归 → 仍画罗盘、不出现 mini 材质', () => {
+      const bigJson = { name: '旧镇', ground: 'field', outline: { shape: 'roundRect', at: [120, 160], size: [760, 780], r: 36 }, markers: [] };
+      const svg = fns.mmsRenderMapArt(bigJson, 'flat');
+      return svg.includes('>N<') && !svg.includes('mms-mini-');
+    });
+
+    // ---------- ③ 管线接线存在性（与 bigmapArt 对称） ----------
+    assert('管线：$mms_map_mini_art 独立聊天变量 + loadMapArt/saveMapArt 按 kind 分流', () => {
+      return mmsScript.includes("$mms_map_mini_art") && /loadMapArt\(kind = 'big'\)/.test(mmsScript) && /saveMapArt\(json, prevOverride, kind = 'big'\)/.test(mmsScript);
+    });
+    assert('管线：injectMiniMapArt / refreshMiniMapCard / 双图卡片 data-mms-map-kind 防串扰', () => {
+      return /injectMiniMapArt\(state\)/.test(mmsScript) && /refreshMiniMapCard\(\)/.test(mmsScript) &&
+        /data-mms-map-kind="big"/.test(mmsScript) && /data-mms-map-kind="mini"/.test(mmsScript);
+    });
+    assert('管线：卡片按钮带 kind 接线（generateMapArt(\'full\', kind) 等）+ 小地图绘图系统提示词（近景场景绘制师/材质词表）', () => {
+      return /generateMapArt\('full', kind\)/.test(mmsScript) && /generateMapArt\('merge', kind\)/.test(mmsScript) &&
+        mmsScript.includes('近景场景绘制师') && mmsScript.includes('MMS_MINI_FEATURE_TYPES.join');
+    });
+    assert('名册：saveRoster 白名单放行 miniArt（旧档无键时回退默认关闭）', () => {
+      return /miniArt: roster\.miniArt \|\| \{ enabled: false, note: '', style: 'flat' \}/.test(mmsScript);
+    });
+    assert('事件：MMS_EVENT_MAPART payload 按 kind 分派（小地图生成不整刷大地图卡片）', () => {
+      return /eventEmit\(MMS_EVENT_MAPART, \{ kind: kind \}\)/.test(mmsScript) && /payload && payload\.kind/.test(mmsScript);
     });
   }
 

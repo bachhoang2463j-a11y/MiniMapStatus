@@ -3977,6 +3977,34 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </div>
           </div>
 
+          <!-- 独立小地图（AI 绘制，近景场景） -->
+          <div class="roster-surface rounded-xl border border-gray-700/10 p-2.5 space-y-2">
+            <label class="mms-toggle-row">
+              <input type="checkbox" id="mms-miniart-enabled" />
+              <span class="text-xs font-bold">🎨 独立小地图（AI 绘制近景场景底图+地标，不占正文状态栏）</span>
+            </label>
+            <div id="mms-miniart-form" style="display: none" class="space-y-2">
+              <div class="flex gap-2 items-center">
+                <span class="text-[11px] text-gray-400 w-14 shrink-0">底图风格</span>
+                <select id="mms-miniart-style" class="form-input flex-1 text-xs" style="height: 28px">
+                  <option value="flat">近景材质（木地板/砖石/草地…）</option>
+                  <option value="parchment">手绘图纸</option>
+                </select>
+              </div>
+              <textarea
+                id="mms-miniart-note"
+                class="form-input w-full text-xs"
+                rows="3"
+                placeholder="场景设定备注（可选）：粘贴场景设定/世界书摘录，绘图 AI 会优先遵循。例：故事发生在1920年代的墨尔本唐人街，当前场景是回春堂药铺，两层小楼带天井，后院堆着药材箱…"
+              ></textarea>
+              <p class="settings-hint">
+                开启后：更新 LLM 不再维护小地图（不输出、不注入上下文，节省 token）；小地图卡片由独立绘图
+                AI 生成「近景场景」语义 JSON（室内/院落/街区/野外/洞窟，材质底图+家具地物，约 1K tokens/次），本地渲染成图并缓存到聊天变量，换楼层/翻旧楼零开销；
+                生成与更新按钮在小地图卡片上（更新=增量合并保留旧图，重绘=整图重来），地图风格可随时免费切换。
+              </p>
+            </div>
+          </div>
+
           <!-- 纵向三行：标签池 → 小地图 → 大地图 -->
           <div class="map-tags-layout">
             <!-- 标签池 -->
@@ -4846,6 +4874,8 @@ window.MMS_IMAGE_DATA = {
 
       // 当前楼层的大地图渲染状态（由 MMS.injectBigMapArt 在每次渲染前写入，createAttributeItem 读取）
       let MMS_BIGMAP_ART_STATE = { enabled: false };
+      // 当前楼层的小地图（近景场景）渲染状态（由 MMS.injectMiniMapArt 在每次渲染前写入，createAttributeItem 读取）
+      let MMS_MINIMAP_ART_STATE = { enabled: false };
 
       const MMS_MAPART_STYLES = {
         flat: {
@@ -4887,15 +4917,93 @@ window.MMS_IMAGE_DATA = {
         );
       }
 
+      // 小地图（mini）近景体系：ground 场景基底材质白名单（sanitize/渲染器/提示词共用）
+      const MMS_MINI_GROUND_TYPES = ['wood', 'brick', 'tile', 'street', 'marble', 'rubber', 'grass', 'snow', 'sand', 'rock'];
+
       // 渲染器支持的地物类型白名单（同时用于提示词与 sanitize 校验，避免 LLM 编造类型导致静默空绘）
+      // 近景词为小地图专属（大地图提示词不广播；白名单全局放行保证旧数据兼容）
       const MMS_MAPART_FEATURE_TYPES = [
         'castle', 'church', 'opera', 'house', 'boathouse', 'boat', 'fountain', 'stall',
         'farm', 'pavilion', 'city', 'fortress', 'gate', 'port', 'volcano',
+        'wall', 'door', 'window', 'counter', 'table', 'bed', 'shelf', 'pillar', 'stairs', 'hearth', 'lantern', 'crate',
+        'tree', 'boulder', 'crystal', 'campfire', 'tent', 'fence',
+        'machine', 'screen', 'stool',
       ];
-      const MMS_MAPART_TERRAIN_TYPES = ['grass', 'snow', 'forest', 'desert', 'field', 'lake'];
+      // 大地图提示词广播的地理地物词表（原始 15 类，不含近景词）
+      const MMS_BIG_FEATURE_TYPES = [
+        'castle', 'church', 'opera', 'house', 'boathouse', 'boat', 'fountain', 'stall',
+        'farm', 'pavilion', 'city', 'fortress', 'gate', 'port', 'volcano',
+      ];
+      // 小地图提示词广播的近景地物词表（室内 12 + 野外 6 + 现代 3 + 院落通用 3）
+      const MMS_MINI_FEATURE_TYPES = [
+        'wall', 'door', 'window', 'counter', 'table', 'bed', 'shelf', 'pillar', 'stairs', 'hearth', 'lantern', 'crate',
+        'tree', 'boulder', 'crystal', 'campfire', 'tent', 'fence',
+        'machine', 'screen', 'stool',
+        'house', 'stall', 'fountain',
+      ];
+      // terrain 白名单：大地图地形 + 小地图地面分区材质（carpet/dirt/water + 全部 ground 材质）
+      const MMS_MAPART_TERRAIN_TYPES = ['grass', 'snow', 'forest', 'desert', 'field', 'lake', 'carpet', 'dirt', 'water'].concat(MMS_MINI_GROUND_TYPES);
       const MMS_MAPART_DISTRICT_TYPES = ['royal', 'craft', 'garden', 'plaza', 'harbor'];
 
-      function mmsMapArtFeature(f, S, style) {
+      // 近景地物配色：材质系（wood=古典木石 / mod=现代金属塑料）× 风格（flat=材质色 / parchment=墨线图纸）
+      function mmsMiniPal(style, fam) {
+        if (style === 'parchment') {
+          return { fill: '#e2cda0', fill2: '#d8c294', edge: '#3f3020' };
+        }
+        return fam === 'mod'
+          ? { fill: '#78909c', fill2: '#b0bec5', edge: '#37474f' }
+          : { fill: '#8a6a48', fill2: '#c9a97a', edge: '#5f4630' };
+      }
+
+      // 小地图近景材质 pattern 与光晕 defs（flat 风格用；parchment 复用 mms-map-* 羊皮纸系列）
+      const MMS_MINI_PATTERN_DEFS =
+        '<pattern id="mms-mini-wood" width="100" height="64" patternUnits="userSpaceOnUse">' +
+          '<rect width="100" height="64" fill="#dfc49a"/><rect width="98" height="62" fill="#e6cda6"/>' +
+          '<path d="M 0 32 H 100 M 50 1 V 31 M 25 33 V 63" fill="none" stroke="#c3a377" stroke-width="2"/></pattern>' +
+        '<pattern id="mms-mini-brick" width="60" height="32" patternUnits="userSpaceOnUse">' +
+          '<rect width="60" height="32" fill="#75899f"/>' +
+          '<path d="M 0 16 H 60 M 30 0 V 16 M 0 16 V 32 M 60 16 V 32" fill="none" stroke="#54677c" stroke-width="2.5"/></pattern>' +
+        '<pattern id="mms-mini-tile" width="80" height="80" patternUnits="userSpaceOnUse">' +
+          '<rect width="80" height="80" fill="#e8cfa6"/><rect width="40" height="40" fill="#d1b38a"/><rect x="40" y="40" width="40" height="40" fill="#d1b38a"/>' +
+          '<path d="M 80 0 L 0 0 0 80" fill="none" stroke="#a37855" stroke-width="4"/></pattern>' +
+        '<pattern id="mms-mini-street" width="60" height="60" patternUnits="userSpaceOnUse">' +
+          '<rect width="60" height="60" fill="#4b5563"/><rect width="30" height="30" fill="#414b59"/><rect x="30" y="30" width="30" height="30" fill="#414b59"/></pattern>' +
+        '<pattern id="mms-mini-marble" width="240" height="240" patternUnits="userSpaceOnUse">' +
+          '<rect width="240" height="240" fill="#fcf9f2"/>' +
+          '<path d="M 0 40 Q 120 80 240 16" fill="none" stroke="#e3d6bd" stroke-width="1.5" opacity="0.7"/>' +
+          '<path d="M -40 160 Q 80 120 200 224" fill="none" stroke="#e3d6bd" stroke-width="1" opacity="0.5"/>' +
+          '<path d="M 80 -40 Q 120 120 40 280" fill="none" stroke="#ebdcc4" stroke-width="2" opacity="0.4"/></pattern>' +
+        '<pattern id="mms-mini-rubber" width="50" height="50" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+          '<rect width="50" height="50" fill="#253248"/><rect x="2" y="2" width="46" height="46" fill="#2c3a52"/></pattern>' +
+        '<pattern id="mms-mini-grass" width="60" height="60" patternUnits="userSpaceOnUse">' +
+          '<rect width="60" height="60" fill="#4f7a52"/><circle cx="15" cy="15" r="4" fill="#3d6340"/><circle cx="45" cy="40" r="3" fill="#628c60"/><circle cx="30" cy="55" r="2.5" fill="#3d6340"/></pattern>' +
+        '<pattern id="mms-mini-snow" width="80" height="80" patternUnits="userSpaceOnUse">' +
+          '<rect width="80" height="80" fill="#eef6fb"/><circle cx="20" cy="20" r="3" fill="#ffffff" opacity="0.9"/><circle cx="60" cy="45" r="2" fill="#dbeef8" opacity="0.8"/><circle cx="35" cy="70" r="2.5" fill="#ffffff" opacity="0.7"/></pattern>' +
+        '<pattern id="mms-mini-sand" width="160" height="120" patternUnits="userSpaceOnUse">' +
+          '<rect width="160" height="120" fill="#f5e3b0"/>' +
+          '<path d="M 0 40 Q 40 20 80 40 T 160 40" fill="none" stroke="#ecd598" stroke-width="6" opacity="0.8"/>' +
+          '<path d="M 0 90 Q 40 70 80 90 T 160 90" fill="none" stroke="#e8cf8e" stroke-width="5" opacity="0.6"/></pattern>' +
+        '<pattern id="mms-mini-rock" width="100" height="100" patternUnits="userSpaceOnUse">' +
+          '<rect width="100" height="100" fill="#2a2733"/>' +
+          '<path d="M 0 30 Q 30 50 60 20 T 100 40" fill="none" stroke="#1b1922" stroke-width="3"/>' +
+          '<path d="M 0 80 Q 40 70 70 90 T 100 80" fill="none" stroke="#3a3644" stroke-width="2"/></pattern>' +
+        '<pattern id="mms-mini-carpet" width="40" height="40" patternUnits="userSpaceOnUse">' +
+          '<rect width="40" height="40" fill="#d95757"/><rect width="20" height="20" fill="#c24141"/><rect x="20" y="20" width="20" height="20" fill="#c24141"/>' +
+          '<path d="M 40 0 L 0 0 0 40" fill="none" stroke="#8a272a" stroke-width="2"/></pattern>' +
+        '<pattern id="mms-mini-dirt" width="30" height="30" patternUnits="userSpaceOnUse">' +
+          '<rect width="30" height="30" fill="#9c6b39"/><circle cx="10" cy="10" r="2" fill="#7a4f27"/><circle cx="22" cy="21" r="1.6" fill="#7a4f27"/></pattern>' +
+        '<radialGradient id="mms-mini-vig" cx="50%" cy="50%" r="75%"><stop offset="62%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(40,25,10,0.14)"/></radialGradient>' +
+        '<radialGradient id="mms-mini-glow" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffb300" stop-opacity="0.45"/><stop offset="40%" stop-color="#fb8c00" stop-opacity="0.18"/><stop offset="100%" stop-color="#e65100" stop-opacity="0"/></radialGradient>' +
+        '<radialGradient id="mms-mini-cold" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#22d3ee" stop-opacity="0.4"/><stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/></radialGradient>' +
+        '<radialGradient id="mms-mini-fire" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#fef08a" stop-opacity="0.95"/><stop offset="35%" stop-color="#ea580c" stop-opacity="0.7"/><stop offset="100%" stop-color="#b91c1c" stop-opacity="0"/></radialGradient>';
+
+      // parchment 小地图的材质低饱和 tint（羊皮纸底上区分基底材质）
+      const MMS_MINI_PARCH_TINT = {
+        wood: '#e6d3a8', brick: '#d9cbaa', tile: '#e8dcb8', street: '#cfc4a8', marble: '#f0e8cd',
+        rubber: '#c9c2ac', grass: '#d6d8ab', snow: '#f2eede', sand: '#ecdfb5', rock: '#c9c2b0',
+      };
+
+      function mmsMapArtFeature(f, S, style, fam) {
         const x = f.at[0], y = f.at[1];
         const w = f.size ? f.size[0] : 0, h = f.size ? f.size[1] : 0;
         switch (f.type) {
@@ -4993,6 +5101,186 @@ window.MMS_IMAGE_DATA = {
             g += '<path d="M ' + (x - 4) + ' ' + (y + 12) + ' L ' + (x + 2) + ' ' + (y + 42) + ' L ' + (x - 6) + ' ' + (y + 70) + '" fill="none" stroke="#a34a30" stroke-width="3" stroke-linecap="round"/>';
             return g;
           }
+          // ========== 小地图近景地物（画法提取自手写场景 SVG；fam=wood 古典 / mod 现代） ==========
+          case 'wall': {
+            const ww = w || 120, wh = h || 16;
+            const fill = style === 'parchment' ? 'url(#mms-map-hatch)' : (fam === 'mod' ? '#9aa8b8' : 'url(#mms-mini-brick)');
+            const edge = style === 'parchment' ? '#3f3020' : (fam === 'mod' ? '#4a5c70' : '#4a5c70');
+            return '<rect x="' + x + '" y="' + y + '" width="' + ww + '" height="' + wh + '" fill="' + fill + '" stroke="' + edge + '" stroke-width="2"/>';
+          }
+          case 'door': {
+            const r = w || 36;
+            const ink = style === 'parchment' ? '#3f3020' : '#5f4630';
+            return '<path d="M ' + x + ' ' + y + ' V ' + (y - r) + '" stroke="' + ink + '" stroke-width="4" fill="none" stroke-linecap="round"/>' +
+              '<path d="M ' + x + ' ' + (y - r) + ' A ' + r + ' ' + r + ' 0 0 1 ' + (x + r) + ' ' + y + '" fill="none" stroke="' + ink + '" stroke-width="2" stroke-dasharray="6 5"/>' +
+              '<circle cx="' + (x + 4) + '" cy="' + (y - r + 6) + '" r="2" fill="' + ink + '"/>';
+          }
+          case 'window': {
+            const wn = w || 50;
+            const frame = style === 'parchment' ? '#3f3020' : '#3a4a5e';
+            return '<rect x="' + x + '" y="' + (y - 5) + '" width="' + wn + '" height="10" fill="#fef08a" opacity="0.85" stroke="' + frame + '" stroke-width="2"/>' +
+              '<path d="M ' + x + ' ' + (y + 5) + ' L ' + (x - 22) + ' ' + (y + 150) + ' L ' + (x + wn + 22) + ' ' + (y + 150) + ' L ' + (x + wn) + ' ' + (y + 5) + ' Z" fill="#fef08a" opacity="0.18"/>';
+          }
+          case 'counter': {
+            const cw = w || 90, ch = h || 26;
+            const F = mmsMiniPal(style, fam);
+            return '<rect x="' + x + '" y="' + y + '" width="' + cw + '" height="' + ch + '" rx="3" fill="' + F.fill + '" stroke="' + F.edge + '" stroke-width="2.5"/>' +
+              '<rect x="' + (x + 4) + '" y="' + (y + 3) + '" width="' + (cw - 8) + '" height="' + (ch * 0.32) + '" rx="2" fill="' + F.fill2 + '"/>' +
+              '<path d="M ' + (x + cw * 0.33) + ' ' + (y + 3) + ' V ' + (y + ch - 3) + ' M ' + (x + cw * 0.66) + ' ' + (y + 3) + ' V ' + (y + ch - 3) + '" stroke="' + F.edge + '" stroke-width="1.2" opacity="0.5"/>';
+          }
+          case 'table': {
+            const tw = w || 64, th = h || 64;
+            const F = mmsMiniPal(style, fam);
+            let g = '';
+            g += '<rect x="' + (x - tw / 2 - 8) + '" y="' + (y - th / 2 - 26) + '" width="' + (tw + 16) + '" height="10" rx="2" fill="' + F.fill + '" stroke="' + F.edge + '" stroke-width="1.5"/>';
+            g += '<rect x="' + (x - tw / 2 - 8) + '" y="' + (y + th / 2 + 16) + '" width="' + (tw + 16) + '" height="10" rx="2" fill="' + F.fill + '" stroke="' + F.edge + '" stroke-width="1.5"/>';
+            g += '<rect x="' + (x - tw / 2 - 26) + '" y="' + (y - th / 2 - 8) + '" width="10" height="' + (th + 16) + '" rx="2" fill="' + F.fill + '" stroke="' + F.edge + '" stroke-width="1.5"/>';
+            g += '<rect x="' + (x + tw / 2 + 16) + '" y="' + (y - th / 2 - 8) + '" width="10" height="' + (th + 16) + '" rx="2" fill="' + F.fill + '" stroke="' + F.edge + '" stroke-width="1.5"/>';
+            g += '<rect x="' + (x - tw / 2) + '" y="' + (y - th / 2) + '" width="' + tw + '" height="' + th + '" rx="4" fill="' + F.fill + '" stroke="' + F.edge + '" stroke-width="2.5"/>';
+            if (fam !== 'mod' && style !== 'parchment') {
+              g += '<rect x="' + (x - tw / 2 + 7) + '" y="' + (y - th / 2 + 7) + '" width="' + (tw - 14) + '" height="' + (th - 14) + '" rx="2" fill="#8c2323" opacity="0.75"/>';
+            }
+            return g;
+          }
+          case 'bed': {
+            const bw = w || 64, bh = h || 88;
+            const F = mmsMiniPal(style, fam);
+            let g = '<rect x="' + x + '" y="' + y + '" width="' + bw + '" height="' + bh + '" rx="4" fill="' + F.fill + '" stroke="' + F.edge + '" stroke-width="2.5"/>';
+            g += '<rect x="' + (x + 5) + '" y="' + (y + 5) + '" width="' + (bw - 10) + '" height="' + (bh - 10) + '" rx="3" fill="' + (fam === 'mod' && style !== 'parchment' ? '#e2e8f0' : '#e8dcc0') + '"/>';
+            g += '<rect x="' + (x + 9) + '" y="' + (y + 9) + '" width="' + (bw - 18) + '" height="18" rx="3" fill="#f8fafc" stroke="' + F.edge + '" stroke-width="1"/>';
+            g += '<rect x="' + (x + 5) + '" y="' + (y + bh * 0.42) + '" width="' + (bw - 10) + '" height="' + (bh * 0.34) + '" fill="' + (fam === 'mod' && style !== 'parchment' ? '#94a3b8' : '#a8825a') + '" opacity="0.55"/>';
+            return g;
+          }
+          case 'shelf': {
+            const sw = w || 80, sh = h || 22;
+            const F = mmsMiniPal(style, fam);
+            const bookC = style === 'parchment' ? '#5f4a30' : (fam === 'mod' ? '#64748b' : '#78350f');
+            let g = '<rect x="' + x + '" y="' + y + '" width="' + sw + '" height="' + sh + '" rx="2" fill="' + F.fill + '" stroke="' + F.edge + '" stroke-width="2"/>';
+            g += '<path d="M ' + (x + 3) + ' ' + (y + sh * 0.5) + ' H ' + (x + sw - 3) + '" stroke="' + F.edge + '" stroke-width="1.2"/>';
+            g += '<path d="M ' + (x + 6) + ' ' + (y + 4) + ' H ' + (x + sw - 6) + '" stroke="' + bookC + '" stroke-width="6" stroke-dasharray="4 3 7 2 5 4" opacity="0.85"/>';
+            g += '<path d="M ' + (x + 6) + ' ' + (y + sh - 4) + ' H ' + (x + sw - 6) + '" stroke="' + bookC + '" stroke-width="6" stroke-dasharray="7 3 4 5 2 6" opacity="0.85"/>';
+            return g;
+          }
+          case 'pillar': {
+            const F = mmsMiniPal(style, fam);
+            return '<circle cx="' + x + '" cy="' + y + '" r="13" fill="' + F.fill + '" stroke="' + F.edge + '" stroke-width="2.5"/>' +
+              '<circle cx="' + x + '" cy="' + y + '" r="7" fill="none" stroke="' + F.edge + '" stroke-width="1.2" opacity="0.6"/>';
+          }
+          case 'stairs': {
+            const sw = w || 70, sh = h || 40;
+            const F = mmsMiniPal(style, fam);
+            const n = 5;
+            let g = '<rect x="' + x + '" y="' + y + '" width="' + sw + '" height="' + sh + '" rx="2" fill="' + F.fill2 + '" stroke="' + F.edge + '" stroke-width="2"/>';
+            for (let i = 1; i < n; i++) {
+              g += '<path d="M ' + x + ' ' + (y + (sh * i / n)) + ' H ' + (x + sw) + '" stroke="' + F.edge + '" stroke-width="1.4" opacity="0.7"/>';
+            }
+            g += '<path d="M ' + (x + sw * 0.5) + ' ' + (y + 6) + ' V ' + (y + sh - 6) + ' M ' + (x + sw * 0.5 - 6) + ' ' + (y + sh - 14) + ' L ' + (x + sw * 0.5) + ' ' + (y + sh - 6) + ' L ' + (x + sw * 0.5 + 6) + ' ' + (y + sh - 14) + '" stroke="' + F.edge + '" stroke-width="2.2" fill="none"/>';
+            return g;
+          }
+          case 'hearth': {
+            const F = mmsMiniPal(style, fam);
+            let g = '<rect x="' + (x - 26) + '" y="' + (y - 22) + '" width="52" height="44" rx="4" fill="' + (style === 'parchment' ? '#d8c294' : (fam === 'mod' ? '#64748b' : '#8a7a68')) + '" stroke="' + F.edge + '" stroke-width="2.5"/>';
+            if (style !== 'parchment') g += '<circle cx="' + x + '" cy="' + y + '" r="42" fill="url(#mms-mini-fire)"/>';
+            g += '<ellipse cx="' + x + '" cy="' + y + '" rx="14" ry="9" fill="' + (style === 'parchment' ? '#8a3a2a' : '#ea580c') + '" stroke="' + F.edge + '" stroke-width="1.5"/>';
+            g += '<path d="M ' + x + ' ' + (y - 8) + ' q 5 -8 0 -14 q 8 8 3 16" fill="' + (style === 'parchment' ? '#8a3a2a' : '#fbbf24') + '"/>';
+            return g;
+          }
+          case 'lantern': {
+            let g = '';
+            if (style !== 'parchment') g += '<circle cx="' + x + '" cy="' + y + '" r="70" fill="url(#mms-mini-glow)"/>';
+            g += '<circle cx="' + x + '" cy="' + y + '" r="9" fill="' + (style === 'parchment' ? '#e2cda0' : '#ffca28') + '" stroke="' + (style === 'parchment' ? '#3f3020' : '#c77800') + '" stroke-width="2"/>';
+            g += '<path d="M ' + (x - 4) + ' ' + (y + 8) + ' q 4 10 8 0" fill="none" stroke="#c62828" stroke-width="2.5"/>';
+            return g;
+          }
+          case 'crate': {
+            if (fam === 'mod' && style !== 'parchment') {
+              return '<rect x="' + x + '" y="' + (y + 10) + '" width="44" height="26" rx="2" fill="#c19a6b" stroke="#8b5a2b" stroke-width="2"/>' +
+                '<rect x="' + (x + 6) + '" y="' + y + '" width="32" height="18" rx="2" fill="#deb887" stroke="#8b5a2b" stroke-width="2"/>' +
+                '<path d="M ' + (x + 6) + ' ' + (y + 9) + ' h 32" stroke="#a67b5b" stroke-width="1.5"/>';
+            }
+            const jarF = style === 'parchment' ? '#e2cda0' : '#4e342e';
+            const jarE = style === 'parchment' ? '#3f3020' : '#21120c';
+            return '<circle cx="' + (x + 12) + '" cy="' + (y + 16) + '" r="13" fill="' + jarF + '" stroke="' + jarE + '" stroke-width="2"/>' +
+              '<circle cx="' + (x + 12) + '" cy="' + (y + 16) + '" r="5.5" fill="#c62828"/>' +
+              '<circle cx="' + (x + 30) + '" cy="' + (y + 22) + '" r="11" fill="' + jarF + '" stroke="' + jarE + '" stroke-width="2"/>' +
+              '<circle cx="' + (x + 30) + '" cy="' + (y + 22) + '" r="4.5" fill="#c62828"/>';
+          }
+          case 'tree': {
+            const trunk = style === 'parchment' ? '#4a3826' : '#7a5a38';
+            const crown = style === 'parchment' ? '#9db07a' : '#6f9a5e';
+            const crownE = style === 'parchment' ? '#3f3020' : '#557a48';
+            return '<rect x="' + (x - 3.5) + '" y="' + (y - 2) + '" width="7" height="16" fill="' + trunk + '"/>' +
+              '<circle cx="' + x + '" cy="' + (y - 14) + '" r="20" fill="' + crown + '" stroke="' + crownE + '" stroke-width="2"/>' +
+              '<circle cx="' + (x - 10) + '" cy="' + (y - 6) + '" r="10" fill="' + crown + '" stroke="' + crownE + '" stroke-width="1.5"/>' +
+              '<circle cx="' + (x + 11) + '" cy="' + (y - 8) + '" r="9" fill="' + crown + '" stroke="' + crownE + '" stroke-width="1.5"/>';
+          }
+          case 'boulder': {
+            const fill = style === 'parchment' ? '#d8c294' : '#8d9aab';
+            const edge = style === 'parchment' ? '#3f3020' : '#5a6b7d';
+            return '<path d="M ' + (x - 22) + ' ' + (y + 12) + ' Q ' + (x - 24) + ' ' + (y - 8) + ' ' + (x - 6) + ' ' + (y - 14) + ' Q ' + (x + 14) + ' ' + (y - 18) + ' ' + (x + 22) + ' ' + (y - 2) + ' Q ' + (x + 26) + ' ' + (y + 12) + ' ' + (x + 6) + ' ' + (y + 15) + ' Z" fill="' + fill + '" stroke="' + edge + '" stroke-width="2.5"/>' +
+              '<path d="M ' + (x - 8) + ' ' + (y - 6) + ' q 8 4 14 12" fill="none" stroke="' + edge + '" stroke-width="1.5" opacity="0.6"/>';
+          }
+          case 'crystal': {
+            const c1 = style === 'parchment' ? '#c4b5fd' : '#22d3ee';
+            const c2 = style === 'parchment' ? '#8a3a2a' : '#0891b2';
+            let g = '';
+            if (style !== 'parchment') g += '<circle cx="' + x + '" cy="' + y + '" r="52" fill="url(#mms-mini-cold)"/>';
+            g += '<polygon points="' + x + ',' + (y - 26) + ' ' + (x + 12) + ',' + (y - 6) + ' ' + x + ',' + (y + 16) + ' ' + (x - 12) + ',' + (y - 6) + '" fill="' + c1 + '" stroke="' + c2 + '" stroke-width="2"/>';
+            g += '<polygon points="' + (x + 8) + ',' + (y - 12) + ' ' + (x + 18) + ',' + (y + 2) + ' ' + (x + 8) + ',' + (y + 12) + '" fill="' + c2 + '" opacity="0.8"/>';
+            return g;
+          }
+          case 'campfire': {
+            let g = '';
+            if (style !== 'parchment') g += '<circle cx="' + x + '" cy="' + y + '" r="46" fill="url(#mms-mini-fire)"/>';
+            g += '<path d="M ' + (x - 18) + ' ' + (y + 8) + ' L ' + (x + 14) + ' ' + (y - 10) + ' M ' + (x + 18) + ' ' + (y + 8) + ' L ' + (x - 14) + ' ' + (y - 10) + '" stroke="#6b4f30" stroke-width="5" stroke-linecap="round"/>';
+            g += '<path d="M ' + x + ' ' + (y - 18) + ' q 10 -10 2 -20 q 14 12 6 26 q 6 -8 4 -16 q 8 14 -2 24 q -6 6 -10 -14" fill="' + (style === 'parchment' ? '#8a3a2a' : '#f97316') + '"/>';
+            g += '<path d="M ' + x + ' ' + (y - 6) + ' q -8 -6 -2 -14 q -10 10 -2 20" fill="' + (style === 'parchment' ? '#8a3a2a' : '#fbbf24') + '"/>';
+            return g;
+          }
+          case 'tent': {
+            const F = mmsMiniPal(style, fam);
+            const fill = style === 'parchment' ? '#e2cda0' : (fam === 'mod' ? '#94a3b8' : '#b05a4a');
+            return '<polygon points="' + (x - 28) + ',' + (y + 20) + ' ' + x + ',' + (y - 24) + ' ' + (x + 28) + ',' + (y + 20) + '" fill="' + fill + '" stroke="' + F.edge + '" stroke-width="2.5"/>' +
+              '<path d="M ' + x + ' ' + (y - 24) + ' L ' + (x + 6) + ' ' + (y + 20) + '" stroke="' + F.edge + '" stroke-width="1.8"/>' +
+              '<path d="M ' + (x - 8) + ' ' + (y + 20) + ' L ' + x + ' ' + (y + 4) + ' L ' + (x + 8) + ' ' + (y + 20) + '" fill="' + F.edge + '" opacity="0.35"/>';
+          }
+          case 'fence': {
+            const fw = w || 100;
+            const F = mmsMiniPal(style, fam);
+            let g = '<rect x="' + x + '" y="' + (y + 4) + '" width="' + fw + '" height="4" fill="' + F.fill + '"/>' +
+              '<rect x="' + x + '" y="' + (y + 12) + '" width="' + fw + '" height="4" fill="' + F.fill + '"/>';
+            const posts = Math.max(2, Math.floor(fw / 34) + 1);
+            for (let i = 0; i < posts; i++) {
+              const px = x + (fw * i / (posts - 1));
+              g += '<rect x="' + (px - 3) + '" y="' + y + '" width="6" height="22" rx="1.5" fill="' + F.fill + '" stroke="' + F.edge + '" stroke-width="1.2"/>';
+            }
+            return g;
+          }
+          case 'machine': {
+            const mw = w || 56, mh = h || 40;
+            let g = '<rect x="' + x + '" y="' + y + '" width="' + mw + '" height="' + mh + '" rx="4" fill="' + (style === 'parchment' ? '#e2cda0' : '#334155') + '" stroke="' + (style === 'parchment' ? '#3f3020' : '#0f172a') + '" stroke-width="2.5"/>';
+            g += '<rect x="' + (x + 6) + '" y="' + (y + 6) + '" width="' + (mw - 12) + '" height="' + (mh * 0.45) + '" rx="2" fill="' + (style === 'parchment' ? '#d8c294' : '#10b981') + '" opacity="0.85"/>';
+            g += '<rect x="' + (x + 6) + '" y="' + (y + mh * 0.62) + '" width="' + (mw - 12) + '" height="4" rx="2" fill="' + (style === 'parchment' ? '#5f4a30' : '#22d3ee') + '"/>';
+            g += '<path d="M ' + (x + mw * 0.2) + ' ' + (y + 6 + mh * 0.2) + ' q 6 -6 12 0 t 12 0" fill="none" stroke="' + (style === 'parchment' ? '#3f3020' : '#a7f3d0') + '" stroke-width="1.5"/>';
+            return g;
+          }
+          case 'screen': {
+            const sn = w || 60, sh = h || 36;
+            const F = mmsMiniPal(style, fam);
+            let g = '<rect x="' + (x + sn / 2 - 4) + '" y="' + (y + sh) + '" width="8" height="12" fill="' + F.fill + '"/>';
+            g += '<rect x="' + x + '" y="' + y + '" width="' + sn + '" height="' + sh + '" rx="3" fill="' + (style === 'parchment' ? '#e2cda0' : '#0f172a') + '" stroke="' + (style === 'parchment' ? '#3f3020' : '#334155') + '" stroke-width="2.5"/>';
+            g += '<rect x="' + (x + 4) + '" y="' + (y + 4) + '" width="' + (sn - 8) + '" height="' + (sh - 8) + '" rx="2" fill="' + (style === 'parchment' ? '#d8c294' : '#38bdf8') + '" opacity="0.75"/>';
+            if (style !== 'parchment') g += '<path d="M ' + (x + 8) + ' ' + (y + sh * 0.55) + ' l 8 -8 l 8 8 l 10 -12" fill="none" stroke="#e0f2fe" stroke-width="2"/>';
+            return g;
+          }
+          case 'stool': {
+            const F = mmsMiniPal(style, fam);
+            const top = fam === 'mod' && style !== 'parchment' ? '#dc2626' : F.fill2;
+            return '<ellipse cx="' + x + '" cy="' + (y + 8) + '" rx="13" ry="5" fill="rgba(0,0,0,0.25)"/>' +
+              '<path d="M ' + (x - 9) + ' ' + (y + 7) + ' L ' + (x - 11) + ' ' + (y - 4) + ' M ' + (x + 9) + ' ' + (y + 7) + ' L ' + (x + 11) + ' ' + (y - 4) + '" stroke="' + F.edge + '" stroke-width="2.5"/>' +
+              '<ellipse cx="' + x + '" cy="' + (y - 5) + '" rx="13" ry="7" fill="' + top + '" stroke="' + F.edge + '" stroke-width="2"/>' +
+              '<ellipse cx="' + (x - 3) + '" cy="' + (y - 7) + '" rx="4.5" ry="2.5" fill="rgba(255,255,255,0.25)"/>';
+          }
           default:
             return '';
         }
@@ -5020,10 +5308,13 @@ window.MMS_IMAGE_DATA = {
           '<text x="248" y="930" font-size="13" fill="#5b3a24" stroke="none" font-family="' + S.font + '">500步</text></g>';
       }
 
-      // 语义 JSON → SVG 字符串（flat=简约平面 / parchment=手绘羊皮纸）
-      function mmsRenderMapArt(json, styleName) {
+      // 语义 JSON → SVG 字符串（flat=简约平面 / parchment=手绘羊皮纸；kind=mini 走近景材质分支）
+      function mmsRenderMapArt(json, styleName, kind) {
         const S = MMS_MAPART_STYLES[styleName] || MMS_MAPART_STYLES.flat;
         const style = styleName === 'parchment' ? 'parchment' : 'flat';
+        const isMini = kind === 'mini';
+        // 材质系：现代基底（street/marble/rubber）→ 金属/塑料家具与导引线；其余 → 古典木石
+        const fam = isMini && (json.ground === 'street' || json.ground === 'marble' || json.ground === 'rubber') ? 'mod' : 'wood';
         const parts = [];
         const P = (s) => parts.push(s);
 
@@ -5037,36 +5328,73 @@ window.MMS_IMAGE_DATA = {
             '<pattern id="mms-map-hatch" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="9" height="9" fill="#e8d5ab"/><line x1="0" y1="0" x2="0" y2="9" stroke="#c9ae7c" stroke-width="1.1"/></pattern>' +
             '<pattern id="mms-map-grn" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)"><rect width="10" height="10" fill="#c6d3a0"/><line x1="0" y1="0" x2="0" y2="10" stroke="#93a878" stroke-width="1.2"/></pattern>' +
             '</defs>';
+        } else if (isMini) {
+          defs = '<defs>' + MMS_MINI_PATTERN_DEFS + '</defs>';
         } else {
           defs = '<defs><pattern id="mms-map-grid" width="50" height="50" patternUnits="userSpaceOnUse">' +
             '<path d="M50 0H0V50" fill="none" stroke="#8a7a58" stroke-opacity="0.10"/></pattern></defs>';
         }
 
-        // 底色 + 装饰
-        const groundFill = S.ground[json.ground === 'sea' ? 'sea' : 'field'] || S.ground.field;
-        P('<rect width="1000" height="1000" fill="' + groundFill + '"/>');
-        if (style === 'parchment') {
-          P('<rect width="1000" height="1000" fill="' + groundFill + '" filter="url(#mms-map-pn)" opacity="0.5"/>');
-          P('<rect width="1000" height="1000" fill="url(#mms-map-vig)"/>');
-          P('<rect x="28" y="28" width="944" height="944" fill="none" stroke="#6b4f30" stroke-width="4"/>');
-          P('<rect x="42" y="42" width="916" height="916" fill="none" stroke="#6b4f30" stroke-width="1.5"/>');
-          if (json.name) P('<text x="500" y="104" text-anchor="middle" font-size="46" fill="#5b3a24" letter-spacing="14" font-family="' + S.font + '">' + json.name + '</text>');
-          P('<path d="M 380 122 C 440 132, 560 132, 620 122" stroke="#8a6a42" stroke-width="2" fill="none"/>');
+        // 底色 + 装饰（mini：材质基底 + 轻晕影 / 羊皮纸 tint）
+        if (isMini) {
+          const gType = MMS_MINI_GROUND_TYPES.indexOf(json.ground) !== -1 ? json.ground : 'wood';
+          if (style === 'parchment') {
+            P('<rect width="1000" height="1000" fill="' + (MMS_MINI_PARCH_TINT[gType] || '#ecd9ae') + '"/>');
+            P('<rect width="1000" height="1000" fill="url(#mms-map-pn)" opacity="0.35"/>');
+            P('<rect width="1000" height="1000" fill="url(#mms-map-vig)"/>');
+            P('<rect x="28" y="28" width="944" height="944" fill="none" stroke="#6b4f30" stroke-width="4"/>');
+            P('<rect x="42" y="42" width="916" height="916" fill="none" stroke="#6b4f30" stroke-width="1.5"/>');
+            if (json.name) P('<text x="500" y="104" text-anchor="middle" font-size="40" fill="#5b3a24" letter-spacing="10" font-family="' + S.font + '">' + json.name + '</text>');
+          } else {
+            P('<rect width="1000" height="1000" fill="url(#mms-mini-' + gType + ')"/>');
+            P('<rect width="1000" height="1000" fill="url(#mms-mini-vig)"/>');
+          }
         } else {
-          P('<rect width="1000" height="1000" fill="url(#mms-map-grid)"/>');
-          if (json.ground === 'sea') {
-            const waves = [[90, 180], [850, 900], [80, 780], [905, 430], [880, 760], [60, 420]];
-            P('<g fill="none" stroke="#cfe4ef" stroke-width="3" opacity="0.8" stroke-linecap="round">' +
-              waves.map((w) => '<path d="M ' + w[0] + ' ' + w[1] + ' q 18 -10 36 0 q 18 10 36 0"/>').join('') + '</g>');
+          const groundFill = S.ground[json.ground === 'sea' ? 'sea' : 'field'] || S.ground.field;
+          P('<rect width="1000" height="1000" fill="' + groundFill + '"/>');
+          if (style === 'parchment') {
+            P('<rect width="1000" height="1000" fill="' + groundFill + '" filter="url(#mms-map-pn)" opacity="0.5"/>');
+            P('<rect width="1000" height="1000" fill="url(#mms-map-vig)"/>');
+            P('<rect x="28" y="28" width="944" height="944" fill="none" stroke="#6b4f30" stroke-width="4"/>');
+            P('<rect x="42" y="42" width="916" height="916" fill="none" stroke="#6b4f30" stroke-width="1.5"/>');
+            if (json.name) P('<text x="500" y="104" text-anchor="middle" font-size="46" fill="#5b3a24" letter-spacing="14" font-family="' + S.font + '">' + json.name + '</text>');
+            P('<path d="M 380 122 C 440 132, 560 132, 620 122" stroke="#8a6a42" stroke-width="2" fill="none"/>');
+          } else {
+            P('<rect width="1000" height="1000" fill="url(#mms-map-grid)"/>');
+            if (json.ground === 'sea') {
+              const waves = [[90, 180], [850, 900], [80, 780], [905, 430], [880, 760], [60, 420]];
+              P('<g fill="none" stroke="#cfe4ef" stroke-width="3" opacity="0.8" stroke-linecap="round">' +
+                waves.map((w) => '<path d="M ' + w[0] + ' ' + w[1] + ' q 18 -10 36 0 q 18 10 36 0"/>').join('') + '</g>');
+            }
           }
         }
 
-        // 地形色块
+        // 地形色块（mini 语义 = 地面局部材质：carpet 地毯 / dirt 土路 / water 水塘 / 各材质分区）
         for (const t of json.terrain || []) {
-          const fill = t.type === 'forest' && style === 'parchment' ? 'url(#mms-map-grn)'
-            : t.type === 'field' && style === 'parchment' ? 'url(#mms-map-hatch)'
-            : S[t.type] || S.grass;
-          const edge = t.type === 'lake' ? S.waterEdge : (t.type === 'snow' ? '#d3dde2' : (style === 'parchment' ? '#5f4a30' : null));
+          let fill;
+          if (isMini) {
+            if (style === 'parchment') {
+              fill = t.type === 'carpet' ? 'url(#mms-map-hatch)' : (MMS_MINI_PARCH_TINT[t.type] || '#e2cda0');
+            } else if (t.type === 'carpet') {
+              fill = 'url(#mms-mini-carpet)';
+            } else if (t.type === 'dirt') {
+              fill = 'url(#mms-mini-dirt)';
+            } else if (MMS_MINI_GROUND_TYPES.indexOf(t.type) !== -1) {
+              fill = 'url(#mms-mini-' + t.type + ')';
+            } else {
+              fill = S[t.type] || S.grass;
+            }
+          } else {
+            fill = t.type === 'forest' && style === 'parchment' ? 'url(#mms-map-grn)'
+              : t.type === 'field' && style === 'parchment' ? 'url(#mms-map-hatch)'
+              : S[t.type] || S.grass;
+          }
+          let edge;
+          if (isMini) {
+            edge = (t.type === 'lake' || t.type === 'water') ? S.waterEdge : (style === 'parchment' ? '#5f4a30' : 'rgba(90,60,30,0.3)');
+          } else {
+            edge = t.type === 'lake' ? S.waterEdge : (t.type === 'snow' ? '#d3dde2' : (style === 'parchment' ? '#5f4a30' : null));
+          }
           const sw = style === 'parchment' ? 1.8 : 2;
           if (t.shape === 'ellipse' && t.at && t.r) {
             P('<ellipse cx="' + t.at[0] + '" cy="' + t.at[1] + '" rx="' + t.r[0] + '" ry="' + t.r[1] + '" fill="' + fill + '"' + (edge ? ' stroke="' + edge + '" stroke-width="' + sw + '"' : '') + '/>');
@@ -5103,16 +5431,21 @@ window.MMS_IMAGE_DATA = {
           }
         }
 
-        // 道路
+        // 道路（mini：古典/野外=土路质感，现代=地面导引线；parchment=墨线虚线）
         if ((json.roads || []).length) {
-          if (style === 'parchment') {
-            P('<g fill="none" stroke="' + S.road + '" stroke-width="1.6" stroke-dasharray="' + (S.roadDash || '11 9') + '">' +
-              json.roads.map((d) => '<path d="' + d + '"/>').join('') + '</g>');
+          const roadPaths = json.roads.map((d) => '<path d="' + d + '"/>').join('');
+          if (isMini && style !== 'parchment') {
+            if (fam === 'mod') {
+              P('<g fill="none" stroke="#5eead4" stroke-width="4.5" stroke-dasharray="18 12" stroke-linecap="round" opacity="0.75">' + roadPaths + '</g>');
+            } else {
+              P('<g fill="none" stroke="#7a4f27" stroke-width="22" stroke-linecap="round" opacity="0.9">' + roadPaths + '</g>');
+              P('<g fill="none" stroke="url(#mms-mini-dirt)" stroke-width="16" stroke-linecap="round">' + roadPaths + '</g>');
+            }
+          } else if (style === 'parchment') {
+            P('<g fill="none" stroke="' + S.road + '" stroke-width="1.6" stroke-dasharray="' + (S.roadDash || '11 9') + '">' + roadPaths + '</g>');
           } else {
-            P('<g fill="none" stroke="' + S.roadEdge + '" stroke-width="' + S.strokeW.roadEdge + '" stroke-linecap="round">' +
-              json.roads.map((d) => '<path d="' + d + '"/>').join('') + '</g>');
-            P('<g fill="none" stroke="' + S.road + '" stroke-width="' + S.strokeW.road + '" stroke-linecap="round">' +
-              json.roads.map((d) => '<path d="' + d + '"/>').join('') + '</g>');
+            P('<g fill="none" stroke="' + S.roadEdge + '" stroke-width="' + S.strokeW.roadEdge + '" stroke-linecap="round">' + roadPaths + '</g>');
+            P('<g fill="none" stroke="' + S.road + '" stroke-width="' + S.strokeW.road + '" stroke-linecap="round">' + roadPaths + '</g>');
           }
         }
 
@@ -5148,6 +5481,12 @@ window.MMS_IMAGE_DATA = {
           if (dAttr) {
             if (o.land) {
               P('<path d="' + dAttr + '" fill="' + (json.ground === 'sea' ? '#ddd0a9' : 'none') + '" stroke="' + S.landStroke + '" stroke-width="4"/>');
+            } else if (isMini) {
+              // 平面图厚墙体：底层宽边色 + 上层窄墙色（砖纹/墨线，材质系区分古今）
+              const wallFill = style === 'parchment' ? '#6b533a' : (fam === 'mod' ? '#8f9aa8' : 'url(#mms-mini-brick)');
+              const wallEdge = style === 'parchment' ? '#3f3020' : (fam === 'mod' ? '#4a5c70' : '#54677c');
+              P('<path d="' + dAttr + '" fill="none" stroke="' + wallEdge + '" stroke-width="20"/>');
+              P('<path d="' + dAttr + '" fill="none" stroke="' + wallFill + '" stroke-width="14"/>');
             } else {
               P('<path d="' + dAttr + '" fill="none" stroke="' + S.wall + '" stroke-width="' + S.strokeW.wall + '"/>');
               if (style !== 'parchment' && o.shape === 'roundRect') {
@@ -5161,31 +5500,58 @@ window.MMS_IMAGE_DATA = {
           P('<path d="' + b + '" fill="none" stroke="' + S.landStroke + '" stroke-width="3"/>');
         }
 
-        // 塔楼 / 城门
-        for (const t of json.towers || []) {
+        // 塔楼 / 城门（mini 不画城楼塔；gates 画成墙面门洞开口）
+        for (const t of (isMini ? [] : json.towers || [])) {
           P('<circle cx="' + t[0] + '" cy="' + t[1] + '" r="12" fill="' + S.tower + '" stroke="' + S.towerEdge + '" stroke-width="2"/>');
         }
         for (const g of json.gates || []) {
           const x = g[0], y = g[1];
+          if (isMini) {
+            const jamb = style === 'parchment' ? '#3f3020' : (fam === 'mod' ? '#4a5c70' : '#54677c');
+            P('<rect x="' + (x - 26) + '" y="' + (y - 14) + '" width="12" height="28" rx="2" fill="' + jamb + '"/>');
+            P('<rect x="' + (x + 14) + '" y="' + (y - 14) + '" width="12" height="28" rx="2" fill="' + jamb + '"/>');
+            P('<path d="M ' + (x - 14) + ' ' + (y + 14) + ' A 28 28 0 0 1 ' + (x + 14) + ' ' + (y + 14) + '" fill="none" stroke="' + jamb + '" stroke-width="2" stroke-dasharray="5 4"/>');
+            continue;
+          }
           P('<rect x="' + (x - 22) + '" y="' + (y - 12) + '" width="44" height="36" fill="#f0e8d0"/>');
           P('<rect x="' + (x - 40) + '" y="' + (y - 18) + '" width="16" height="34" rx="3" fill="' + S.towerEdge + '"/>');
           P('<rect x="' + (x + 24) + '" y="' + (y - 18) + '" width="16" height="34" rx="3" fill="' + S.towerEdge + '"/>');
           P('<path d="M ' + (x - 16) + ' ' + (y + 20) + ' Q ' + x + ' ' + (y - 2) + ' ' + (x + 16) + ' ' + (y + 20) + '" fill="none" stroke="' + (style === 'parchment' ? '#3f3020' : '#6b5a3e') + '" stroke-width="3"/>');
         }
 
-        // 批量民居 / 树木
+        // 批量民居 / 树木（mini 近景比例：民房带门、树画树干+树冠）
         if ((json.houses || []).length) {
-          P('<g fill="' + S.houseFill + '" stroke="' + S.houseEdge + '" stroke-width="1.5">' +
-            json.houses.map((hh) => '<rect x="' + hh[0] + '" y="' + hh[1] + '" width="26" height="18" rx="2"/>').join('') + '</g>');
+          if (isMini) {
+            P('<g fill="' + S.houseFill + '" stroke="' + S.houseEdge + '" stroke-width="2">' +
+              json.houses.map((hh) => '<rect x="' + hh[0] + '" y="' + hh[1] + '" width="44" height="30" rx="3"/><rect x="' + (hh[0] + 16) + '" y="' + (hh[1] + 12) + '" width="12" height="18" rx="2" fill="#8a6a42"/>').join('') + '</g>');
+          } else {
+            P('<g fill="' + S.houseFill + '" stroke="' + S.houseEdge + '" stroke-width="1.5">' +
+              json.houses.map((hh) => '<rect x="' + hh[0] + '" y="' + hh[1] + '" width="26" height="18" rx="2"/>').join('') + '</g>');
+          }
         }
         if ((json.trees || []).length) {
-          P('<g fill="' + S.tree + '" stroke="' + S.treeEdge + '" stroke-width="1.5">' +
-            json.trees.map((tt) => '<circle cx="' + tt[0] + '" cy="' + tt[1] + '" r="' + (style === 'parchment' ? 10 : 13) + '"/>').join('') + '</g>');
+          if (isMini) {
+            const trunk = style === 'parchment' ? '#4a3826' : '#7a5a38';
+            const crown = style === 'parchment' ? '#9db07a' : '#6f9a5e';
+            const crownE = style === 'parchment' ? '#3f3020' : '#557a48';
+            P('<g>' + json.trees.map((tt) =>
+              '<rect x="' + (tt[0] - 3) + '" y="' + (tt[1] - 2) + '" width="6" height="14" fill="' + trunk + '"/>' +
+              '<circle cx="' + tt[0] + '" cy="' + (tt[1] - 12) + '" r="17" fill="' + crown + '" stroke="' + crownE + '" stroke-width="2"/>'
+            ).join('') + '</g>');
+          } else {
+            P('<g fill="' + S.tree + '" stroke="' + S.treeEdge + '" stroke-width="1.5">' +
+              json.trees.map((tt) => '<circle cx="' + tt[0] + '" cy="' + tt[1] + '" r="' + (style === 'parchment' ? 10 : 13) + '"/>').join('') + '</g>');
+          }
         }
 
-        // 特色建筑
+        // 特色建筑 / 近景地物（rot 朝向：绕 at 顺时针旋转度数）
         for (const f of json.features || []) {
-          if (f && f.at) P(mmsMapArtFeature(f, S, style));
+          if (!f || !f.at) continue;
+          let g = mmsMapArtFeature(f, S, style, fam);
+          if (!g) continue;
+          const rot = ((Math.round(Number(f.rot) || 0) % 360) + 360) % 360;
+          if (rot) g = '<g transform="rotate(' + rot + ' ' + f.at[0] + ' ' + f.at[1] + ')">' + g + '</g>';
+          P(g);
         }
 
         // 文字标签
@@ -5194,9 +5560,11 @@ window.MMS_IMAGE_DATA = {
             json.labels.map((l) => '<text x="' + l.at[0] + '" y="' + l.at[1] + '">' + l.text + '</text>').join('') + '</g>');
         }
 
-        // 装饰（罗盘/比例尺）
-        P(mmsMapArtCompass(S, style));
-        P(mmsMapArtScaleBar(S, style));
+        // 装饰（罗盘/比例尺为大地图地理符号，近景小地图不画）
+        if (!isMini) {
+          P(mmsMapArtCompass(S, style));
+          P(mmsMapArtScaleBar(S, style));
+        }
 
         return '<svg viewBox="0 0 1000 1000" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" style="display:block" font-family="' + S.font + '">' + defs + '\n' + parts.join('\n') + '\n</svg>';
       }
@@ -8722,10 +9090,15 @@ createAttributeItem(key, value) {
     }).filter(Boolean);
 
     if (mapMarkersData.length > 0) {
+      // 独立小地图（AI 近景场景）：走专用卡片（AI 底图 + 工具栏）
+      const mma = MMS_MINIMAP_ART_STATE;
+      if (mma && mma.enabled && key === mma.key) {
+        return this.createMapArtItem(key, mapMarkersData, mma, 'mini');
+      }
       // 独立大地图（AI 绘制）：走专用卡片（AI 底图 + 工具栏）
       const bma = MMS_BIGMAP_ART_STATE;
       if (bma && bma.enabled && key === bma.key) {
-        return this.createBigMapArtItem(key, mapMarkersData, bma);
+        return this.createMapArtItem(key, mapMarkersData, bma, 'big');
       }
       const li = document.createElement('li');
       li.innerHTML = `<div class="font-medium text-primary mb-1" style="font-family: monospace;"> 🌏当前场景：${this.formatNodeName(key)}</div>`;
@@ -8844,38 +9217,42 @@ createAttributeItem(key, value) {
   return item;
 }
 
-// 独立大地图（AI 绘制）专用卡片：AI 底图引擎 + 位置徽标 + 生成/更新工具栏
-createBigMapArtItem(key, markersData, bma) {
+// 独立地图（AI 绘制）专用卡片：AI 底图引擎 + 位置徽标 + 生成/更新工具栏
+// kind='big' 大地图（地理符号）/ 'mini' 小地图（近景材质场景）
+createMapArtItem(key, markersData, art, kind) {
+  const isMini = kind === 'mini';
+  const label = isMini ? '小地图' : '大地图';
   const li = document.createElement('li');
+  li.dataset.mmsMapKind = kind;
 
   // 头部：地图名 + 当前位置匹配徽标
   const head = document.createElement('div');
   head.className = 'flex items-center justify-between gap-2 mb-1 flex-wrap';
   let badgeHtml = '';
-  if (bma.empty) {
+  if (art.empty) {
     badgeHtml = '';
-  } else if (bma.hereMatched) {
-    badgeHtml = '<span class="mms-bm-badge hit">📍 当前：' + bma.hereName + '</span>';
+  } else if (art.hereMatched) {
+    badgeHtml = '<span class="mms-bm-badge hit">📍 当前：' + art.hereName + '</span>';
   } else {
     badgeHtml = '<span class="mms-bm-badge miss">⚠️ 剧情地点未匹配地标</span>';
   }
   head.innerHTML =
-    '<span class="font-medium text-primary" style="font-family: monospace;"> 🌍大地图：' + this.formatNodeName(key) + '</span>' + badgeHtml;
+    '<span class="font-medium text-primary" style="font-family: monospace;"> ' + (isMini ? '🗺️小地图：' : '🌍大地图：') + this.formatNodeName(key) + '</span>' + badgeHtml;
   li.appendChild(head);
 
   // 尚未生成：占位 + 生成按钮
-  if (bma.empty) {
+  if (art.empty) {
     const box = document.createElement('div');
     box.className = 'mms-bm-placeholder';
     box.innerHTML =
-      '<div>🎨 独立大地图尚未生成</div>' +
-      '<div class="sub">由绘图 AI 依据剧情生成底图与地标（约 1K tokens，每个聊天仅一次，之后缓存零开销）</div>';
+      '<div>🎨 独立' + label + '尚未生成</div>' +
+      '<div class="sub">由绘图 AI 依据剧情生成' + (isMini ? '近景场景' : '') + '底图与地标（约 1K tokens，每个聊天仅一次，之后缓存零开销）</div>';
     const btn = document.createElement('button');
     btn.className = 'mms-bm-btn primary';
     btn.type = 'button';
-    btn.textContent = '🎲 生成大地图';
-    btn.disabled = !!bma.generating;
-    btn.addEventListener('click', () => window.MMS && window.MMS.generateMapArt('full'));
+    btn.textContent = '🎲 生成' + label;
+    btn.disabled = !!art.generating;
+    btn.addEventListener('click', () => window.MMS && window.MMS.generateMapArt('full', kind));
     box.appendChild(btn);
     li.appendChild(box);
     return li;
@@ -8886,29 +9263,29 @@ createBigMapArtItem(key, markersData, bma) {
   if (!window.mapInstanceCount) window.mapInstanceCount = 0;
   mapDiv.id = `map-instance-${window.mapInstanceCount++}`;
   li.appendChild(mapDiv);
-  const engineOpts = { customSVG: bma.svg, hereName: bma.hereName };
+  const engineOpts = { customSVG: art.svg, hereName: art.hereName };
   setTimeout(() => new TacticalMapEngine(mapDiv, markersData, key, engineOpts), 50);
 
   // 工具栏：风格切换（免费）/ 增量更新 / 整图重绘
   const bar = document.createElement('div');
   bar.className = 'mms-bm-bar';
-  const busy = !!bma.generating;
+  const busy = !!art.generating;
 
   const styleBtn = document.createElement('button');
   styleBtn.className = 'mms-bm-btn';
   styleBtn.type = 'button';
-  styleBtn.textContent = bma.style === 'parchment' ? '📐 换简约平面' : '📜 换羊皮纸风';
+  styleBtn.textContent = art.style === 'parchment' ? '📐 换简约平面' : (isMini ? '📜 换手绘图纸风' : '📜 换羊皮纸风');
   styleBtn.title = '同一份地图数据，本地即时重绘，零 AI 开销';
   styleBtn.disabled = busy;
-  styleBtn.addEventListener('click', () => window.MMS && window.MMS.switchMapArtStyle());
+  styleBtn.addEventListener('click', () => window.MMS && window.MMS.switchMapArtStyle(kind));
 
   const mergeBtn = document.createElement('button');
-  mergeBtn.className = 'mms-bm-btn' + (bma.hereMatched ? '' : ' notify');
+  mergeBtn.className = 'mms-bm-btn' + (art.hereMatched ? '' : ' notify');
   mergeBtn.type = 'button';
   mergeBtn.textContent = '➕ 更新地图';
   mergeBtn.title = '增量合并：保留现有地图，追加剧情新发现的地点';
   mergeBtn.disabled = busy;
-  mergeBtn.addEventListener('click', () => window.MMS && window.MMS.generateMapArt('merge'));
+  mergeBtn.addEventListener('click', () => window.MMS && window.MMS.generateMapArt('merge', kind));
 
   const regenBtn = document.createElement('button');
   regenBtn.className = 'mms-bm-btn';
@@ -8918,7 +9295,7 @@ createBigMapArtItem(key, markersData, bma) {
   regenBtn.disabled = busy;
   regenBtn.addEventListener('click', () => {
     if (window.confirm('整图重绘将忽略现有地图重新生成（消耗一次绘图调用），确定？')) {
-      window.MMS && window.MMS.generateMapArt('full');
+      window.MMS && window.MMS.generateMapArt('full', kind);
     }
   });
 
@@ -8926,14 +9303,14 @@ createBigMapArtItem(key, markersData, bma) {
   bar.appendChild(mergeBtn);
   bar.appendChild(regenBtn);
   // 撤销：仅在存在上一版备份时出现（防止一次退化的合并/重绘永久销毁累积地图）
-  if (bma.canUndo) {
+  if (art.canUndo) {
     const undoBtn = document.createElement('button');
     undoBtn.className = 'mms-bm-btn';
     undoBtn.type = 'button';
     undoBtn.textContent = '↩︎ 撤销上次';
     undoBtn.title = '回到上一版地图（可再次点击来回切换）';
     undoBtn.disabled = busy;
-    undoBtn.addEventListener('click', () => window.MMS && window.MMS.undoMapArt());
+    undoBtn.addEventListener('click', () => window.MMS && window.MMS.undoMapArt(kind));
     bar.appendChild(undoBtn);
   }
   if (busy) {
@@ -10851,10 +11228,11 @@ createCharacterEntry(text, categoryKey) {
         }
         R['角色列表'] = newList;
 
-        // 地图模块按需开启：未开启的从状态移除（独立大地图开启时，大地图不归状态 LLM 管）
+        // 地图模块按需开启：未开启的从状态移除（独立大/小地图开启时，对应地图不归状态 LLM 管）
         const mapsCfg = (roster && roster.maps) || {};
         const bigArtOn = !!(roster && roster.bigmapArt && roster.bigmapArt.enabled);
-        if (mapsCfg.minimap === false) delete R['小地图'];
+        const miniArtOn = !!(roster && roster.miniArt && roster.miniArt.enabled);
+        if (mapsCfg.minimap === false || miniArtOn) delete R['小地图'];
         if (!mapsCfg.bigmap || bigArtOn) delete R['大地图'];
 
         // 通用固定模块（据点/载具/任意）：缺失字段用基线补齐（不覆盖已有值）
@@ -11007,7 +11385,7 @@ createCharacterEntry(text, categoryKey) {
           roster && roster.absentThreshold != null ? Number(roster.absentThreshold) : 3;
         const rosterChars = (roster && roster.characters) || [];
         const mapsCfg = roster && roster.maps ? roster.maps : {};
-        const minimapOn = mapsCfg.minimap !== false;
+        const minimapOn = mapsCfg.minimap !== false && !(roster && roster.miniArt && roster.miniArt.enabled);
         // 独立大地图开启时，状态 LLM 不再维护大地图（不输出、不合并、不注入）
         const bigmapOn = !!mapsCfg.bigmap && !(roster && roster.bigmapArt && roster.bigmapArt.enabled);
         const prevRoot = prev && (prev['状态栏'] || prev) ? prev['状态栏'] || prev : {};
@@ -11185,7 +11563,7 @@ createCharacterEntry(text, categoryKey) {
         const actionByLLM = actionFromStory === false;
         roster = roster || {};
         const maps = roster.maps || {};
-        const minimapOn = maps.minimap !== false;
+        const minimapOn = maps.minimap !== false && !(roster.miniArt && roster.miniArt.enabled);
         // 独立大地图开启时，状态 LLM 不再维护大地图（不输出、不合并、不注入）
         const bigmapOn = !!maps.bigmap && !(roster.bigmapArt && roster.bigmapArt.enabled);
         const modules = mmsRosterModules(roster).filter((m) => m.enabled && m.name);
@@ -11297,7 +11675,7 @@ createCharacterEntry(text, categoryKey) {
         }
         lines.push('### ' + secNo++ + '. 👥 人物（在场行为与去向追踪，增量更新）');
         if (minimapOn) lines.push('- 与小地图的分工：地图写无名临时角色（侍者、路人、杂兵群）的位置与姿态；「人物」只登记有名有姓的角色。');
-        lines.push('- 名字约束：【名称】必须是有名有姓的真实姓名（史密斯、老约翰、王小明），不得用职业/身份/种族词充当名字（侍者、混混、村民、邪教徒等）。不知道名字的人物一律不登记——哪怕有显著特征也不要用代称（如【疤脸酒保】）写入，其位置与姿态只写小地图；获知姓名后再登记。');
+        lines.push('- 名字约束：【名称】必须是有名有姓的真实姓名（史密斯、老约翰、王小明），不得用职业/身份/种族词充当名字（侍者、混混、村民、邪教徒等）。不知道名字的人物一律不登记——哪怕有显著特征也不要用代称（如【疤脸酒保】）写入' + (minimapOn ? '，其位置与姿态只写小地图' : '') + '；获知姓名后再登记。');
         lines.push('- 增量协议：程序按【名称】合并你的输出——同名条目=更新该人的描述（跨桶移动跟随你输出的分类）；新名称=登记；未提及的人物自动保留。**不需要每轮重抄全部人物**，只输出本轮有变化或新登场的。');
         lines.push('- 移除：仅在剧情明确退场/死亡/永别时，输出 `"【名称】[移除]"`；关系未决的（等待回信、已约定会面、悬而未决的威胁）保留，不要随手删人。');
         lines.push('- 描述一句话（10字内），按角色状态三选一，每次更新整体覆盖、不累积：');
@@ -11636,6 +12014,7 @@ createCharacterEntry(text, categoryKey) {
             maps: { minimap: true, bigmap: false },
             mapTags: { pool: [], mini: MMS_MINI_DEFAULT_TAGS.slice(), big: [] },
             bigmapArt: { enabled: false, note: '', style: 'flat' },
+            miniArt: { enabled: false, note: '', style: 'flat' },
           };
           try {
             if (!this.env.hasVarsApi) return fallback;
@@ -11655,6 +12034,14 @@ createCharacterEntry(text, categoryKey) {
                     style: r.bigmapArt.style === 'parchment' ? 'parchment' : 'flat',
                   }
                 : fallback.bigmapArt;
+            const miniArt =
+              r.miniArt && typeof r.miniArt === 'object'
+                ? {
+                    enabled: !!r.miniArt.enabled,
+                    note: String(r.miniArt.note || ''),
+                    style: r.miniArt.style === 'parchment' ? 'parchment' : 'flat',
+                  }
+                : fallback.miniArt;
             const tagCfg = mmsGetMapTags(r);
             return {
               characters: Array.isArray(r.characters)
@@ -11680,6 +12067,7 @@ createCharacterEntry(text, categoryKey) {
               maps: maps,
               mapTags: tagCfg,
               bigmapArt: bigmapArt,
+              miniArt: miniArt,
             };
           } catch (e) {
             console.warn('[MMS] 读取名册失败:', e);
@@ -12322,6 +12710,7 @@ createCharacterEntry(text, categoryKey) {
               maps: roster.maps || { minimap: true, bigmap: false },
               mapTags: roster.mapTags || { pool: [], mini: MMS_MINI_DEFAULT_TAGS.slice(), big: [] },
               bigmapArt: roster.bigmapArt || { enabled: false, note: '', style: 'flat' },
+              miniArt: roster.miniArt || { enabled: false, note: '', style: 'flat' },
             };
             // 用 replaceVariables 整体替换 $mms_roster：insertOrAssign 的深合并无法清除旧键，
             // 导致旧版残留的 base 字段把已删除的模块每次读取时"复活"（模块删不掉的根因）
@@ -12569,10 +12958,11 @@ createCharacterEntry(text, categoryKey) {
           try {
             this.lastState = state;
             state = this.applyStoryAction(state);
-            // 独立大地图：仅渲染层注入（显示副本），不写回变量、不进注入上下文
+            // 独立大/小地图：仅渲染层注入（显示副本），不写回变量、不进注入上下文
             const display = this.injectBigMapArt(state);
+            const display2 = this.injectMiniMapArt(display);
             // display 状态对象直通渲染（此前要 dump 成 YAML 写 script 标签再 load 回来）
-            setTimeout(() => reRenderStatusBar(display), 60);
+            setTimeout(() => reRenderStatusBar(display2), 60);
             // 实时表单同步：名册/固定模块表单显示的实时值跟随最新状态
             try {
               this.renderModulesForm();
@@ -12593,57 +12983,68 @@ createCharacterEntry(text, categoryKey) {
 
         // ---------- 独立大地图（AI 绘制：语义 JSON + 本地渲染器） ----------
 
-        // 聊天变量 $mms_map_art = { json, prev, ts }：每个聊天一张演化中的地图，缓存后零 LLM 开销
+        // 聊天变量 $mms_map_art / $mms_map_mini_art = { json, prev, ts }：每个聊天各存一张演化中的图，缓存后零 LLM 开销
         // prev 为上一版单步备份，供「撤销」使用（防止一次退化的合并/重绘永久销毁累积地图）
-        loadMapArt() {
-          this.mapArt = null;
-          this.mapArtPrev = null;
+        loadMapArt(kind = 'big') {
+          const slot = kind === 'mini'
+            ? { cur: 'miniMapArt', prev: 'miniMapArtPrev', varName: '$mms_map_mini_art' }
+            : { cur: 'mapArt', prev: 'mapArtPrev', varName: '$mms_map_art' };
+          this[slot.cur] = null;
+          this[slot.prev] = null;
           try {
             if (!this.env.hasVarsApi) return;
             const chatVars = getVariables({ type: 'chat' }) || {};
-            const a = chatVars && chatVars.$mms_map_art;
+            const a = chatVars && chatVars[slot.varName];
             const valid = (j) => j && typeof j === 'object' && Array.isArray(j.markers) && j.markers.length;
             if (a && typeof a === 'object' && valid(a.json)) {
-              this.mapArt = this.sanitizeMapArt(a.json);
-              if (valid(a.prev)) this.mapArtPrev = this.sanitizeMapArt(a.prev);
+              this[slot.cur] = this.sanitizeMapArt(a.json, kind);
+              if (valid(a.prev)) this[slot.prev] = this.sanitizeMapArt(a.prev, kind);
             }
           } catch (e) {
-            this.mapArt = null;
-            this.mapArtPrev = null;
+            this[slot.cur] = null;
+            this[slot.prev] = null;
           }
         },
 
         // keepPrev=false 时把当前 json 存为备份（正常保存）；true 时沿用传入的 prev（撤销场景）
-        saveMapArt(json, prevOverride) {
+        saveMapArt(json, prevOverride, kind = 'big') {
+          const slot = kind === 'mini'
+            ? { cur: 'miniMapArt', prev: 'miniMapArtPrev', varName: '$mms_map_mini_art', label: '小地图' }
+            : { cur: 'mapArt', prev: 'mapArtPrev', varName: '$mms_map_art', label: '大地图' };
           try {
             if (!this.env.hasVarsApi) return;
-            const prev = prevOverride !== undefined ? prevOverride : this.mapArt || null;
+            const prev = prevOverride !== undefined ? prevOverride : this[slot.cur] || null;
             const payload = { json: json, ts: Date.now() };
             if (prev && prev !== json) payload.prev = prev;
-            insertOrAssignVariables({ $mms_map_art: payload }, { type: 'chat' });
-            this.mapArtPrev = payload.prev || null;
+            insertOrAssignVariables({ [slot.varName]: payload }, { type: 'chat' });
+            this[slot.prev] = payload.prev || null;
           } catch (e) {
-            console.error('[MMS] 保存大地图失败:', e);
+            console.error('[MMS] 保存' + slot.label + '失败:', e);
           }
         },
 
         // 撤销上一次地图更新：与备份互换（可再次点击回到新版，形成单步来回）
-        undoMapArt() {
-          if (!this.mapArtPrev) {
-            alert('没有可撤销的上一版地图');
+        undoMapArt(kind = 'big') {
+          const isMini = kind === 'mini';
+          const label = isMini ? '小地图' : '大地图';
+          const curField = isMini ? 'miniMapArt' : 'mapArt';
+          const prevField = isMini ? 'miniMapArtPrev' : 'mapArtPrev';
+          if (!this[prevField]) {
+            alert('没有可撤销的上一版' + label);
             return false;
           }
-          const cur = this.mapArt;
-          const prev = this.mapArtPrev;
-          this.mapArt = prev;
-          this.saveMapArt(prev, cur || null);
-          this.refreshBigMapCard();
+          const cur = this[curField];
+          const prev = this[prevField];
+          this[curField] = prev;
+          this.saveMapArt(prev, cur || null, kind);
+          if (isMini) this.refreshMiniMapCard();
+          else this.refreshBigMapCard();
           if (this.env.hasEventApi) {
-            try { eventEmit(MMS_EVENT_MAPART, {}); } catch (e) { /* 忽略 */ }
+            try { eventEmit(MMS_EVENT_MAPART, { kind: kind }); } catch (e) { /* 忽略 */ }
           }
-          this.setIndicator('ok', '已撤销到上一版地图');
+          this.setIndicator('ok', '已撤销到上一版' + label);
           setTimeout(() => {
-            if (!this.updating && !this.mapArtBusy) this.setIndicator(null);
+            if (!this.updating && !this.mapArtBusy && !this.miniMapArtBusy) this.setIndicator(null);
           }, 3000);
           return true;
         },
@@ -12731,6 +13132,66 @@ createCharacterEntry(text, categoryKey) {
           return display;
         },
 
+        // 渲染前注入：把小地图（AI 近景场景版）合成进显示状态，并更新全局渲染开关 MMS_MINIMAP_ART_STATE
+        injectMiniMapArt(state) {
+          const display = JSON.parse(JSON.stringify(state || {}));
+          const rootKey = Object.keys(display)[0];
+          if (!rootKey || !display[rootKey] || typeof display[rootKey] !== 'object') {
+            MMS_MINIMAP_ART_STATE = { enabled: false };
+            return display;
+          }
+          let artCfg = null;
+          try {
+            artCfg = this.loadRoster().miniArt;
+          } catch (e) {
+            artCfg = null;
+          }
+          if (!artCfg || !artCfg.enabled) {
+            MMS_MINIMAP_ART_STATE = { enabled: false };
+            return display;
+          }
+          const style = artCfg.style === 'parchment' ? 'parchment' : 'flat';
+          const art = this.miniMapArt;
+          if (art && Array.isArray(art.markers) && art.markers.length) {
+            const name = art.name || '小地图';
+            const here = this.matchHereMarker(art);
+            display[rootKey]['小地图'] = {};
+            display[rootKey]['小地图'][name] = art.markers.map(
+              (mk) => (mk.emoji || '📍') + '【' + mk.name + '】(' + mk.x + ', ' + mk.y + ') ' + (mk.desc || ''),
+            );
+            MMS_MINIMAP_ART_STATE = {
+              enabled: true,
+              key: name,
+              name: name,
+              svg: mmsRenderMapArt(art, style, 'mini'),
+              style: style,
+              hereName: here ? here.name : null,
+              hereMatched: !!here,
+              empty: false,
+              generating: !!this.miniMapArtBusy,
+              canUndo: !!this.miniMapArtPrev,
+            };
+          } else {
+            display[rootKey]['小地图'] = {};
+            display[rootKey]['小地图']['AI小地图'] = [
+              '🗺️【小地图尚未生成】(50, 50) 点击下方按钮，由绘图 AI 依据剧情生成近景场景',
+            ];
+            MMS_MINIMAP_ART_STATE = {
+              enabled: true,
+              key: 'AI小地图',
+              name: 'AI小地图',
+              svg: null,
+              style: style,
+              hereName: null,
+              hereMatched: false,
+              empty: true,
+              generating: !!this.miniMapArtBusy,
+              canUndo: !!this.miniMapArtPrev,
+            };
+          }
+          return display;
+        },
+
         // 大地图卡片原地刷新：只重建该卡片节点，不整栏重渲染（不切标签页、不丢滚动位置）。
         // 找不到现有卡片（状态栏尚未渲染过大地图）时回退整栏渲染。
         refreshBigMapCard() {
@@ -12739,7 +13200,7 @@ createCharacterEntry(text, categoryKey) {
             this.injectBigMapArt(this.lastState); // 同步 MMS_BIGMAP_ART_STATE（显示副本不再进 YAML 数据源）
             const bma = MMS_BIGMAP_ART_STATE;
             const oldBar = document.querySelector(
-              '.character-panel .mms-bm-bar, .character-panel .mms-bm-placeholder',
+              '.character-panel li[data-mms-map-kind="big"] .mms-bm-bar, .character-panel li[data-mms-map-kind="big"] .mms-bm-placeholder',
             );
             const oldLi = oldBar ? oldBar.closest('li') : null;
             if (bma && bma.enabled && oldLi) {
@@ -12753,7 +13214,7 @@ createCharacterEntry(text, categoryKey) {
                     desc: m.desc,
                   }));
               const sr = new StoryRenderer('yaml-data-source');
-              oldLi.replaceWith(sr.createBigMapArtItem(bma.key, markersData, bma));
+              oldLi.replaceWith(sr.createMapArtItem(bma.key, markersData, bma, 'big'));
               return;
             }
           } catch (e) {
@@ -12762,14 +13223,48 @@ createCharacterEntry(text, categoryKey) {
           this.renderFromState(this.lastState);
         },
 
+        // 小地图卡片原地刷新（对称 refreshBigMapCard：data-mms-map-kind 区分两图卡片，互不误替换）
+        refreshMiniMapCard() {
+          if (!this.lastState) return;
+          try {
+            this.injectMiniMapArt(this.lastState); // 同步 MMS_MINIMAP_ART_STATE（显示副本不再进 YAML 数据源）
+            const mma = MMS_MINIMAP_ART_STATE;
+            const oldBar = document.querySelector(
+              '.character-panel li[data-mms-map-kind="mini"] .mms-bm-bar, .character-panel li[data-mms-map-kind="mini"] .mms-bm-placeholder',
+            );
+            const oldLi = oldBar ? oldBar.closest('li') : null;
+            if (mma && mma.enabled && oldLi) {
+              const markersData = mma.empty
+                ? [{ emoji: '🗺️', name: '小地图尚未生成', x: 50, y: 50, desc: '' }]
+                : (this.miniMapArt && this.miniMapArt.markers ? this.miniMapArt.markers : []).map((m) => ({
+                    emoji: m.emoji,
+                    name: m.name,
+                    x: m.x,
+                    y: m.y,
+                    desc: m.desc,
+                  }));
+              const sr = new StoryRenderer('yaml-data-source');
+              oldLi.replaceWith(sr.createMapArtItem(mma.key, markersData, mma, 'mini'));
+              return;
+            }
+          } catch (e) {
+            console.warn('[MMS] 小地图卡片原地刷新失败，回退整栏渲染:', e);
+          }
+          this.renderFromState(this.lastState);
+        },
+
         // 风格切换：同一份 JSON 本地重绘，零 AI 开销
-        switchMapArtStyle() {
+        switchMapArtStyle(kind = 'big') {
+          const isMini = kind === 'mini';
+          const cfgKey = isMini ? 'miniArt' : 'bigmapArt';
+          const selId = isMini ? 'mms-miniart-style' : 'mms-bigart-style';
           const rr = this.loadRoster();
-          rr.bigmapArt.style = rr.bigmapArt.style === 'parchment' ? 'flat' : 'parchment';
+          rr[cfgKey].style = rr[cfgKey].style === 'parchment' ? 'flat' : 'parchment';
           this.saveRoster(rr);
-          const sel = document.getElementById('mms-bigart-style');
-          if (sel) sel.value = rr.bigmapArt.style;
-          this.refreshBigMapCard();
+          const sel = document.getElementById(selId);
+          if (sel) sel.value = rr[cfgKey].style;
+          if (isMini) this.refreshMiniMapCard();
+          else this.refreshBigMapCard();
         },
 
         collectLocationLines(floorId, count) {
@@ -12788,10 +13283,13 @@ createCharacterEntry(text, categoryKey) {
           return lines;
         },
 
-        buildMapArtSystemPrompt(mode) {
+        buildMapArtSystemPrompt(mode, kind) {
           const isPatch = mode === 'merge';
+          const isMini = kind === 'mini';
           const lines = [];
-          lines.push('你是跑团大地图绘制师。根据剧情信息规划区域大地图，输出「语义 JSON」——本地渲染器会把它绘制成图，你只负责地理布局与地标，不要输出 SVG，不要解释。');
+          lines.push(isMini
+            ? '你是跑团近景场景绘制师。根据剧情信息绘制「当前场景」的近景平面图——室内房间、院落、街区一角、野外营地或洞窟。小地图是有材质纹理的近景场景图（木地板、青砖、草地、雪地、大理石等），与大地图的抽象地理符号画风完全不同。输出「语义 JSON」——本地渲染器会把它绘制成图，你只负责空间布局与地标，不要输出 SVG，不要解释。'
+            : '你是跑团大地图绘制师。根据剧情信息规划区域大地图，输出「语义 JSON」——本地渲染器会把它绘制成图，你只负责地理布局与地标，不要输出 SVG，不要解释。');
           lines.push('');
           lines.push('## 输出格式硬性要求');
           lines.push('- 只输出一个 JSON 对象，前后不得有任何文字，不要 markdown 围栏。');
@@ -12809,13 +13307,28 @@ createCharacterEntry(text, categoryKey) {
             lines.push('');
             lines.push('## 各数组的元素结构');
             lines.push('- markers: {"emoji":"🏰","name":"地标名","x":50,"y":25,"desc":"一句话描述"}');
-            lines.push('- features: {"type":"castle","at":[500,258]}');
-            lines.push('- terrain: {"type":"grass","shape":"ellipse","at":[150,850],"r":[110,90]}');
+            lines.push(isMini ? '- features: {"type":"table","at":[600,500]}' : '- features: {"type":"castle","at":[500,258]}');
+            lines.push(isMini ? '- terrain: {"type":"carpet","shape":"rect","at":[300,350],"size":[400,300]}' : '- terrain: {"type":"grass","shape":"ellipse","at":[150,850],"r":[110,90]}');
             lines.push('- districts: {"type":"royal","shape":"ellipse","at":[500,258],"r":[118,80],"label":"区名"}');
             lines.push('- labels: {"at":[500,345],"text":"地名"}');
             lines.push('- bridges: {"at":[578,418],"size":[52,26]}');
             lines.push('- roads: "M 500 940 C 496 820, 490 640, 487 575"（SVG 路径字符串）');
             lines.push('- houses / trees: [x,y] 坐标对');
+          } else if (isMini) {
+            lines.push('## 完整 JSON 结构（室内场景示例）');
+            lines.push('{');
+            lines.push('  "name": "场景名",');
+            lines.push('  "ground": "wood",');
+            lines.push('  "terrain": [ {"type":"carpet","shape":"rect","at":[300,350],"size":[400,300]} ],');
+            lines.push('  "outline": {"shape":"roundRect","at":[80,100],"size":[840,800],"r":24,"wall":true},');
+            lines.push('  "gates": [[500,890]],');
+            lines.push('  "roads": [],');
+            lines.push('  "features": [ {"type":"wall","at":[380,100],"size":[16,300]}, {"type":"door","at":[396,420]}, {"type":"bed","at":[140,170],"size":[70,100],"rot":90}, {"type":"table","at":[620,520]}, {"type":"lantern","at":[500,300]} ],');
+            lines.push('  "houses": [],');
+            lines.push('  "trees": [],');
+            lines.push('  "labels": [ {"at":[500,950],"text":"客栈大堂"} ],');
+            lines.push('  "markers": [ {"emoji":"🛏️","name":"客房","x":18,"y":24,"desc":"可以休息"} ]');
+            lines.push('}');
           } else {
             lines.push('## 完整 JSON 结构');
             lines.push('{');
@@ -12839,32 +13352,57 @@ createCharacterEntry(text, categoryKey) {
             lines.push('}');
           }
           lines.push('');
-          lines.push('## 字段说明');
-          lines.push('- ground：陆地底色，城市与内陆图用 "field"，海岛与大陆图用 "sea"。');
-          lines.push('- terrain：地形色块，type 取 grass|snow|forest|desert|field|lake；shape 取 ellipse（配 at+r）、rect（配 at+size）或 path（配 d，SVG 路径字符串）。');
-          lines.push('- outline：城市围墙用 {"shape":"roundRect","at":[x,y],"size":[w,h],"r":36,"wall":true}；大陆海岸线用 {"shape":"path","d":"M…Z","land":true}。');
-          lines.push('- bays：海湾，SVG 闭合路径字符串数组，把大陆轮廓内的区域挖成水面（仅大陆图需要）。');
-          lines.push('- river：单条 SVG 路径字符串；跨河处用 bridges 架桥。');
-          lines.push('- districts：城区色块，type 取 royal|craft|garden|plaza|harbor。');
-          lines.push('- ridge：山脉，自动在 from 与 to 之间排布 peaks 个山峰。');
-          lines.push('- features：特色地物，type 只能取 ' + MMS_MAPART_FEATURE_TYPES.join('|') + '。');
-          lines.push('- houses / trees：批量民居与树木的坐标对数组。');
-          lines.push('- labels：图上的文字地名标注。');
-          lines.push('- markers：玩家可见的交互地标（emoji + 名称 + 描述）。');
-          lines.push('');
-          lines.push('## 布局规则');
-          lines.push('1. 画布 1000×1000：terrain/outline/bays/river/roads/bridges/districts/ridge/features/houses/trees/labels 用 0~1000 画布坐标；markers 的 x/y 用 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数（百分比）。');
-          lines.push('2. 每个 marker 必须在对应位置有 features 地物：marker(x,y) 对应画布坐标 (x*10, y*10)，确保 emoji 落在地物上；河流与道路不得压住地标落点。');
-          lines.push('3. 城市图：outline(wall)+towers+gates 组成城墙，districts 分区，roads 主干道，river 可穿城并配 bridges，houses 15~40 个民居，trees 郊野点缀。');
-          lines.push('4. 大陆图：ground="sea"，outline 用 path+land:true 画海岸线，terrain 拼雪原/森林/沙漠/农田/湖泊，ridge 表达山脉，roads 连接主要地标。');
-          lines.push('5. 布局紧凑饱满、疏密有致；地标之间保持距离，不要都挤在中心或边缘。');
-          if (!isPatch) {
-            lines.push('6. markers 控制在 5~12 个，覆盖剧情中已出现或提及的重要地点。');
+          if (isMini) {
+            lines.push('## 字段说明（近景场景）');
+            lines.push('- ground：场景基底材质，整图铺满并决定整套画风（古典木石家具 / 现代金属塑料）。室内：wood 木地板（默认）/ brick 青砖 / tile 石砖；现代场所：street 街面 / marble 大理石 / rubber 橡胶地垫；野外：grass 草地 / snow 雪地 / sand 沙地；洞窟：rock 岩地。');
+            lines.push('- terrain：地面局部材质分区：carpet 地毯（室内）/ dirt 土路 / water 水塘，也可用任何 ground 材质做分区；shape 取 rect（配 at+size）、ellipse（配 at+r）或 path（配 d，SVG 路径字符串）。');
+            lines.push('- outline：场所外墙（仅室内/院落需要），渲染为厚墙体；gates：墙上开口/出入口坐标。');
+            lines.push('- roads：小径或地面导引线，SVG 路径字符串（现代场景渲染为导引线）。');
+            lines.push('- features：近景地物，type 取 ' + MMS_MINI_FEATURE_TYPES.join('|') + '。');
+            lines.push('  - 室内：wall 内墙段（配 size）/ door 门洞 / window 窗户采光 / counter 柜台·吧台·收银台 / table 桌案（含座凳）/ bed 床榻·病床 / shelf 书架·货架·酒架 / pillar 立柱 / stairs 楼梯·扶梯 / hearth 灶台·壁炉 / lantern 灯笼·光源 / crate 杂物堆·酒坛·纸箱');
+            lines.push('  - 野外：tree 大树 / boulder 巨石 / crystal 发光晶体 / campfire 篝火 / tent 帐篷 / fence 栅栏');
+            lines.push('  - 现代：machine 器械·设备·冷柜 / screen 屏·招牌·霓虹 / stool 座椅');
+            lines.push('  - 院落/街区通用：house 民房 / stall 摊位 / fountain 喷泉');
+            lines.push('- rot（可选）：地物朝向，如 "rot":90 表示绕 at 顺时针旋转 90°（床/门/桌/墙段/栅栏常用）。');
+            lines.push('- houses / trees：民房与散生小树的坐标对数组（院落/森林点缀，重点大树用 features 的 tree）。');
+            lines.push('- labels：图上的文字标注。markers：玩家可见的交互地标（emoji + 名称 + 描述）。');
+            lines.push('');
+            lines.push('## 布局规则（近景场景）');
+            lines.push('1. 画布 1000×1000：terrain/outline/roads/features/houses/trees/labels 用 0~1000 画布坐标；markers 的 x/y 用 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数（百分比），marker(x,y) 对应画布坐标 (x*10, y*10)，确保 emoji 落在地物上。');
+            lines.push('2. 先按剧情判定场景类型再选材质：客栈/住宅/餐厅→wood/brick；医院/小店/商场/酒吧/夜市/健身房→tile/marble/rubber/street；森林草地→grass；雪原→snow；沙漠→sand；洞窟/洞府→rock。');
+            lines.push('3. 室内：outline 圈外墙，wall 段划分房间，door/gates 开在墙上，家具贴墙或围合摆放（床靠墙角、柜台沿墙、桌居中配座凳），lantern 点缀光源，carpet 铺在待客区，window 采光靠外墙。');
+            lines.push('4. 院落/街区：outline 可选，house/stall/fountain 沿路布置，roads 为小径。');
+            lines.push('5. 野外：不输出 outline，tree/boulder 疏密有致，营地配 campfire+tent，小径用 roads。');
+            lines.push('6. 洞窟：rock 基底配 crystal 发光点缀与 boulder，可加 water 水塘。');
+            lines.push('7. 布局紧凑饱满、疏密有致；markers 控制在 3~8 个，覆盖当前场景内部与近旁的重要位置（房间、设施、出口等），每个 marker 落在对应地物上。');
+          } else {
+            lines.push('## 字段说明');
+            lines.push('- ground：陆地底色，城市与内陆图用 "field"，海岛与大陆图用 "sea"。');
+            lines.push('- terrain：地形色块，type 取 grass|snow|forest|desert|field|lake；shape 取 ellipse（配 at+r）、rect（配 at+size）或 path（配 d，SVG 路径字符串）。');
+            lines.push('- outline：城市围墙用 {"shape":"roundRect","at":[x,y],"size":[w,h],"r":36,"wall":true}；大陆海岸线用 {"shape":"path","d":"M…Z","land":true}。');
+            lines.push('- bays：海湾，SVG 闭合路径字符串数组，把大陆轮廓内的区域挖成水面（仅大陆图需要）。');
+            lines.push('- river：单条 SVG 路径字符串；跨河处用 bridges 架桥。');
+            lines.push('- districts：城区色块，type 取 royal|craft|garden|plaza|harbor。');
+            lines.push('- ridge：山脉，自动在 from 与 to 之间排布 peaks 个山峰。');
+            lines.push('- features：特色地物，type 只能取 ' + MMS_BIG_FEATURE_TYPES.join('|') + '。');
+            lines.push('- houses / trees：批量民居与树木的坐标对数组。');
+            lines.push('- labels：图上的文字地名标注。');
+            lines.push('- markers：玩家可见的交互地标（emoji + 名称 + 描述）。');
+            lines.push('');
+            lines.push('## 布局规则');
+            lines.push('1. 画布 1000×1000：terrain/outline/bays/river/roads/bridges/districts/ridge/features/houses/trees/labels 用 0~1000 画布坐标；markers 的 x/y 用 ' + MMS_COORD_MIN + '~' + MMS_COORD_MAX + ' 的整数（百分比）。');
+            lines.push('2. 每个 marker 必须在对应位置有 features 地物：marker(x,y) 对应画布坐标 (x*10, y*10)，确保 emoji 落在地物上；河流与道路不得压住地标落点。');
+            lines.push('3. 城市图：outline(wall)+towers+gates 组成城墙，districts 分区，roads 主干道，river 可穿城并配 bridges，houses 15~40 个民居，trees 郊野点缀。');
+            lines.push('4. 大陆图：ground="sea"，outline 用 path+land:true 画海岸线，terrain 拼雪原/森林/沙漠/农田/湖泊，ridge 表达山脉，roads 连接主要地标。');
+            lines.push('5. 布局紧凑饱满、疏密有致；地标之间保持距离，不要都挤在中心或边缘。');
+            if (!isPatch) {
+              lines.push('6. markers 控制在 5~12 个，覆盖剧情中已出现或提及的重要地点。');
+            }
           }
           return lines.join('\n');
         },
 
-        buildMapArtUserPrompt(mode, artCfg, latest, context, locLines, retryHint) {
+        buildMapArtUserPrompt(mode, kind, artCfg, latest, context, locLines, retryHint) {
           let p = '';
           if (artCfg && artCfg.note) {
             p += '<地图设定备注（优先遵循）>\n' + artCfg.note + '\n</地图设定备注>\n\n';
@@ -12878,16 +13416,19 @@ createCharacterEntry(text, categoryKey) {
           if (latest) {
             p += '<最新剧情>\n' + latest + '\n</最新剧情>\n\n';
           }
-          if (mode === 'merge' && this.mapArt) {
+          const cur = kind === 'mini' ? this.miniMapArt : this.mapArt;
+          if (mode === 'merge' && cur) {
             // 增量模式：旧图作为输入（让 AI 知道哪些位置已占），输出只要新增部分
             p +=
               '<当前地图 JSON（已经画好，仅供你判断哪些地点已存在、哪些坐标已被占用；不要重复输出其中任何内容）>\n' +
-              JSON.stringify(this.mapArt) +
+              JSON.stringify(cur) +
               '\n</当前地图>\n\n' +
               '已有地标：' +
-              (this.mapArt.markers || []).map((m) => m.name).join('、') +
+              (cur.markers || []).map((m) => m.name).join('、') +
               '\n请找出剧情中出现、但当前地图上还没有的地点，只输出新增部分：{"add":{…}}。' +
               '新地标要避开已占坐标，并在 (x*10, y*10) 处补上对应 features 地物。若没有新地点，输出 {"add":{}}。\n';
+          } else if (kind === 'mini') {
+            p += '请依据以上剧情信息绘制当前场景的近景小地图并输出完整 JSON。先判定场景类型（室内/院落/街区/野外/洞窟），选对应的 ground 材质与近景地物词表；以最新的地点行为中心，覆盖当前场所的房间/家具/设施布局与出入口，并为每个重要位置配置 markers 与对应地物。\n';
           } else {
             p += '请依据以上剧情信息规划一张大地图并输出完整 JSON。地图必须覆盖剧情中已出现或提及的所有重要地点，并为每个地点配置 markers 与对应地物。\n';
           }
@@ -13005,8 +13546,8 @@ createCharacterEntry(text, categoryKey) {
         },
 
         // 整图模式：解析完整地图 JSON
-        parseMapArtOutput(raw) {
-          const json = this.parseJsonLoose(raw, '大地图');
+        parseMapArtOutput(raw, kind) {
+          const json = this.parseJsonLoose(raw, kind === 'mini' ? '小地图' : '大地图');
           if (!json || typeof json !== 'object' || Array.isArray(json)) {
             throw new Error('JSON 顶层不是对象');
           }
@@ -13074,7 +13615,7 @@ createCharacterEntry(text, categoryKey) {
           return { json: out, added: added, dupSkipped: dupSkipped, newMarkers: newMarkers };
         },
 
-        sanitizeMapArt(json) {
+        sanitizeMapArt(json, kind) {
           const clamp = (v) =>
             Math.max(MMS_COORD_MIN, Math.min(MMS_COORD_MAX, Math.round(Number(v) || 50)));
           const dropped = [];
@@ -13094,8 +13635,11 @@ createCharacterEntry(text, categoryKey) {
             return out;
           };
 
-          json.name = String(json.name || '大地图').slice(0, 30);
-          if (json.ground !== 'sea') json.ground = 'field';
+          json.name = String(json.name || (kind === 'mini' ? '小地图' : '大地图')).slice(0, 30);
+          if (kind === 'mini') {
+            // 小地图 ground = 近景材质（非法/缺省回退木地板）
+            if (MMS_MINI_GROUND_TYPES.indexOf(json.ground) === -1) json.ground = 'wood';
+          } else if (json.ground !== 'sea') json.ground = 'field';
 
           // 地形：ellipse(at+r) / rect(at+size) / path(d)
           json.terrain = filterValid(
@@ -13200,46 +13744,51 @@ createCharacterEntry(text, categoryKey) {
           }
           json.markers = marks;
 
-          if (dropped.length) console.warn('[MMS] 大地图数据清洗：' + dropped.join('；'));
+          if (dropped.length) console.warn('[MMS] ' + (kind === 'mini' ? '小地图' : '大地图') + '数据清洗：' + dropped.join('；'));
           return json;
         },
 
-        // 独立绘图 LLM：mode = 'full'（整图重绘） | 'merge'（增量合并）
-        async generateMapArt(mode = 'full') {
+        // 独立绘图 LLM：kind='big'（大地图）| 'mini'（小地图）；mode = 'full'（整图重绘） | 'merge'（增量合并）
+        async generateMapArt(mode = 'full', kind = 'big') {
+          const isMini = kind === 'mini';
+          const label = isMini ? '小地图' : '大地图';
+          const busyField = isMini ? 'miniMapArtBusy' : 'mapArtBusy';
+          const curField = isMini ? 'miniMapArt' : 'mapArt';
+          const refreshCard = isMini ? () => this.refreshMiniMapCard() : () => this.refreshBigMapCard();
           if (!this.env.hasGenApi || !this.env.hasVarsApi) {
-            alert('当前酒馆助手版本缺少 generateRaw 或变量接口，无法生成大地图');
+            alert('当前酒馆助手版本缺少 generateRaw 或变量接口，无法生成' + label);
             return false;
           }
-          if (this.mapArtBusy) {
-            alert('大地图正在生成中，请稍候');
+          if (this[busyField]) {
+            alert(label + '正在生成中，请稍候');
             return false;
           }
-          if (mode === 'merge' && !this.mapArt) mode = 'full';
+          if (mode === 'merge' && !this[curField]) mode = 'full';
 
           const floorId = this.floorId != null ? this.floorId : 0;
           const cfg = this.loadConfig();
           const roster = this.loadRoster();
-          const artCfg = roster.bigmapArt || {};
+          const artCfg = isMini ? (roster.miniArt || {}) : (roster.bigmapArt || {});
 
-          this.mapArtBusy = true;
-          this.setIndicator('updating', mode === 'merge' ? '大地图增量合并中…' : '大地图生成中…');
-          this.refreshBigMapCard(); // 原地显示"生成中"状态（不整栏重渲染）
+          this[busyField] = true;
+          this.setIndicator('updating', mode === 'merge' ? label + '增量合并中…' : label + '生成中…');
+          refreshCard(); // 原地显示"生成中"状态（不整栏重渲染）
 
           try {
             const floorCount = Math.min(10, Math.max(1, Number(cfg.contextFloors) || 2));
             const { latest, context } = this.collectStorySegments(floorId, floorCount);
             const locLines = this.collectLocationLines(floorId, floorCount);
-            const sysPrompt = this.buildMapArtSystemPrompt(mode);
+            const sysPrompt = this.buildMapArtSystemPrompt(mode, kind);
             // 绘图输出体积远大于状态更新，给足输出余量（仅此次请求生效，不改用户全局设置）
             const customApi = Object.assign({}, this.buildCustomApi(cfg), {
               max_tokens: Math.max(Number(cfg.maxTokens) || 4096, 8192),
             });
-            const baseArt = this.mapArt;
+            const baseArt = this[curField];
 
             let lastError = null;
             let retryHint = null;
             for (let attempt = 0; attempt < 3; attempt++) {
-              const userPrompt = this.buildMapArtUserPrompt(mode, artCfg, latest, context, locLines, retryHint);
+              const userPrompt = this.buildMapArtUserPrompt(mode, kind, artCfg, latest, context, locLines, retryHint);
               try {
                 const config = {
                   ordered_prompts: [
@@ -13248,35 +13797,35 @@ createCharacterEntry(text, categoryKey) {
                   ],
                   custom_api: customApi,
                   should_silence: true,
-                  generation_id: 'mms-mapart-' + floorId + '-' + Date.now(),
+                  generation_id: 'mms-mapart-' + kind + '-' + floorId + '-' + Date.now(),
                 };
                 const result = await generateRaw(config);
                 const raw = typeof result === 'string' ? result : (result && result.content) || '';
                 this.debugLog(sysPrompt, userPrompt, raw, customApi);
 
                 let json = null;
-                let okMsg = '大地图已更新';
+                let okMsg = label + '已更新';
                 if (mode === 'merge' && baseArt) {
                   // 增量：AI 只输出新增部分，本地追加合并（旧图结构上不可能被破坏）
                   const patch = this.parseMapArtPatch(raw);
                   const merged = this.mergeMapArtPatch(baseArt, patch);
                   if (!merged.added && !patch.name) {
                     // 空 patch 不算失败：剧情确实没有新地点
-                    this.mapArtBusy = false;
-                    this.refreshBigMapCard();
+                    this[busyField] = false;
+                    refreshCard();
                     this.setIndicator('ok', '本轮未发现地图上缺失的新地点');
                     setTimeout(() => {
-                      if (!this.updating && !this.mapArtBusy) this.setIndicator(null);
+                      if (!this.updating && !this.mapArtBusy && !this.miniMapArtBusy) this.setIndicator(null);
                     }, 4000);
                     return true;
                   }
-                  json = this.sanitizeMapArt(merged.json);
+                  json = this.sanitizeMapArt(merged.json, kind);
                   const parts = [];
                   if (merged.newMarkers.length) parts.push('新增地标：' + merged.newMarkers.join('、'));
                   if (merged.dupSkipped) parts.push('跳过重复 ' + merged.dupSkipped + ' 个');
-                  okMsg = parts.length ? '地图已更新（' + parts.join('，') + '）' : '地图已更新';
+                  okMsg = parts.length ? label + '已更新（' + parts.join('，') + '）' : label + '已更新';
                 } else {
-                  json = this.sanitizeMapArt(this.parseMapArtOutput(raw));
+                  json = this.sanitizeMapArt(this.parseMapArtOutput(raw, kind), kind);
                   // 退化保护：整图重绘结果地标数骤降时让用户决定是否采用
                   const oldCount = baseArt && baseArt.markers ? baseArt.markers.length : 0;
                   if (oldCount >= 4 && json.markers.length < Math.ceil(oldCount * 0.5)) {
@@ -13285,32 +13834,32 @@ createCharacterEntry(text, categoryKey) {
                         ' 个，可能是本次生成质量退化。\n\n点「确定」采用新图（旧图仍可用「撤销上次」找回），点「取消」保留原图。',
                     );
                     if (!go) {
-                      this.mapArtBusy = false;
-                      this.refreshBigMapCard();
+                      this[busyField] = false;
+                      refreshCard();
                       this.setIndicator('ok', '已保留原地图');
                       setTimeout(() => {
-                        if (!this.updating && !this.mapArtBusy) this.setIndicator(null);
+                        if (!this.updating && !this.mapArtBusy && !this.miniMapArtBusy) this.setIndicator(null);
                       }, 3000);
                       return false;
                     }
                   }
                 }
 
-                this.mapArt = json;
-                this.saveMapArt(json, baseArt || null);
-                this.mapArtBusy = false;
-                this.refreshBigMapCard();
+                this[curField] = json;
+                this.saveMapArt(json, baseArt || null, kind);
+                this[busyField] = false;
+                refreshCard();
                 if (this.env.hasEventApi) {
-                  eventEmit(MMS_EVENT_MAPART, {});
+                  eventEmit(MMS_EVENT_MAPART, { kind: kind });
                 }
                 this.setIndicator('ok', okMsg);
                 setTimeout(() => {
-                  if (!this.updating && !this.mapArtBusy) this.setIndicator(null);
+                  if (!this.updating && !this.mapArtBusy && !this.miniMapArtBusy) this.setIndicator(null);
                 }, 4000);
                 return true;
               } catch (e) {
                 lastError = e;
-                console.warn('[MMS] 大地图生成失败（第 ' + (attempt + 1) + ' 次）：', e);
+                console.warn('[MMS] ' + label + '生成失败（第 ' + (attempt + 1) + ' 次）：', e);
                 // 把失败原因回传给下一次尝试，让 AI 知道要修什么（同一份提示词重试 3 次没有意义）
                 retryHint = (e && e.message ? e.message : String(e)).slice(0, 600);
                 if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
@@ -13318,11 +13867,11 @@ createCharacterEntry(text, categoryKey) {
             }
             throw lastError || new Error('未知错误');
           } catch (e) {
-            this.mapArtBusy = false;
-            this.refreshBigMapCard();
+            this[busyField] = false;
+            refreshCard();
             const msg = e && e.message ? e.message : String(e);
-            this.setIndicator('error', '大地图生成失败：' + msg);
-            alert('大地图生成失败：' + msg + '\n请检查独立 API 配置（设置 → API），或稍后重试。');
+            this.setIndicator('error', label + '生成失败：' + msg);
+            alert(label + '生成失败：' + msg + '\n请检查独立 API 配置（设置 → API），或稍后重试。');
             return false;
           }
         },
@@ -15192,6 +15741,45 @@ createCharacterEntry(text, categoryKey) {
             });
           }
           syncBigArtUI();
+
+          // 独立小地图（AI 绘制，近景场景）
+          const miniArtChk = document.getElementById('mms-miniart-enabled');
+          const miniArtForm = document.getElementById('mms-miniart-form');
+          const miniArtStyle = document.getElementById('mms-miniart-style');
+          const miniArtNote = document.getElementById('mms-miniart-note');
+          const syncMiniArtUI = () => {
+            const art = this.loadRoster().miniArt;
+            if (miniArtChk) miniArtChk.checked = art.enabled;
+            if (miniArtForm) miniArtForm.style.display = art.enabled ? 'block' : 'none';
+            if (miniArtStyle) miniArtStyle.value = art.style;
+            if (miniArtNote && miniArtNote.value !== art.note) miniArtNote.value = art.note;
+          };
+          if (miniArtChk) {
+            miniArtChk.addEventListener('change', () => {
+              const rr = this.loadRoster();
+              rr.miniArt.enabled = miniArtChk.checked;
+              this.saveRoster(rr);
+              syncMiniArtUI();
+              if (this.refreshCorePromptDisplay) this.refreshCorePromptDisplay();
+              this.applyRosterNow();
+            });
+          }
+          if (miniArtStyle) {
+            miniArtStyle.addEventListener('change', () => {
+              const rr = this.loadRoster();
+              rr.miniArt.style = miniArtStyle.value === 'parchment' ? 'parchment' : 'flat';
+              this.saveRoster(rr);
+              this.refreshMiniMapCard();
+            });
+          }
+          if (miniArtNote) {
+            miniArtNote.addEventListener('change', () => {
+              const rr = this.loadRoster();
+              rr.miniArt.note = miniArtNote.value.trim();
+              this.saveRoster(rr);
+            });
+          }
+          syncMiniArtUI();
         },
 
         // ---------- 固定模块列表表单（多模块共存） ----------
@@ -16764,8 +17352,9 @@ createCharacterEntry(text, categoryKey) {
           if (!msg || typeof msg.message !== 'string') return;
           this.messageText = msg.message;
 
-          // 独立大地图：加载聊天级缓存（$mms_map_art，所有楼层共享，零重复生成）
-          this.loadMapArt();
+          // 独立大/小地图：加载聊天级缓存（$mms_map_art / $mms_map_mini_art，所有楼层共享，零重复生成）
+          this.loadMapArt('big');
+          this.loadMapArt('mini');
 
           // 正文渲染（与旧版一致）
           const maintextContent = extractMaintext(this.messageText);
@@ -16888,10 +17477,17 @@ createCharacterEntry(text, categoryKey) {
                   if (bill) this.applyNewdayBill(bill);
                 } catch (e) { /* 忽略 */ }
               });
-              // 独立大地图更新（任意楼层生成完毕 → 本楼原地刷新底图与地标，不切标签页）
-              eventOn(MMS_EVENT_MAPART, () => {
-                this.loadMapArt();
-                this.refreshBigMapCard();
+              // 独立地图更新（任意楼层生成完毕 → 本楼原地刷新底图与地标，不切标签页；payload.kind 区分大小图）
+              eventOn(MMS_EVENT_MAPART, (payload) => {
+                const kind = payload && payload.kind;
+                if (kind !== 'mini') {
+                  this.loadMapArt('big');
+                  this.refreshBigMapCard();
+                }
+                if (kind !== 'big') {
+                  this.loadMapArt('mini');
+                  this.refreshMiniMapCard();
+                }
               });
               // 自动更新的唯一触发点：新AI楼层生成完毕（不是内容变化/swipe/编辑）
               const newMsgEv =
