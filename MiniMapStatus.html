@@ -4326,6 +4326,13 @@ window.MMS_IMAGE_DATA = {
           if (!mmsStoredImages.background || typeof mmsStoredImages.background !== 'object') {
             window.MMS_IMAGE_DATA.background = window.MMS_IMAGE_DATA_BASE.background;
           }
+        } else {
+          // 无快照（首次启动或已损坏）：把内置表原样落盘为基线快照——外部集成方
+          // （如 OpeningSetup / ShopBlock）只在已有快照上合并键值，基线使其永远有底可并；
+          // 基线内容与出厂表一致，读回显示零变化，「恢复为源码内置表」可清除重来。
+          try {
+            localStorage.setItem(window.MMS_IMG_STORE_KEY, JSON.stringify(window.MMS_IMAGE_DATA));
+          } catch (e2) { /* 存储不可用：跳过，本会话仍用内置表 */ }
         }
       } catch (e) {
         /* 快照损坏：弃用，走内置表 */
