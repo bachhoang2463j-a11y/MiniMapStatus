@@ -5436,7 +5436,7 @@ window.MMS = {
           this.saveMapArt(kind, prev, cur || null);
           this.refreshMapCard(kind);
           if (typeof eventEmit === 'function') {
-            try { eventEmit(MMS_EVENT_MAPART, {}); } catch (e) { /* 忽略 */ }
+            try { eventEmit(MMS_EVENT_MAPART, { kind: kind }); } catch (e) { /* 忽略 */ }
           }
           return true;
         },
@@ -6127,7 +6127,7 @@ window.MMS = {
                 st.busy = false;
                 this.refreshMapCard(kind);
                 if (typeof eventEmit === 'function') {
-                  try { eventEmit(MMS_EVENT_MAPART, {}); } catch (e) { /* 忽略 */ }
+                  try { eventEmit(MMS_EVENT_MAPART, { kind: kind }); } catch (e) { /* 忽略 */ }
                 }
                 alert(okMsg);
                 return true;

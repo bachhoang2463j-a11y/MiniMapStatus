@@ -5618,7 +5618,7 @@ window.MMS_IMAGE_DATA = {
           this.saveMapArt(prev, cur || null);
           this.refreshBigMapCard();
           if (typeof eventEmit === 'function') {
-            try { eventEmit(MMS_EVENT_MAPART, {}); } catch (e) { /* 忽略 */ }
+            try { eventEmit(MMS_EVENT_MAPART, { kind: 'big' }); } catch (e) { /* 忽略 */ }
           }
           return true;
         },
@@ -6248,7 +6248,7 @@ window.MMS_IMAGE_DATA = {
                 this.mapArtBusy = false;
                 this.refreshBigMapCard();
                 if (typeof eventEmit === 'function') {
-                  try { eventEmit(MMS_EVENT_MAPART, {}); } catch (e) { /* 忽略 */ }
+                  try { eventEmit(MMS_EVENT_MAPART, { kind: 'big' }); } catch (e) { /* 忽略 */ }
                 }
                 alert(okMsg);
                 return true;

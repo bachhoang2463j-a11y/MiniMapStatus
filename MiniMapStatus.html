@@ -4328,8 +4328,8 @@ window.MMS_IMAGE_DATA = {
           }
         } else {
           // 无快照（首次启动或已损坏）：把内置表原样落盘为基线快照——外部集成方
-          // （如 OpeningSetup / ShopBlock）只在已有快照上合并键值，基线使其永远有底可并；
-          // 基线内容与出厂表一致，读回显示零变化，「恢复为源码内置表」可清除重来。
+          // （如 ShopBlock 直读此 key 拿头像/立绘表）有底可读；基线内容与出厂表一致，
+          // 读回显示零变化，「恢复为源码内置表」可清除重来。
           try {
             localStorage.setItem(window.MMS_IMG_STORE_KEY, JSON.stringify(window.MMS_IMAGE_DATA));
           } catch (e2) { /* 存储不可用：跳过，本会话仍用内置表 */ }
@@ -4337,6 +4337,21 @@ window.MMS_IMAGE_DATA = {
       } catch (e) {
         /* 快照损坏：弃用，走内置表 */
       }
+
+      // 吸收 OpeningSetup 立绘补丁（openingsetup_portrait_patch_v1）：对方只写此独立键、
+      // 不碰共享快照，避免与其整表落盘竞态。合并进生效表并立即落盘快照，成功后清键——
+      // 清键是防复活：用户此后在图片管理删除该立绘并保存，下次启动不得再从补丁回来。
+      // 落盘失败则保留补丁键，下次启动重试吸收。
+      try {
+        const mmsPortraitPatch = JSON.parse(localStorage.getItem('openingsetup_portrait_patch_v1'));
+        if (mmsPortraitPatch && typeof mmsPortraitPatch === 'object' && mmsPortraitPatch.portrait && typeof mmsPortraitPatch.portrait === 'object') {
+          Object.assign(window.MMS_IMAGE_DATA.portrait, mmsPortraitPatch.portrait);
+          try {
+            localStorage.setItem(window.MMS_IMG_STORE_KEY, JSON.stringify(window.MMS_IMAGE_DATA));
+            localStorage.removeItem('openingsetup_portrait_patch_v1');
+          } catch (e2) { /* 落盘失败：本会话内存表已生效，补丁键留待下次启动重试 */ }
+        }
+      } catch (e) { /* 补丁损坏或读取失败：跳过 */ }
 
       // 生效表（快照或内置）的干净副本：供图片管理初始化工作副本（须在名册头像
       // boot 期合并进运行时表之前捕获，否则名册头像会混入编辑表并被写进本机快照）
@@ -12909,14 +12924,27 @@ createCharacterEntry(text, categoryKey) {
           try {
             if (typeof replaceVariables === 'function') {
               const existing = getVariables({ type: 'message', message_id: floorId }) || {};
+              // 并发写检测：本实例上次写此楼后 stat_data 已被其他写者改过（如 ShopBlock 结算直写），
+              // 本次整体替换会覆盖其改动——只告警不改写盘行为。首次写此楼（无台账）或旧数据
+              // 无 $mms_meta.ts 时不判；本实例同流程内的连环写（如结算内联写后再终写）台账自洽不误报
+              if (!this._floorWriteTs) this._floorWriteTs = {};
+              const curMeta = existing['$mms_meta'];
+              const curTs = curMeta && typeof curMeta.ts === 'number' ? curMeta.ts : null;
+              const lastSelf = this._floorWriteTs[floorId];
+              if (curTs !== null && typeof lastSelf === 'number' && curTs !== lastSelf) {
+                console.warn('[MMS] 检测到同楼并发写入：楼 ' + floorId + ' 的 stat_data 在本实例上次写盘后已被其他写者修改（meta.ts ' + lastSelf + ' → ' + curTs + '），本次写盘将覆盖其改动', curMeta);
+                this.setIndicator('error', '检测到并发写入（楼 ' + floorId + '）：本次写盘可能覆盖其他模块的改动，详见控制台');
+              }
               delete existing.__test_marker;
+              const writeTs = Date.now();
               const next = Object.assign({}, existing, {
                 stat_data: normalized,
                 // mesId：标记数据写入时的目标楼层——getVariables(message) 有向前继承语义，
                 // 后续楼层会原样读到本条 meta，靠 mesId 区分"本楼数据"与"继承的前楼数据"
-                $mms_meta: { hash: floorHash, ts: Date.now(), mesId: floorId },
+                $mms_meta: { hash: floorHash, ts: writeTs, mesId: floorId },
               });
               replaceVariables(next, { type: 'message', message_id: floorId });
+              this._floorWriteTs[floorId] = writeTs;
               this.broadcastSync('state', { floorId });
               return;
             }
@@ -12924,10 +12952,13 @@ createCharacterEntry(text, categoryKey) {
             console.warn('[MMS] replaceVariables 失败，回退到 insertOrAssign:', e);
           }
           // 降级：无 replaceVariables 时用 insertOrAssign（旧键可能残留）
+          const fbTs = Date.now();
           insertOrAssignVariables(
-            { stat_data: normalized, $mms_meta: { hash: floorHash, ts: Date.now(), mesId: floorId } },
+            { stat_data: normalized, $mms_meta: { hash: floorHash, ts: fbTs, mesId: floorId } },
             { type: 'message', message_id: floorId },
           );
+          if (!this._floorWriteTs) this._floorWriteTs = {};
+          this._floorWriteTs[floorId] = fbTs;
           this.broadcastSync('state', { floorId });
         },
 
