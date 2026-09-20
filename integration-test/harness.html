@@ -141,6 +141,8 @@ yesterday_bill:
       testIdempotency();
       group('独立小地图（miniArt，从独立LLM地图版移植）');
       testMiniArt();
+      group('楼层变量 swipe 槽兜底（同层 regenerate 后不再假清空）');
+      testSwipeFallback();
       group('NewDay.html 渲染与解析');
       testNewdayParse();
       finish();
@@ -160,7 +162,8 @@ yesterday_bill:
       mmsScript + '\n;return {' +
       ' mmsBuildNewdayResult, mmsParseAttrList, mmsIsCurMax, mmsApplyAttrCommands,' +
       ' mmsNormalizeName, mmsMatchOne, mmsCashCompute, mmsFindNameField, mmsAttrsToString,' +
-      ' mmsApplyRosterToState, mmsMergeState, mmsBuildSystemPrompt, mmsRenderMapArt };',
+      ' mmsApplyRosterToState, mmsMergeState, mmsBuildSystemPrompt, mmsRenderMapArt,' +
+      ' mmsPickFloorVarSlot, mmsIsStoryFragmentBlock };',
     );
     return sandbox(() => ({}), {}, docStub);
   }
@@ -397,6 +400,70 @@ yesterday_bill:
     });
     assert('事件：MMS_EVENT_MAPART payload 按 kind 分派（小地图生成不整刷大地图卡片）', () => {
       return /eventEmit\(MMS_EVENT_MAPART, \{ kind: kind \}\)/.test(mmsScript) && /payload && payload\.kind/.test(mmsScript);
+    });
+  }
+
+  // 楼层变量 swipe 槽兜底：酒馆助手的楼层变量按 variables[swipe_id] 存取且无向前继承，
+  // 同层 regenerate 后当前槽为空 → 旧版读出 {} → boot 拿正文碎片当整份状态 → 状态栏假清空
+  // （地点未知/时间未知/没有可用选项），世界书注入也被写成只剩行动选项。
+  // 断言两件事：① 槽选择与碎片判定两个纯函数 ② 读路径/ boot 的接线存在性。
+  function testSwipeFallback() {
+    if (!fns) return;
+    const pick = fns.mmsPickFloorVarSlot;
+    const frag = fns.mmsIsStoryFragmentBlock;
+    assert('导出：mmsPickFloorVarSlot / mmsIsStoryFragmentBlock 可从真实产物提取', () => {
+      return typeof pick === 'function' && typeof frag === 'function';
+    });
+
+    // ---------- ① 槽选择（现场复刻：楼 46 数据在槽 0，当前站在槽 1） ----------
+    assert('槽兜底：当前槽空 + 旧槽有数据 → 选旧槽（同层 regenerate 现场）', () => {
+      const bag = { stat_data: { 状态栏: { 地点: '📍 悉尼' } }, $mms_meta: { hash: 'h', ts: 111, mesId: 46 } };
+      const picked = pick([bag, undefined]);
+      return picked === bag;
+    });
+    assert('槽兜底：多槽都有数据 → 取 $mms_meta.ts 最大的一份', () => {
+      const a = { stat_data: { a: 1 }, $mms_meta: { ts: 5 } };
+      const b = { stat_data: { b: 2 }, $mms_meta: { ts: 9 } };
+      return pick([a, b]).stat_data.b === 2;
+    });
+    assert('槽兜底：无 ts 的旧槽（ts 记 -1）不压过有 ts 的槽', () => {
+      const old = { stat_data: { a: 1 } };
+      const newer = { stat_data: { b: 2 }, $mms_meta: { ts: 9 } };
+      return pick([old, newer]).stat_data.b === 2;
+    });
+    assert('槽兜底：全空 / 非数组 / 空槽对象 → null（退回原语义）', () => {
+      return pick([{}, {}]) === null && pick(null) === null && pick('x') === null && pick(undefined) === null;
+    });
+
+    // ---------- ② 正文碎片判定（actionFromStory 的 <Status_block>） ----------
+    assert('碎片判定：只有行动选项的正文块 → true（真机原文形态）', () => {
+      return frag({ 行动选项: { 名字: ' 团队行动', 选项: ['1. 🎲【潜行检定】…'] } }) === true;
+    });
+    assert('碎片判定：带「状态栏」包装层但只有行动选项 → true', () => {
+      return frag({ 状态栏: { 行动选项: { 名字: '团队行动', 选项: [] } } }) === true;
+    });
+    assert('碎片判定：含实质模块（日期和时间/地点/角色列表）→ false（旧格式楼层不误伤）', () => {
+      return frag({ 状态栏: { 日期和时间: '⏰ 1925年', 地点: '📍 悉尼' } }) === false &&
+        frag({ 状态栏: { 角色列表: [{ 角色: { 名字: 'a' } }] } }) === false;
+    });
+    assert('碎片判定：旧格式全量块（实质模块 + 行动选项）→ false', () => {
+      return frag({ 状态栏: { 日期和时间: '⏰ 1925年', 地点: '📍 悉尼', 角色列表: [], 行动选项: { 名字: 'x', 选项: [] } } }) === false;
+    });
+    assert('碎片判定：null / 数组 / 字符串 / 空对象 → false（保守走旧路径）', () => {
+      return frag(null) === false && frag([]) === false && frag('行动选项') === false && frag({}) === false;
+    });
+
+    // ---------- ③ 接线存在性 ----------
+    assert('接线：readFloorVars 在当前槽无 stat_data 时走 mmsPickFloorVarSlot 兜底', () => {
+      return /readFloorVars\(floorId\) \{[\s\S]{0,600}?mmsPickFloorVarSlot\(this\.readFloorVarSlots\(floorId\)\)/.test(mmsScript);
+    });
+    assert('接线：readFloorVarSlots 经 window.parent.SillyTavern.getContext().chat 取同楼全部槽', () => {
+      return /readFloorVarSlots\(floorId\) \{[\s\S]{0,600}?window\.parent[\s\S]{0,400}?ctx\.chat\[floorId\][\s\S]{0,200}?msg\.variables/.test(mmsScript);
+    });
+    assert('接线：boot 碎片守卫（legacyFragment）先于旧格式渲染，且不阻断 findPrevState', () => {
+      return /const legacyFragment = mmsIsStoryFragmentBlock\(legacyParsed\)/.test(mmsScript) &&
+        /if \(legacyYaml && !legacyFragment\)/.test(mmsScript) &&
+        /const prev = await this\.findPrevState\(floorId\)[\s\S]{0,900}?\} else if \(legacyYaml\) \{/.test(mmsScript);
     });
   }
 

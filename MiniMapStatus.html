@@ -9908,6 +9908,39 @@ createCharacterEntry(text, categoryKey) {
         return null;
       }
 
+      // 正文 <Status_block> 是否只是「行动选项」碎片（actionFromStory 模式下正文 AI 只输出这一块）：
+      // 碎片不构成整份状态——当旧格式楼层渲染时渲染器会把「行动选项」自己当根节点，导致
+      // 地点/时间/角色全空（"假清空"）。判定：剥掉 状态栏 包装层后没有任何实质模块键
+      function mmsIsStoryFragmentBlock(parsed) {
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+        const wrap = parsed['状态栏'];
+        const inner = wrap && typeof wrap === 'object' && !Array.isArray(wrap) ? wrap : parsed;
+        const keys = Object.keys(inner);
+        if (!keys.length) return false;
+        return !keys.some((k) =>
+          MMS_KNOWN_MODULES.some(
+            (name) => name !== '行动选项' && mmsNormalizeName(k) === mmsNormalizeName(name),
+          ),
+        );
+      }
+
+      // 楼层变量槽选择（swipe 分槽兜底）：酒馆助手的楼层变量按 variables[swipe_id] 存取，
+      // 同层 regenerate 后当前槽为空、数据只留在旧槽。取「最近写入（$mms_meta.ts 最大）」的一份
+      function mmsPickFloorVarSlot(slots) {
+        if (!Array.isArray(slots)) return null;
+        let best = null;
+        let bestTs = -1;
+        for (const bag of slots) {
+          if (!bag || typeof bag !== 'object' || !bag.stat_data) continue;
+          const ts = bag.$mms_meta && typeof bag.$mms_meta.ts === 'number' ? bag.$mms_meta.ts : -1;
+          if (!best || ts > bestTs) {
+            best = bag;
+            bestTs = ts;
+          }
+        }
+        return best;
+      }
+
       // 顶层模块键名去重：归一化相等的键（如「🏟️据点」与「据点」）合并为一个，
       // 与 preferNames 精确相等的键名优先保留；被弃键的缺失字段补齐进保留键后删除。
       // 返回是否有变化（原地修改 root）
@@ -12898,9 +12931,29 @@ createCharacterEntry(text, categoryKey) {
         readFloorVars(floorId) {
           try {
             if (!this.env.hasVarsApi || floorId == null) return null;
-            return getVariables({ type: 'message', message_id: floorId }) || null;
+            const cur = getVariables({ type: 'message', message_id: floorId }) || null;
+            if (cur && cur.stat_data) return cur;
+            // swipe 槽兜底：同层 regenerate 后当前槽为空、数据还在旧槽里（酒馆助手只暴露当前槽），
+            // 读不到会被误判成"本楼无状态"→ 状态栏假清空、编辑数据/注入拿到空数据
+            return mmsPickFloorVarSlot(this.readFloorVarSlots(floorId)) || cur;
           } catch (e) {
             console.warn('[MMS] 读取楼层变量失败:', e);
+            return null;
+          }
+        },
+
+        // 同楼全部 swipe 槽：酒馆助手没有暴露非当前槽，只能从原生 chat 数组取；
+        // 拿不到（非酒馆环境/跨域）时返回 null，调用方按原语义降级
+        readFloorVarSlots(floorId) {
+          try {
+            const pw = typeof window !== 'undefined' ? window.parent : null;
+            const ctx =
+              pw && pw.SillyTavern && typeof pw.SillyTavern.getContext === 'function'
+                ? pw.SillyTavern.getContext()
+                : null;
+            const msg = ctx && Array.isArray(ctx.chat) ? ctx.chat[floorId] : null;
+            return msg && Array.isArray(msg.variables) ? msg.variables : null;
+          } catch (e) {
             return null;
           }
         },
@@ -17487,15 +17540,23 @@ createCharacterEntry(text, categoryKey) {
             if (this.isLastAssistantFloor) this.ensureInjection(state, floorId);
           } else {
             const legacyYaml = extractStatusBlock(this.messageText);
+            // 正文块解析一次，供"旧格式楼层"与下面的碎片守卫共用
+            let legacyParsed = null;
+            let legacyState = null;
             if (legacyYaml) {
-              // 旧格式楼层：解析 → 规范化 → 渲染（自动转换仅在最新AI楼执行一次）
-              let legacyState = null;
               try {
-                const parsed = jsyaml.load(legacyYaml);
-                legacyState = parsed ? mmsNormalizeState(parsed) : null;
+                legacyParsed = jsyaml.load(legacyYaml);
+                legacyState = legacyParsed ? mmsNormalizeState(legacyParsed) : null;
               } catch (e) {
                 console.warn('[MMS] 旧格式状态解析失败，按原样渲染:', e);
               }
+            }
+            // 碎片守卫：正文块只有「行动选项」这类碎片时（actionFromStory 模式）不构成整份状态，
+            // 否则渲染器会把「行动选项」当根节点 → 地点/时间/角色全空。此时先回溯继承上一楼，
+            // 本轮行动选项由 renderFromState → applyStoryAction 自动叠加
+            const legacyFragment = mmsIsStoryFragmentBlock(legacyParsed);
+            if (legacyYaml && !legacyFragment) {
+              // 旧格式楼层：解析 → 规范化 → 渲染（自动转换仅在最新AI楼执行一次）
               if (legacyState) {
                 this.renderFromState(legacyState);
               } else {
@@ -17512,6 +17573,15 @@ createCharacterEntry(text, categoryKey) {
                 // 正常聊天流的主要触发点：MESSAGE_RECEIVED 事件先于本 iframe 渲染发出
                 // （事件到达时本楼 iframe 尚不存在，旧楼 iframe 又不处理别楼 id），
                 // 所以"新AI楼渲染完成"这个时点由 boot 自己发起自动更新
+                this.maybeAutoUpdate();
+              } else if (legacyYaml) {
+                // 整条聊天确实没有任何状态：退回"按正文块渲染"的旧行为
+                if (legacyState) {
+                  this.renderFromState(legacyState);
+                } else {
+                  updateYamlDataSource(legacyYaml);
+                  setTimeout(() => reRenderStatusBar(), 100);
+                }
                 this.maybeAutoUpdate();
               } else {
                 const t = document.getElementById('time-display');
