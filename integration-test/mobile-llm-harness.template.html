@@ -121,6 +121,22 @@
     features: [{ type: 'castle', at: [500, 258] }],
   };
 
+  // mock 修补 LLM 输出：带前后废话 + 已补上缺失的「行动选项」（检验 cleanOutput 的取块行为）
+  const mockRepairBody = [
+    '状态栏:',
+    '  日期和时间: "第1天 08:00"',
+    '  地点: "酒店套房"',
+    '  角色列表:',
+    '    - 名字: "弗兰克"',
+    '      属性: "[❤️HP:80/100]"',
+    '  行动选项:',
+    '    名字: "弗兰克"',
+    '    选项:',
+    '      - "1. 检查房门"',
+    '      - "2. 上床休息"',
+  ].join('\n');
+  const mockRepairReply = '已为您修复：\n<Status_block>\n' + mockRepairBody + '\n</Status_block>\n希望有帮助。';
+
   // 新版 roster schema：双开关默认开 + 每图 note/style
   const store = {
     chat: {
@@ -143,9 +159,27 @@
     global: {}
   };
   window.__getStore = function () { return STORE; };
+  var MSG = { message: ${JSON.stringify(mockMessage)}, swipe_id: 0, swipes: [${JSON.stringify(mockMessage)}], role: 'assistant', is_user: false, message_id: 0 };
+  window.__getMessage = function () { return MSG; };
   window.getCurrentMessageId = function () { return 0; };
-  window.getChatMessages = function (id) {
-    return [{ message: ${JSON.stringify(mockMessage)}, role: 'assistant', is_user: false }];
+  window.getChatMessages = function (id, opt) {
+    var base = { message: MSG.message, role: 'assistant', is_user: false, message_id: 0 };
+    if (opt && opt.include_swipes) {
+      base.swipe_id = MSG.swipe_id;
+      base.swipes = MSG.swipes.slice();
+    }
+    return [base];
+  };
+  window.setChatMessages = function (arr, opt) {
+    (arr || []).forEach(function (m) {
+      if (typeof m.message === 'string') {
+        MSG.message = m.message;
+        MSG.swipes[MSG.swipe_id] = m.message;
+      }
+      if (typeof m.swipe_id === 'number') MSG.swipe_id = m.swipe_id;
+    });
+    window.__harnessLog.push('setChatMessages:' + (arr || []).length);
+    return Promise.resolve();
   };
   window.getVariables = function (opt) { return JSON.parse(JSON.stringify(opt && opt.type === 'global' ? STORE.global : STORE.chat)); };
   window.insertOrAssignVariables = function (obj, opt) {
@@ -158,9 +192,19 @@
   window.eventOn = function (name, cb) { window.__harnessLog.push('eventOn:' + name); };
   window.eventEmit = function (name, data) { window.__harnessLog.push('eventEmit:' + name); };
   window.generateRawCalls = [];
+  window.__repairReply = ${JSON.stringify(mockRepairReply)};
+  window.__repairFailTimes = 0;
   window.generateRaw = function (config) {
     window.generateRawCalls.push(config);
-    var isMini = /-mini-/.test(String(config.generation_id || ''));
+    var gid = String(config.generation_id || '');
+    if (gid.indexOf('mms-repair-') === 0) {
+      if (window.__repairFailTimes > 0) {
+        window.__repairFailTimes--;
+        return Promise.reject(new Error('mock 调用失败'));
+      }
+      return Promise.resolve(window.__repairReply);
+    }
+    var isMini = /-mini-/.test(gid);
     return Promise.resolve(JSON.stringify(isMini ? ${JSON.stringify(mockMiniJson)} : ${JSON.stringify(mockBigJson)}));
   };
   window.alert = function (msg) { window.__harnessLog.push('alert:' + String(msg).slice(0, 80)); };
@@ -250,13 +294,13 @@
       assert('再次点击收起', () => /^\+\d+$/.test(btn.textContent.trim()));
     })();
 
-    group('五、设置面板（三 tab，地图开关融入 LLM地图）');
+    group('五、设置面板（四 tab，地图开关融入 LLM地图）');
     click(q('#settings-btn'));
     await sleep(100);
     assert('设置面板就地展开（主视图隐藏）', () => q('#settings-panel').style.display === 'block' && q('#mms-main-view').style.display === 'none');
-    assert('恰好 3 个页签', () => qa('.setting-tab-btn').length === 3);
-    assert('页签名：界面与交互/LLM地图/图片管理', () =>
-      ['界面与交互', 'LLM地图', '图片管理'].every((n) => qa('.setting-tab-btn').some((b) => b.textContent.includes(n))));
+    assert('恰好 4 个页签', () => qa('.setting-tab-btn').length === 4);
+    assert('页签名：界面与交互/LLM地图/LLM修补/图片管理', () =>
+      ['界面与交互', 'LLM地图', 'LLM修补', '图片管理'].every((n) => qa('.setting-tab-btn').some((b) => b.textContent.includes(n))));
     assert('主题圆点 6 个', () => qa('.theme-dot-btn').length === 6);
     click(q('#tab-btn-ai'));
     await sleep(120);
@@ -449,6 +493,181 @@
         assert('恢复内置后立绘回到 20 条', () => qa('.mms-img-row').length === 20);
         assert('本机快照已清除', () => localStorage.getItem('mms_img_data_llm_v1') === null);
       }
+    }
+
+    group('十一、独立LLM修补（诊断 / 预览 / 写回 / 撤销 / 手工编辑 / 提示词）');
+    click(q('#settings-close'));
+    await sleep(150);
+
+    const repBtn = q('#mms-repair-btn');
+    const repIcon = () => (repBtn.querySelector('i').className || '');
+    assert('右上角修补按钮默认态为「修补」（fa-magic）', () => !!repBtn && repIcon().includes('fa-magic'));
+    assert('铅笔编辑按钮存在且可见', () => !!q('#mms-edit-data-btn'));
+    assert('mock 楼层缺「行动选项」被诊断出异常 → 按钮高亮告警', () =>
+      repBtn.classList.contains('alert') && repBtn.title.includes('行动选项'));
+    assert('默认提示词源码级无代码围栏（会提前闭合消息里的代码块）', () => {
+      const i = WIDGET_HTML.indexOf('MMS_REPAIR_DEFAULT_PROMPT');
+      return i > -1 && !WIDGET_HTML.slice(i, i + 4000).includes('```');
+    });
+
+    { // 修补：mock 首次调用失败一次 → 重试成功；返回带前后废话的块 → cleanOutput 取块
+      win.__repairFailTimes = 1;
+      const before = win.generateRawCalls.length;
+      click(repBtn);
+      await sleep(1800); // 含一次 1s 退避
+      assert('API 失败自动重试（共 2 次 generateRaw）', () => win.generateRawCalls.length === before + 2);
+      const call = win.generateRawCalls[win.generateRawCalls.length - 1];
+      assert('generation_id 以 mms-repair- 前缀发起', () => String(call.generation_id).indexOf('mms-repair-') === 0);
+      assert('系统提示词＝内置默认（角色定位 + 参考模板 + 只输出块本身的纪律）', () => {
+        const sys = call.ordered_prompts[0].content;
+        return call.ordered_prompts[0].role === 'system' &&
+          sys.includes('YAML 修补专家') &&
+          sys.includes('只输出修补后的 <Status_block> 块本身') &&
+          sys.includes('状态栏:') && sys.includes('用户列表') && sys.includes('行动选项');
+      });
+      assert('用户消息按三段素材注入（待修补内容/本轮正文/报错信息）', () => {
+        const u = call.ordered_prompts[1].content;
+        return call.ordered_prompts[1].role === 'user' &&
+          u.includes('<待修补内容>') && u.includes('</待修补内容>') &&
+          u.includes('<本轮正文>') && u.includes('正文测试段落') &&
+          u.includes('<报错信息>') && u.includes('行动选项');
+      });
+      assert('cleanOutput 剥掉前后废话，只取 <Status_block> 块', () =>
+        q('#yaml-data-source').textContent.trim() === mockRepairBody.trim());
+      assert('预览直接更新界面（选项区渲染出修补后的选项）', () =>
+        qa('#options-list li').map((li) => li.textContent).join('|').includes('检查房门'));
+      assert('预览后按钮切到「保存」态（fa-save + state-save）', () =>
+        repIcon().includes('fa-save') && repBtn.classList.contains('state-save'));
+      assert('预览未写回正文（mock 楼层正文仍是原始文本）', () => !win.__getMessage().message.includes('检查房门'));
+    }
+
+    { // 保存：只替换 Status_block 区间，正文与其它内容一字不动
+      click(repBtn);
+      await sleep(700);
+      const msg = win.__getMessage().message;
+      assert('写回正文：块换为修补结果，maintext/立绘标记原样保留', () =>
+        msg.includes('检查房门') && msg.includes('<maintext>') &&
+        msg.includes('正文测试段落') && msg.includes('【立绘弗兰克】'));
+      assert('写回后按钮切到「撤销」态（fa-times + state-undo）', () =>
+        repIcon().includes('fa-times') && repBtn.classList.contains('state-undo'));
+      assert('撤销备份写入聊天变量 $mms_repair_undo（存修补前原始块、不含新选项）', () => {
+        const u = win.__getStore().chat.$mms_repair_undo;
+        return !!u && Number(u.floorId) === 0 &&
+          typeof u.block === 'string' && u.block.includes('角色列表') && !u.block.includes('检查房门');
+      });
+    }
+
+    { // 撤销：单步还原
+      click(repBtn);
+      await sleep(700);
+      assert('撤销还原正文（回到修补前的块）', () => {
+        const msg = win.__getMessage().message;
+        return !msg.includes('检查房门') && msg.includes('角色列表');
+      });
+      assert('撤销备份已清除（$mms_repair_undo 为 null）', () => win.__getStore().chat.$mms_repair_undo === null);
+      assert('撤销后按钮回到「修补」态（fa-magic）', () => repIcon().includes('fa-magic'));
+    }
+
+    { // 输出过不了解析门槛：不套用坏结果，转交手工编辑面板
+      const logBefore = win.__harnessLog.length;
+      win.__repairReply = '这不是 YAML，也没有块标签';
+      click(repBtn);
+      await sleep(800);
+      assert('无法解析的输出：弹提示不套用', () =>
+        win.__harnessLog.slice(logBefore).some((l) => String(l).includes('无法解析为合法 YAML')));
+      assert('无法解析的输出：自动打开手工编辑面板并预填原始输出', () =>
+        q('#mms-edit-mode').style.display === 'block' &&
+        q('#mms-yaml-editor').value.includes('这不是 YAML'));
+      assert('未产生预览（按钮仍是修补态）', () => repIcon().includes('fa-magic'));
+      click(q('#mms-edit-cancel'));
+      await sleep(150);
+      assert('取消编辑返回主视图', () =>
+        q('#mms-edit-mode').style.display !== 'block' && q('#mms-main-view').style.display === 'block');
+      win.__repairReply = mockRepairReply;
+    }
+
+    { // 手工编辑面板：校验 + 行号提示 + 保存即写回
+      click(q('#mms-edit-data-btn'));
+      await sleep(200);
+      assert('点铅笔：整栏切到编辑面板', () =>
+        q('#mms-edit-mode').style.display === 'block' && q('#mms-main-view').style.display === 'none');
+      assert('编辑框预填本楼 Status_block 原文', () => q('#mms-yaml-editor').value.includes('角色列表'));
+
+      const editor = q('#mms-yaml-editor');
+      editor.value = '状态栏: [未闭合的流式序列';
+      click(q('#mms-edit-save'));
+      await sleep(300);
+      assert('非法 YAML：错误行带原因与行号，面板保持打开', () => {
+        const err = q('#mms-edit-error');
+        return err.style.display === 'block' && err.textContent.includes('YAML 错误') &&
+          q('#mms-edit-mode').style.display === 'block';
+      });
+
+      editor.value = [
+        '状态栏:',
+        '  日期和时间: "第2天 09:00"',
+        '  地点: "手工修正"',
+        '  行动选项:',
+        '    名字: "弗兰克"',
+        '    选项:',
+        '      - "1. 手工选项"',
+      ].join('\n');
+      click(q('#mms-edit-save'));
+      await sleep(500);
+      assert('合法 YAML：写回正文并关闭面板', () =>
+        q('#mms-edit-mode').style.display !== 'block' && win.__getMessage().message.includes('手工选项'));
+      assert('手工保存同样留下撤销点', () => {
+        const u = win.__getStore().chat.$mms_repair_undo;
+        return !!u && typeof u.block === 'string' && u.block.includes('角色列表');
+      });
+      click(repBtn); // 撤销回修补前，同时把按钮复位成修补态
+      await sleep(700);
+      assert('按钮撤销手工编辑结果', () => !win.__getMessage().message.includes('手工选项'));
+    }
+
+    { // 提示词页签：默认预填 / 自定义整个替换 / 清空回默认
+      click(q('#settings-btn'));
+      await sleep(150);
+      click(q('#tab-btn-repair'));
+      await sleep(200);
+      assert('切到 LLM修补页签（面包屑更新）', () => q('#settings-current-tab-name').textContent.includes('LLM修补'));
+      const ta = q('#mms-repair-prompt');
+      assert('提示词框预填内置默认提示词', () =>
+        !!ta && ta.value.includes('YAML 修补专家') && ta.value.includes('用户列表') && ta.value.includes('行动选项'));
+      assert('默认态提示文案', () => q('#mms-repair-prompt-hint').textContent.includes('内置默认'));
+
+      ta.value = '你是修补器。只输出块。';
+      ta.dispatchEvent(new Event('blur'));
+      await sleep(250);
+      assert('自定义提示词写入全局变量 $mms_repair_prompt', () => {
+        const g = win.__getStore().global.$mms_repair_prompt;
+        return !!g && g.prompt === '你是修补器。只输出块。';
+      });
+
+      click(q('#settings-close'));
+      await sleep(150);
+      click(repBtn);
+      await sleep(700);
+      assert('自定义提示词整个替换系统提示词（默认文案不再出现）', () => {
+        const c = win.generateRawCalls[win.generateRawCalls.length - 1];
+        return c.ordered_prompts[0].content === '你是修补器。只输出块。' &&
+          c.ordered_prompts[1].content.includes('<待修补内容>');
+      });
+
+      click(q('#settings-btn'));
+      await sleep(150);
+      click(q('#tab-btn-repair'));
+      await sleep(200);
+      const ta2 = q('#mms-repair-prompt');
+      ta2.value = '';
+      ta2.dispatchEvent(new Event('blur'));
+      await sleep(250);
+      assert('清空输入框即回退内置默认提示词', () => {
+        const g = win.__getStore().global.$mms_repair_prompt;
+        return !!g && g.prompt === '' && q('#mms-repair-prompt-hint').textContent.includes('内置默认');
+      });
+      click(q('#settings-close'));
+      await sleep(150);
     }
 
     finish();

@@ -1834,12 +1834,44 @@ function buildPortraitHTML(roleName, portraitUrl) {
         position: relative;
       }
       #mms-header-bar .mms-header-info {
-        padding-right: 2.75rem;
+        padding-right: 5.6rem;
       }
-      #mms-header-bar #settings-btn {
+      /* 操作按钮组：三个按钮统一绝对定位在右上角，避免各自定位互相重叠 */
+      #mms-header-bar .mms-header-actions {
         position: absolute;
         top: 0.45rem;
         right: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+      }
+      /* 修补按钮三态配色：常态灰 / 待写回=主色 / 已写回=琥珀（图标由 JS 切换） */
+      #mms-repair-btn.state-save {
+        color: #b9a2f7;
+        border-color: rgba(157, 124, 245, 0.65) !important;
+      }
+      #mms-repair-btn.state-undo {
+        color: #ffd35c;
+        border-color: rgba(255, 211, 92, 0.65) !important;
+      }
+      /* 检测到状态块异常：发光提醒（可点击修补） */
+      #mms-repair-btn.alert {
+        color: #ffd35c;
+        border-color: #ffd35c !important;
+        animation: mms-repair-glow 1.6s ease-in-out infinite;
+      }
+      @keyframes mms-repair-glow {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(255, 211, 92, 0); }
+        50% { box-shadow: 0 0 10px 2px rgba(255, 211, 92, 0.55); }
+      }
+      #mms-repair-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        animation: none;
+      }
+      #mms-edit-error {
+        white-space: pre-wrap;
+        word-break: break-all;
       }
 
       .mms-btn {
@@ -2408,20 +2440,38 @@ function buildPortraitHTML(roleName, portraitUrl) {
           id="mms-header-bar"
           class="bg-gradient-to-r from-primary/20 to-primary/5 px-4 py-2.5 rounded-t-3xl border-b border-gray-700/20 theme-transition"
         >
-          <!-- 日期和地点信息（右侧留白给固定定位的设置按钮） -->
+          <!-- 日期和地点信息（右侧留白给固定定位的按钮组） -->
           <div class="mms-header-info flex flex-wrap items-center gap-x-4 text-sm text-gray-300">
             <span id="location-display" class="whitespace-nowrap">加载中...</span>
             <span id="time-display" class="whitespace-nowrap">加载中...</span>
           </div>
 
-          <!-- 设置按钮：绝对定位固定右上角，长文本不再将其挤出小屏视口 -->
-          <button
-            id="settings-btn"
-            class="theme-btn rounded-full border border-gray-700/50 hover:bg-primary/20 transition-colors flex-shrink-0"
-            title="设置"
-          >
-            <i class="fa fa-cog"></i>
-          </button>
+          <!-- 操作按钮组：绝对定位固定右上角，长文本不再将其挤出小屏视口 -->
+          <div class="mms-header-actions">
+            <!-- 修补：三态切换（修补 → 保存 → 撤销），检测到异常时高亮 -->
+            <button
+              id="mms-repair-btn"
+              class="theme-btn rounded-full border border-gray-700/50 hover:bg-primary/20 transition-colors flex-shrink-0"
+              title="独立LLM修补状态块"
+            >
+              <i class="fa fa-magic"></i>
+            </button>
+            <!-- 编辑状态数据（YAML）：整栏切换到手工编辑面板 -->
+            <button
+              id="mms-edit-data-btn"
+              class="theme-btn rounded-full border border-gray-700/50 hover:bg-primary/20 transition-colors flex-shrink-0"
+              title="编辑状态数据（YAML）"
+            >
+              <i class="fa fa-pencil"></i>
+            </button>
+            <button
+              id="settings-btn"
+              class="theme-btn rounded-full border border-gray-700/50 hover:bg-primary/20 transition-colors flex-shrink-0"
+              title="设置"
+            >
+              <i class="fa fa-cog"></i>
+            </button>
+          </div>
         </div>
 
         <!-- 文章正文区域 -->
@@ -2476,6 +2526,50 @@ function buildPortraitHTML(roleName, portraitUrl) {
       </div>
     </div>
 
+    <!-- 状态数据手工编辑模式（整栏切换，与设置面板同级） -->
+    <div id="mms-edit-mode" class="w-full px-1.5 py-4" style="display: none">
+      <div
+        class="status-block mb-4 rounded-3xl shadow-lg overflow-hidden border border-gray-700/30 theme-transition w-full"
+      >
+        <div
+          class="bg-gradient-to-r from-primary/20 to-primary/5 px-4 py-2.5 rounded-t-3xl border-b border-gray-700/20 theme-transition"
+        >
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-semibold text-gray-300 flex items-center">
+              <i class="fa fa-pencil text-primary mr-2"></i>编辑状态数据 (YAML)
+            </span>
+            <span class="text-xs text-gray-400">保存时校验格式，错误会提示行号</span>
+          </div>
+        </div>
+        <div class="p-3">
+          <textarea
+            id="mms-yaml-editor"
+            spellcheck="false"
+            rows="18"
+            class="form-input w-full text-xs rounded-lg p-3 resize-y"
+            style="min-height: 240px; font-family: ui-monospace, monospace; line-height: 1.5"
+          ></textarea>
+          <div id="mms-edit-error" class="text-xs text-red-400 mt-2 font-mono" style="display: none"></div>
+          <div class="flex justify-end gap-2 mt-3">
+            <button
+              id="mms-edit-cancel"
+              class="px-3 py-1.5 rounded-lg border border-gray-600/50 text-gray-300 text-sm hover:bg-gray-700/30 transition-colors"
+              type="button"
+            >
+              取消
+            </button>
+            <button
+              id="mms-edit-save"
+              class="px-3 py-1.5 rounded-lg bg-primary text-white text-sm hover:opacity-90 transition-colors"
+              type="button"
+            >
+              保存
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 错误弹窗 -->
     <div id="error-modal" class="settings-panel">
       <div class="settings-content theme-transition">
@@ -2500,7 +2594,14 @@ function buildPortraitHTML(roleName, portraitUrl) {
           </div>
         </div>
 
-        <div class="flex justify-end">
+        <div class="flex justify-end gap-2">
+          <button
+            id="error-repair"
+            class="px-2 py-1 rounded-lg bg-primary text-white transition-colors hover:opacity-90"
+            type="button"
+          >
+            <i class="fa fa-magic mr-1"></i>独立LLM修补
+          </button>
           <button
             id="error-confirm"
             class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
@@ -2541,6 +2642,9 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </button>
             <button id="tab-btn-ai" class="pb-2 setting-tab-btn hover:text-gray-200 shrink-0" type="button">
               <i class="fa fa-magic mr-1"></i>LLM地图
+            </button>
+            <button id="tab-btn-repair" class="pb-2 setting-tab-btn hover:text-gray-200 shrink-0" type="button">
+              <i class="fa fa-crosshairs mr-1"></i>LLM修补
             </button>
             <button id="tab-btn-images" class="pb-2 setting-tab-btn hover:text-gray-200 shrink-0" type="button">
               <i class="fa fa-picture-o mr-1"></i>图片管理
@@ -2745,6 +2849,37 @@ function buildPortraitHTML(roleName, portraitUrl) {
               开关开启后：地图卡片由上方绘图 AI 生成「布局+地标」语义 JSON（约 1K tokens/次，每个聊天首次手动生成，之后缓存零开销），
               本地渲染成图并缓存到聊天变量；小地图=当前场景近景材质图（室内木地板青砖/野外草地雪地岩地/现代大理石橡胶垫，按场景类型选材质），
               大地图=区域全局抽象地理图。生成与更新按钮在地图卡片上（更新=增量合并保留旧图，重绘=整图重来），风格可随时免费切换。
+            </p>
+          </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- Tab 3：LLM修补（状态块修补提示词；修补入口在状态栏右上角按钮） -->
+        <!-- ============================================================ -->
+        <div id="tab-content-repair" class="p-3.5 space-y-3" style="display: none">
+          <div class="settings-group">
+            <label class="settings-label">修补提示词</label>
+            <p class="settings-hint">
+              状态栏右上角按钮在检测到异常时高亮（YAML 解析失败，或时间/地点/行动选项未被识别），点击即用下面这段提示词调用独立 LLM 修补。
+              留空则使用内置默认提示词；一旦填入，就<b>整个替换</b>默认系统提示词——默认里的输出格式要求与字段关键词规则也会一起失效，请自己写全。
+            </p>
+            <div class="mms-field">
+              <textarea
+                id="mms-repair-prompt"
+                rows="14"
+                spellcheck="false"
+                style="font-family: ui-monospace, monospace; line-height: 1.5"
+              ></textarea>
+              <p class="settings-hint" id="mms-repair-prompt-hint">当前状态：使用内置默认提示词</p>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <label class="settings-label">随提示词一起发送的素材（程序注入，不可修改）</label>
+            <p class="settings-hint">
+              &lt;待修补内容&gt; — 本楼最后一个 &lt;Status_block&gt; 块的原文，逐字未加工<br />
+              &lt;本轮正文&gt; — 本楼 &lt;maintext&gt; 正文，供推断缺失字段用<br />
+              &lt;报错信息&gt; — YAML 解析报错原文，或未被识别的字段名
             </p>
           </div>
         </div>
@@ -3779,6 +3914,7 @@ window.MMS_IMAGE_DATA = {
       const MMS_SETTING_TAB_NAMES = {
         theme: '界面与交互',
         ai: 'LLM地图',
+        repair: 'LLM修补',
         images: '图片管理',
       };
 
@@ -3831,6 +3967,8 @@ window.MMS_IMAGE_DATA = {
         if (tabKey === 'images' && typeof renderImageList === 'function') {
           renderImageList();
         }
+        // 切到 LLM修补时按最新变量回填提示词输入框
+        if (tabKey === 'repair') MMSRepair.syncPromptField();
         const titleSpan = document.getElementById('settings-current-tab-name');
         if (titleSpan) titleSpan.textContent = MMS_SETTING_TAB_NAMES[tabKey] || '设置';
       }
@@ -6487,18 +6625,9 @@ window.MMS = {
           this.elements.locationDisplay.textContent = locationField ? rootData[locationField] : '📍 地点未知';
         }
 
+        // 字段识别规则与 MMSRepair 的诊断共用一处实现（默认提示词里的关键词表要对得上）
         findFieldByKeywords(data, keywords) {
-          if (!data || typeof data !== 'object') return null;
-
-          const fields = Object.keys(data);
-          for (const field of fields) {
-            for (const keyword of keywords) {
-              if (field.toLowerCase().includes(keyword.toLowerCase())) {
-                return field;
-              }
-            }
-          }
-          return null;
+          return mmsFindFieldByKeywords(data, keywords);
         }
 
         renderCharacterTabs(rootData) {
@@ -7100,6 +7229,624 @@ createCharacterEntry(text, categoryKey) {
         }
       }
 
+      // ============================================================
+      // 独立LLM修补：状态块格式修复
+      // 入口＝状态栏右上角按钮三态（修补 → 保存 → 撤销），另配整栏 YAML 手工编辑面板。
+      // 数据仍从正文直读：修补结果先原地预览，玩家确认后才写回本楼正文。
+      // ============================================================
+      const MMS_REPAIR_PROMPT_KEY = '$mms_repair_prompt'; // global：{ prompt: string }
+      const MMS_REPAIR_UNDO_KEY = '$mms_repair_undo'; // chat：{ floorId, swipeId, block }
+
+      // 默认修补提示词。用数组 join 组装：
+      //  - 不用模板字符串（提示词里的 ${...} 是给 LLM 看的占位说明，不能被 JS 插值）；
+      //  - 源码内不出现行首裸三反引号（build_regex.mjs 有围栏纪律断言，会把消息里的
+      //    代码块提前闭合，整个小部件渲染炸掉）。
+      const MMS_REPAIR_DEFAULT_PROMPT = [
+        '你是一个 YAML 修补专家。检查下面的状态块，修复其中的缩进错误和常见词条缺失问题。',
+        '要求：全局视角；所有属性值用双引号 "" 包裹；物品统一用单独的 [] 包裹名称/数量/备注（如 [(已损坏)M1911x2][.45子弹x100]）',
+        '',
+        '参考模板:',
+        '<Status_block>',
+        '状态栏:',
+        '  日期和时间: "${示例：⏰ 1921年 · 6月15日 · 18:00 · 潜伏期}"',
+        '  地点: "${示例：📍 唐人街 · 回春堂阁楼}"',
+        '  用户列表:',
+        '    - 用户:',
+        '        名字: "${对应Emoji + 名字，示例：🔮埃利奥特}"',
+        '        属性: "${[❤️HP:当前/上限][🔮MP:当前/上限][🛡️Armor:数值][🧠SAN:当前/上限]}"',
+        '        穿着: "${👔 当前穿着描述，包含衣物状态}"',
+        '        内心: "${💭 当前在场角色内心活动}"',
+        '        物品: "${[💼] 随身物品名称，用[]包裹}"',
+        '    - 用户: # 在场NPC模板',
+        '        名字: "${👥人物}"',
+        '        NPC:',
+        '          - "${合适的emoji +【名称】[身份] + 10字以内的第一人称内心想法}"',
+        '          - "${NPC2同上}"',
+        '  行动选项:',
+        '    名字: "${🧑 修补前姓名/用户列表第一位}"',
+        '    选项:',
+        '      - "1. ${🎲 高难度的行动，【需要COC7版属性或技能判定】，20字左右}"',
+        '      - "2. ${🎯 最直接的行动，20字左右}"',
+        '      - "3. ${⌛ 最稳妥的行动，20字左右}"',
+        '      - "4. ${🦢 最善良的行动，20字左右}"',
+        '</Status_block>',
+        '',
+        '模板中的 ${...} 是占位说明，输出时必须替换成实际内容。',
+        '只输出修补后的 <Status_block> 块本身，不要输出任何解释或代码围栏。',
+      ].join('\n');
+
+      // 渲染器认字段靠关键词子串匹配。StoryRenderer.findFieldByKeywords 委托到这里，
+      // 保证「默认提示词里那张关键词表」与本文件实际识别规则永远同源。
+      function mmsFindFieldByKeywords(data, keywords) {
+        if (!data || typeof data !== 'object') return null;
+        for (const field of Object.keys(data)) {
+          for (const keyword of keywords) {
+            if (field.toLowerCase().includes(keyword.toLowerCase())) return field;
+          }
+        }
+        return null;
+      }
+
+      // 「异常」的判定项：缺任一项，玩家就会直接看到「时间未知 / 地点未知 / 没有可用选项」
+      const MMS_REPAIR_CHECKS = [
+        { label: '时间', keywords: ['日期', '时间', 'datetime', 'time'] },
+        { label: '地点', keywords: ['地点', '位置', 'location', 'place'] },
+        { label: '行动选项', keywords: ['行动', '选项', 'action', 'option'] },
+      ];
+
+      const MMSRepair = {
+        busy: false,
+        previewBlock: null, // 已应用到界面、尚未写回正文的块内容
+        locked: null, // 发起修补时锁定的 { floorId, swipeId, block }
+        undo: null, // 当前楼层可撤销的 { floorId, swipeId, block }
+        diagnosis: null, // 最近一次诊断 { level, detail }
+        promptLoaded: '', // 上次灌进输入框的提示词，用于判断玩家是否真的改过
+
+        hasGenApi() {
+          return typeof generateRaw === 'function';
+        },
+        hasVarsApi() {
+          return typeof getVariables === 'function' && typeof insertOrAssignVariables === 'function';
+        },
+        hasMessageApi() {
+          return (
+            typeof getChatMessages === 'function' &&
+            typeof setChatMessages === 'function' &&
+            typeof getCurrentMessageId === 'function'
+          );
+        },
+
+        // ---------- 初始化与接线 ----------
+        init() {
+          const btn = document.getElementById('mms-repair-btn');
+          if (btn) {
+            btn.addEventListener('click', () => this.onButtonClick());
+            // 没有 setChatMessages 就没有写回能力，修补与手工编辑都无从落地
+            if (!this.hasMessageApi()) btn.style.display = 'none';
+          }
+          const editBtn = document.getElementById('mms-edit-data-btn');
+          if (editBtn) {
+            editBtn.addEventListener('click', () => this.openEditor());
+            if (!this.hasMessageApi()) editBtn.style.display = 'none';
+          }
+          const cancel = document.getElementById('mms-edit-cancel');
+          if (cancel) cancel.addEventListener('click', () => this.closeEditor());
+          const saveBtn = document.getElementById('mms-edit-save');
+          if (saveBtn) saveBtn.addEventListener('click', () => this.saveEditor());
+          const errRepair = document.getElementById('error-repair');
+          if (errRepair) {
+            errRepair.addEventListener('click', () => {
+              this.closeErrorModal();
+              this.run();
+            });
+          }
+          const promptEl = document.getElementById('mms-repair-prompt');
+          if (promptEl) {
+            promptEl.addEventListener('blur', () => {
+              if (promptEl.value !== this.promptLoaded) this.savePrompt(promptEl.value);
+            });
+          }
+          this.syncPromptField();
+          this.refreshUndoState();
+          this.refreshButton();
+        },
+
+        // ---------- 诊断：能不能解析 + 三项关键字段能不能被识别 ----------
+        diagnose(blockText) {
+          const text = String(blockText == null ? '' : blockText).trim();
+          if (!text) return { level: 'none', detail: '' };
+          let data = null;
+          try {
+            data = jsyaml.load(text);
+          } catch (e) {
+            return { level: 'error', detail: 'YAML 解析失败：' + (e && e.message ? e.message : e) };
+          }
+          if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length === 0) {
+            return { level: 'error', detail: 'YAML 解析成功，但顶层不是非空对象（应以「状态栏:」作为根键）' };
+          }
+          const rootKey = Object.keys(data)[0];
+          const rootData = data[rootKey];
+          if (!rootData || typeof rootData !== 'object' || Array.isArray(rootData)) {
+            return { level: 'error', detail: '根键「' + rootKey + '」下没有对象数据' };
+          }
+          const missing = [];
+          for (const check of MMS_REPAIR_CHECKS) {
+            if (!mmsFindFieldByKeywords(rootData, check.keywords)) missing.push(check.label);
+          }
+          if (missing.length) {
+            return { level: 'warn', detail: '以下关键字段未被识别：' + missing.join('、') };
+          }
+          return { level: 'ok', detail: '' };
+        },
+
+        // 应用修补结果的技术底线：能解析才敢往界面上套（不做字段/语义校验）
+        canParse(blockText) {
+          const level = this.diagnose(blockText).level;
+          return level === 'ok' || level === 'warn';
+        },
+
+        // ---------- 右上角按钮三态 ----------
+        onButtonClick() {
+          if (this.busy) return;
+          if (this.previewBlock != null) return void this.save();
+          if (this.undo) return void this.undoRepair();
+          this.run();
+        },
+
+        refreshButton() {
+          const btn = document.getElementById('mms-repair-btn');
+          if (!btn) return;
+          const icon = btn.querySelector('i');
+          let state = 'repair';
+          if (this.previewBlock != null) state = 'save';
+          else if (this.undo) state = 'undo';
+
+          const meta = {
+            repair: { icon: 'fa fa-magic', title: '独立LLM修补状态块' },
+            save: { icon: 'fa fa-save', title: '把修补结果写入本楼正文' },
+            undo: { icon: 'fa fa-times', title: '已写入正文，点击还原修补前的状态块' },
+          }[state];
+          if (icon) icon.className = meta.icon;
+          btn.classList.remove('state-save', 'state-undo', 'alert');
+          if (state === 'save') btn.classList.add('state-save');
+          if (state === 'undo') btn.classList.add('state-undo');
+
+          const alerting =
+            state === 'repair' && this.diagnosis && this.diagnosis.level !== 'ok' && this.diagnosis.level !== 'none';
+          if (alerting) btn.classList.add('alert');
+          btn.title = alerting ? meta.title + '（' + (this.diagnosis.detail || '检测到异常') + '）' : meta.title;
+          btn.disabled = !!this.busy;
+        },
+
+        // 每次渲染完成后调用：重算诊断 + 恢复撤销态（预览态随楼层重渲染失效）
+        afterRender() {
+          const yamlScript = document.getElementById('yaml-data-source');
+          this.previewBlock = null;
+          this.locked = null;
+          this.diagnosis = this.diagnose(yamlScript ? yamlScript.textContent : '');
+          this.refreshUndoState();
+          this.refreshButton();
+        },
+
+        closeErrorModal() {
+          const modal = document.getElementById('error-modal');
+          if (modal) modal.style.display = 'none';
+          document.body.style.overflow = '';
+        },
+
+        // ---------- 消息读写 ----------
+        readMessage(floorId) {
+          if (!this.hasMessageApi()) return null;
+          try {
+            const arr = getChatMessages(floorId);
+            const m = Array.isArray(arr) ? arr[0] : arr;
+            return m && typeof m.message === 'string' ? m : null;
+          } catch (e) {
+            return null;
+          }
+        },
+
+        currentSwipeId(floorId) {
+          if (!this.hasMessageApi()) return null;
+          try {
+            const arr = getChatMessages(floorId, { include_swipes: true });
+            const m = Array.isArray(arr) ? arr[0] : arr;
+            return m && typeof m.swipe_id === 'number' ? m.swipe_id : null;
+          } catch (e) {
+            return null;
+          }
+        },
+
+        readBlockFromMessage(message) {
+          return typeof window.extractLastBlock === 'function'
+            ? window.extractLastBlock(message, 'Status_block')
+            : '';
+        },
+
+        // 只替换最后一个 <Status_block> 区间，正文与其它内容一字不动
+        replaceLastBlock(message, newBlock) {
+          if (typeof message !== 'string' || !message) return null;
+          const lower = message.toLowerCase();
+          const startTag = '<status_block>';
+          const endTag = '</status_block>';
+          const s = lower.lastIndexOf(startTag);
+          const e = lower.lastIndexOf(endTag);
+          if (s === -1 || e === -1 || e <= s) return null;
+          return (
+            message.slice(0, s) +
+            '<Status_block>\n' +
+            String(newBlock).trim() +
+            '\n</Status_block>' +
+            message.slice(e + endTag.length)
+          );
+        },
+
+        // ---------- 撤销点（chat 变量，跟随聊天） ----------
+        refreshUndoState() {
+          this.undo = null;
+          if (!this.hasVarsApi() || !this.hasMessageApi()) return;
+          try {
+            const chatVars = getVariables({ type: 'chat' }) || {};
+            const u = chatVars[MMS_REPAIR_UNDO_KEY];
+            if (!u || typeof u !== 'object') return;
+            const floorId = getCurrentMessageId();
+            if (floorId == null || Number(u.floorId) !== Number(floorId)) return;
+            const swipeNow = this.currentSwipeId(floorId);
+            if (typeof u.swipeId === 'number' && swipeNow != null && swipeNow !== u.swipeId) return;
+            this.undo = { floorId: u.floorId, swipeId: u.swipeId, block: String(u.block || '') };
+          } catch (e) {
+            this.undo = null;
+          }
+        },
+
+        writeUndo(entry) {
+          this.undo = entry;
+          if (!this.hasVarsApi()) return;
+          try {
+            insertOrAssignVariables({ [MMS_REPAIR_UNDO_KEY]: entry }, { type: 'chat' });
+          } catch (e) {
+            console.warn('[MMSRepair] 写入撤销备份失败:', e);
+          }
+        },
+
+        clearUndo() {
+          this.undo = null;
+          if (!this.hasVarsApi()) return;
+          try {
+            insertOrAssignVariables({ [MMS_REPAIR_UNDO_KEY]: null }, { type: 'chat' });
+          } catch (e) {
+            /* 忽略 */
+          }
+        },
+
+        // ---------- 提示词（替换语义：非空即整个替换默认系统提示词） ----------
+        loadPromptRaw() {
+          if (!this.hasVarsApi()) return '';
+          try {
+            const g = getVariables({ type: 'global' }) || {};
+            const p = g[MMS_REPAIR_PROMPT_KEY];
+            if (typeof p === 'string') return p;
+            if (p && typeof p === 'object' && typeof p.prompt === 'string') return p.prompt;
+          } catch (e) {
+            /* 忽略 */
+          }
+          return '';
+        },
+
+        effectivePrompt() {
+          const custom = this.loadPromptRaw().trim();
+          return custom || MMS_REPAIR_DEFAULT_PROMPT;
+        },
+
+        savePrompt(value) {
+          if (!this.hasVarsApi()) return;
+          try {
+            insertOrAssignVariables(
+              { [MMS_REPAIR_PROMPT_KEY]: { prompt: String(value == null ? '' : value) } },
+              { type: 'global' }
+            );
+            this.syncPromptField();
+          } catch (e) {
+            console.warn('[MMSRepair] 保存修补提示词失败:', e);
+          }
+        },
+
+        syncPromptField() {
+          const el = document.getElementById('mms-repair-prompt');
+          const hint = document.getElementById('mms-repair-prompt-hint');
+          const custom = this.loadPromptRaw();
+          if (el && document.activeElement !== el) {
+            el.value = custom.trim() ? custom : MMS_REPAIR_DEFAULT_PROMPT;
+            this.promptLoaded = el.value;
+          }
+          if (hint) {
+            hint.textContent = custom.trim()
+              ? '当前状态：使用自定义提示词（整个替换默认）'
+              : '当前状态：使用内置默认提示词（清空输入框即可回到默认）';
+          }
+        },
+
+        // ---------- 修补 ----------
+        buildUserPrompt(block, maintext, detail) {
+          const parts = ['<待修补内容>', block, '</待修补内容>'];
+          if (maintext) parts.push('', '<本轮正文>', maintext, '</本轮正文>');
+          parts.push('', '<报错信息>', detail || '（未检测到具体错误，请自行检查缩进与常见词条缺失）', '</报错信息>');
+          return parts.join('\n');
+        },
+
+        cleanOutput(raw) {
+          const text = String(raw == null ? '' : raw).trim();
+          if (!text) return '';
+          const inner = this.readBlockFromMessage(text);
+          return inner || text;
+        },
+
+        applyPreview(blockText) {
+          const yamlScript = document.getElementById('yaml-data-source');
+          if (!yamlScript) return;
+          yamlScript.textContent = blockText;
+          this.previewBlock = blockText;
+          this.diagnosis = this.diagnose(blockText);
+          this.closeErrorModal();
+          try {
+            if (typeof window.reRenderStatusBar === 'function') window.reRenderStatusBar();
+          } catch (e) {
+            console.error('[MMSRepair] 预览重渲染失败:', e);
+          }
+          this.refreshButton();
+        },
+
+        async run() {
+          if (this.busy) return;
+          if (!this.hasGenApi()) {
+            alert('当前酒馆助手版本缺少 generateRaw，无法调用独立 LLM 修补。');
+            return;
+          }
+          if (!this.hasMessageApi()) {
+            alert('当前酒馆助手版本缺少消息接口（getChatMessages / setChatMessages），无法修补。');
+            return;
+          }
+
+          const floorId = getCurrentMessageId();
+          if (floorId == null) {
+            alert('未找到当前楼层');
+            return;
+          }
+          const m = this.readMessage(floorId);
+          if (!m) {
+            alert('未能读取本楼正文');
+            return;
+          }
+          const block = this.readBlockFromMessage(m.message);
+          if (!block) {
+            alert('本楼没有 <Status_block> 块，无法修补。\n（整块缺失时不会注入状态栏，也不在修补范围内）');
+            return;
+          }
+
+          // 锁定发起时的目标：结果一律写回这一层这一页，期间切楼层不影响
+          const locked = { floorId, swipeId: this.currentSwipeId(floorId), block };
+          const maintext = typeof window.extractMaintext === 'function' ? window.extractMaintext(m.message) : '';
+          const diag = this.diagnose(block);
+          const sysPrompt = this.effectivePrompt();
+          const userPrompt = this.buildUserPrompt(block, maintext, diag.detail);
+          const cfg = window.MMS && typeof window.MMS.loadConfig === 'function' ? window.MMS.loadConfig() : {};
+          const customApi =
+            window.MMS && typeof window.MMS.buildCustomApi === 'function' ? window.MMS.buildCustomApi(cfg) : {};
+
+          this.busy = true;
+          this.refreshButton();
+          let lastError = null;
+          let lastRaw = '';
+          try {
+            for (let attempt = 0; attempt < 3; attempt++) {
+              try {
+                const result = await generateRaw({
+                  ordered_prompts: [
+                    { role: 'system', content: sysPrompt },
+                    { role: 'user', content: userPrompt },
+                  ],
+                  custom_api: customApi,
+                  should_silence: true,
+                  generation_id: 'mms-repair-' + floorId + '-' + Date.now(),
+                });
+                const raw = typeof result === 'string' ? result : (result && result.content) || '';
+                lastRaw = raw;
+                const cleaned = this.cleanOutput(raw);
+                if (cleaned && this.canParse(cleaned)) {
+                  this.locked = locked;
+                  this.applyPreview(cleaned);
+                  return;
+                }
+                // 拿到了输出但过不了解析门槛：重试要再花一次 token，直接交给手工编辑
+                alert('独立 LLM 返回的内容无法解析为合法 YAML，已打开编辑面板，可手工修正后保存。');
+                this.openEditor(cleaned || raw);
+                return;
+              } catch (e) {
+                lastError = e;
+              }
+              if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+            }
+            alert(
+              '独立 LLM 调用失败：' +
+                (lastError && lastError.message ? lastError.message : String(lastError)) +
+                '\n请检查独立 LLM 配置（设置 → LLM地图）。'
+            );
+            if (lastRaw) this.openEditor(lastRaw);
+          } finally {
+            this.busy = false;
+            this.refreshButton();
+          }
+        },
+
+        // ---------- 写回正文（保存） ----------
+        async save() {
+          if (this.busy || this.previewBlock == null) return;
+          const lock = this.locked;
+          if (!lock) {
+            this.previewBlock = null;
+            this.refreshButton();
+            return;
+          }
+          const m = this.readMessage(lock.floorId);
+          if (!m) {
+            alert('未能读取本楼正文，写入失败');
+            return;
+          }
+          const swipeNow = this.currentSwipeId(lock.floorId);
+          if (lock.swipeId != null && swipeNow != null && swipeNow !== lock.swipeId) {
+            this.previewBlock = null;
+            this.locked = null;
+            this.refreshButton();
+            alert('本楼滑动页已切换，修补结果作废，请重新修补');
+            return;
+          }
+          const replaced = this.replaceLastBlock(m.message, this.previewBlock);
+          if (replaced == null) {
+            alert('本楼已找不到 <Status_block> 区块，写入失败');
+            return;
+          }
+
+          this.busy = true;
+          this.refreshButton();
+          // 先落备份：写回会触发本楼重渲染，新实例要靠它才能显示撤销态
+          this.writeUndo(lock);
+          try {
+            await setChatMessages([{ message_id: lock.floorId, message: replaced }], { refresh: 'affected' });
+            this.previewBlock = null;
+            this.locked = null;
+            this.diagnosis = null;
+          } catch (e) {
+            this.clearUndo();
+            alert('写入正文失败：' + (e && e.message ? e.message : e));
+          } finally {
+            this.busy = false;
+            this.refreshButton();
+          }
+        },
+
+        // ---------- 撤销（单步） ----------
+        async undoRepair() {
+          if (this.busy) return;
+          const u = this.undo;
+          if (!u) return;
+          const m = this.readMessage(u.floorId);
+          if (!m) {
+            alert('未能读取本楼正文，撤销失败');
+            return;
+          }
+          const swipeNow = this.currentSwipeId(u.floorId);
+          if (typeof u.swipeId === 'number' && swipeNow != null && swipeNow !== u.swipeId) {
+            this.clearUndo();
+            this.refreshButton();
+            alert('本楼滑动页已切换，撤销点已失效');
+            return;
+          }
+          const restored = this.replaceLastBlock(m.message, u.block);
+          if (restored == null) {
+            alert('本楼已找不到 <Status_block> 区块，撤销失败');
+            return;
+          }
+
+          this.busy = true;
+          this.refreshButton();
+          this.clearUndo();
+          try {
+            await setChatMessages([{ message_id: u.floorId, message: restored }], { refresh: 'affected' });
+          } catch (e) {
+            alert('撤销失败：' + (e && e.message ? e.message : e));
+          } finally {
+            this.busy = false;
+            this.refreshButton();
+          }
+        },
+
+        // ---------- 整栏 YAML 手工编辑面板 ----------
+        openEditor(prefill) {
+          if (!this.hasMessageApi()) {
+            alert('当前酒馆助手版本缺少消息接口，无法保存编辑结果。');
+            return;
+          }
+          const main = document.getElementById('mms-main-view');
+          const settings = document.getElementById('settings-panel');
+          const edit = document.getElementById('mms-edit-mode');
+          const editor = document.getElementById('mms-yaml-editor');
+          const err = document.getElementById('mms-edit-error');
+          if (!edit || !editor) return;
+
+          if (typeof prefill === 'string') {
+            editor.value = prefill;
+          } else {
+            const floorId = getCurrentMessageId();
+            const m = floorId == null ? null : this.readMessage(floorId);
+            editor.value = m ? this.readBlockFromMessage(m.message) : '';
+          }
+          if (main) main.style.display = 'none';
+          if (settings) settings.style.display = 'none';
+          if (err) err.style.display = 'none';
+          edit.style.display = 'block';
+        },
+
+        closeEditor() {
+          const main = document.getElementById('mms-main-view');
+          const edit = document.getElementById('mms-edit-mode');
+          if (edit) edit.style.display = 'none';
+          if (main) main.style.display = 'block';
+        },
+
+        async saveEditor() {
+          const editor = document.getElementById('mms-yaml-editor');
+          const err = document.getElementById('mms-edit-error');
+          if (!editor) return;
+          const showError = (msg) => {
+            if (err) {
+              err.textContent = msg;
+              err.style.display = 'block';
+            }
+          };
+          const text = editor.value.trim();
+
+          let parsed = null;
+          try {
+            parsed = jsyaml.load(text);
+          } catch (e) {
+            showError('YAML 错误：' + (e && e.message ? e.message : e));
+            return;
+          }
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || Object.keys(parsed).length === 0) {
+            showError('YAML 解析成功，但顶层为空或不是对象（应以「状态栏:」作为根键）');
+            return;
+          }
+
+          const floorId = getCurrentMessageId();
+          const m = floorId == null ? null : this.readMessage(floorId);
+          if (!m) {
+            showError('未能读取本楼正文，保存失败');
+            return;
+          }
+          const replaced = this.replaceLastBlock(m.message, text);
+          if (replaced == null) {
+            showError('本楼已找不到 <Status_block> 区块，无法写入');
+            return;
+          }
+
+          // 与「保存」按钮同语义：直接写回正文，并留下单步撤销点
+          this.writeUndo({
+            floorId,
+            swipeId: this.currentSwipeId(floorId),
+            block: this.readBlockFromMessage(m.message),
+          });
+          try {
+            await setChatMessages([{ message_id: floorId, message: replaced }], { refresh: 'affected' });
+            this.previewBlock = null;
+            this.locked = null;
+            this.closeEditor();
+          } catch (e) {
+            this.clearUndo();
+            showError('写入正文失败：' + (e && e.message ? e.message : e));
+          }
+        },
+      };
+
       document.addEventListener('DOMContentLoaded', function () {
         function getCurrentMessage() {
           try {
@@ -7253,6 +8000,9 @@ function extractStatusBlock(message) {
             updateYamlDataSource(statusContent);
             setTimeout(() => reRenderStatusBar(), 100);
           }
+
+          // 渲染收尾后诊断一次：决定修补按钮是否高亮，并恢复撤销态
+          setTimeout(() => MMSRepair.afterRender(), 260);
         }
 
         // 暴露给顶层的 MMS 模块（地图开关重渲 / 绘图提示词剧情收集 / 当前位置匹配）
@@ -7270,6 +8020,9 @@ function extractStatusBlock(message) {
         }
 
         window.statusBlockInitialized = true;
+
+        // 独立LLM修补：按钮接线 + 提示词回填 + 撤销态恢复
+        MMSRepair.init();
       });
     </script>
   </body>
