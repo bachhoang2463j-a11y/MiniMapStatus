@@ -150,13 +150,14 @@
   };
 
   // 注入到 iframe 头部的 mock 脚本（先于小部件脚本执行）
-  const mockScript = `
+  // 做成工厂函数：迁移断言需要带不同的 global 种子重建 iframe
+  const makeMockScript = (chatSeed, globalSeed) => `
 <script>
 (function () {
   window.__harnessLog = [];
   var STORE = {
-    chat: ${JSON.stringify(store.chat)},
-    global: {}
+    chat: ${JSON.stringify(chatSeed)},
+    global: ${JSON.stringify(globalSeed || {})}
   };
   window.__getStore = function () { return STORE; };
   var MSG = { message: ${JSON.stringify(mockMessage)}, swipe_id: 0, swipes: [${JSON.stringify(mockMessage)}], role: 'assistant', is_user: false, message_id: 0 };
@@ -209,9 +210,12 @@
   };
   window.alert = function (msg) { window.__harnessLog.push('alert:' + String(msg).slice(0, 80)); };
   window.confirm = function (msg) { window.__harnessLog.push('confirm:' + String(msg).slice(0, 40)); return true; };
+  window.__promptReply = null;
+  window.prompt = function (msg, def) { window.__harnessLog.push('prompt:' + String(msg).slice(0, 30)); return window.__promptReply; };
 })();
 <\/script>
 `;
+  const mockScript = makeMockScript(store.chat, store.global);
 
   // 组装 iframe srcdoc：mock 脚本插在 <head> 最前
   const staged = WIDGET_HTML.replace('<head>', '<head>' + mockScript);
@@ -631,24 +635,42 @@
       click(q('#tab-btn-repair'));
       await sleep(200);
       assert('切到 LLM修补页签（面包屑更新）', () => q('#settings-current-tab-name').textContent.includes('LLM修补'));
+      const sel = q('#mms-repair-preset-select');
       const ta = q('#mms-repair-prompt');
-      assert('提示词框预填内置默认提示词', () =>
-        !!ta && ta.value.includes('YAML 修补专家') && ta.value.includes('用户列表') && ta.value.includes('行动选项'));
-      assert('默认态提示文案', () => q('#mms-repair-prompt-hint').textContent.includes('内置默认'));
+      assert('预设下拉初始仅「内置默认」一条且被选中', () =>
+        !!sel && sel.options.length === 1 && sel.value === 'default');
+      assert('内置默认预设：正文预填默认提示词且只读', () =>
+        ta.value.includes('YAML 修补专家') && ta.value.includes('用户列表') &&
+        ta.value.includes('行动选项') && ta.readOnly === true);
+      assert('默认预设提示文案标明只读', () => q('#mms-repair-prompt-hint').textContent.includes('只读'));
+
+      win.__promptReply = 'COC7 卡';
+      click(q('#mms-repair-preset-add'));
+      await sleep(300);
+      assert('新建预设：下拉变 2 条并自动切到新预设', () => sel.options.length === 2 && sel.value !== 'default');
+      assert('新预设初始内容＝内置默认提示词快照，且可编辑', () =>
+        ta.readOnly === false && ta.value.includes('YAML 修补专家'));
+      assert('预设池写入全局变量（active / 名称 / locked）', () => {
+        const g = win.__getStore().global.$mms_repair_prompt;
+        return !!g && Array.isArray(g.presets) && g.presets.length === 2 &&
+          g.presets[0].id === 'default' && g.presets[0].locked === true &&
+          g.presets[1].name === 'COC7 卡' && g.active === g.presets[1].id;
+      });
 
       ta.value = '你是修补器。只输出块。';
       ta.dispatchEvent(new Event('blur'));
       await sleep(250);
-      assert('自定义提示词写入全局变量 $mms_repair_prompt', () => {
+      assert('编辑正文只写入当前预设，内置默认内容不受影响', () => {
         const g = win.__getStore().global.$mms_repair_prompt;
-        return !!g && g.prompt === '你是修补器。只输出块。';
+        const cur = g.presets.find((p) => p.id === g.active);
+        return cur.content === '你是修补器。只输出块。' && g.presets[0].content === '';
       });
 
       click(q('#settings-close'));
       await sleep(150);
       click(repBtn);
       await sleep(700);
-      assert('自定义提示词整个替换系统提示词（默认文案不再出现）', () => {
+      assert('选中预设整个替换系统提示词（默认文案不再出现）', () => {
         const c = win.generateRawCalls[win.generateRawCalls.length - 1];
         return c.ordered_prompts[0].content === '你是修补器。只输出块。' &&
           c.ordered_prompts[1].content.includes('<待修补内容>');
@@ -658,13 +680,61 @@
       await sleep(150);
       click(q('#tab-btn-repair'));
       await sleep(200);
+      const sel2 = q('#mms-repair-preset-select');
       const ta2 = q('#mms-repair-prompt');
-      ta2.value = '';
-      ta2.dispatchEvent(new Event('blur'));
+      sel2.value = 'default';
+      sel2.dispatchEvent(new Event('change'));
       await sleep(250);
-      assert('清空输入框即回退内置默认提示词', () => {
+      assert('手动切回默认预设：正文回默认并恢复只读', () =>
+        ta2.value.includes('YAML 修补专家') && ta2.readOnly === true);
+
+      click(q('#mms-repair-preset-delete'));
+      await sleep(250);
+      assert('内置默认预设不可删除（下拉仍 2 条）', () => {
         const g = win.__getStore().global.$mms_repair_prompt;
-        return !!g && g.prompt === '' && q('#mms-repair-prompt-hint').textContent.includes('内置默认');
+        return sel2.options.length === 2 && !!g && g.presets.length === 2;
+      });
+
+      sel2.value = win.__getStore().global.$mms_repair_prompt.presets[1].id;
+      sel2.dispatchEvent(new Event('change'));
+      await sleep(200);
+      win.__promptReply = '改造过的卡';
+      click(q('#mms-repair-preset-rename'));
+      await sleep(300);
+      assert('重命名生效（下拉项文案同步）', () => {
+        const g = win.__getStore().global.$mms_repair_prompt;
+        return g.presets[1].name === '改造过的卡' && sel2.options[1].textContent === '改造过的卡';
+      });
+
+      click(q('#mms-repair-preset-delete'));
+      await sleep(300);
+      assert('删除预设后回落内置默认预设', () => {
+        const g = win.__getStore().global.$mms_repair_prompt;
+        return g.presets.length === 1 && g.active === 'default' && sel2.options.length === 1;
+      });
+      click(q('#settings-close'));
+      await sleep(150);
+    }
+
+    group('十二、旧版单条提示词迁移（{prompt} → 预设池）');
+    { // 用携带旧版 global 种子的 mock 重建 iframe
+      stage.srcdoc = WIDGET_HTML.replace(
+        '<head>',
+        '<head>' + makeMockScript(store.chat, { $mms_repair_prompt: { prompt: '旧版单条自定义文案' } }),
+      );
+      await sleep(1800);
+      click(q('#settings-btn'));
+      await sleep(200);
+      click(q('#tab-btn-repair'));
+      await sleep(250);
+      const selM = q('#mms-repair-preset-select');
+      const taM = q('#mms-repair-prompt');
+      assert('旧版单条自定义文案迁移成一条预设并被选中', () =>
+        selM.options.length === 2 && selM.value !== 'default' &&
+        taM.readOnly === false && taM.value === '旧版单条自定义文案');
+      assert('迁移后内置默认预设仍在首位且 locked', () => {
+        const g = win.__getStore().global.$mms_repair_prompt;
+        return !!g && g.presets[0].id === 'default' && g.presets[0].locked === true;
       });
       click(q('#settings-close'));
       await sleep(150);

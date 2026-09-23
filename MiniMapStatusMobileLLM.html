@@ -2854,14 +2854,24 @@ function buildPortraitHTML(roleName, portraitUrl) {
         </div>
 
         <!-- ============================================================ -->
-        <!-- Tab 3：LLM修补（状态块修补提示词；修补入口在状态栏右上角按钮） -->
+        <!-- Tab 3：LLM修补（状态块修补提示词预设；修补入口在状态栏右上角按钮） -->
         <!-- ============================================================ -->
         <div id="tab-content-repair" class="p-3.5 space-y-3" style="display: none">
           <div class="settings-group">
-            <label class="settings-label">修补提示词</label>
+            <div class="flex justify-between items-center mb-2">
+              <label class="settings-label">修补提示词预设</label>
+              <div class="flex gap-1">
+                <button id="mms-repair-preset-add" class="mms-btn" type="button" title="新建预设（初始为内置默认提示词，可自由修改）" style="padding: 2px 8px"><i class="fa fa-plus"></i></button>
+              </div>
+            </div>
+            <div class="flex gap-1.5 mb-2">
+              <select id="mms-repair-preset-select" class="form-input" style="flex: 1"></select>
+              <button id="mms-repair-preset-rename" class="mms-btn" type="button" title="重命名" style="padding: 2px 10px"><i class="fa fa-pencil"></i></button>
+              <button id="mms-repair-preset-delete" class="mms-btn" type="button" title="删除" style="padding: 2px 10px"><i class="fa fa-trash-o"></i></button>
+            </div>
             <p class="settings-hint">
-              状态栏右上角按钮在检测到异常时高亮（YAML 解析失败，或时间/地点/行动选项未被识别），点击即用下面这段提示词调用独立 LLM 修补。
-              留空则使用内置默认提示词；一旦填入，就<b>整个替换</b>默认系统提示词——默认里的输出格式要求与字段关键词规则也会一起失效，请自己写全。
+              状态栏右上角按钮在检测到异常时高亮（YAML 解析失败，或时间/地点/行动选项未被识别），点击即用<b>当前选中预设</b>调用独立 LLM 修补。
+              每张角色卡的状态栏格式不同，可各建一条预设，换卡后在这里手动切换。
             </p>
             <div class="mms-field">
               <textarea
@@ -7343,9 +7353,18 @@ createCharacterEntry(text, categoryKey) {
           const promptEl = document.getElementById('mms-repair-prompt');
           if (promptEl) {
             promptEl.addEventListener('blur', () => {
-              if (promptEl.value !== this.promptLoaded) this.savePrompt(promptEl.value);
+              if (promptEl.value !== this.promptLoaded) this.savePresetContent(promptEl.value);
             });
           }
+          const presetSel = document.getElementById('mms-repair-preset-select');
+          if (presetSel) presetSel.addEventListener('change', () => this.selectPreset(presetSel.value));
+          const presetAdd = document.getElementById('mms-repair-preset-add');
+          if (presetAdd) presetAdd.addEventListener('click', () => this.addPreset());
+          const presetRename = document.getElementById('mms-repair-preset-rename');
+          if (presetRename) presetRename.addEventListener('click', () => this.renamePreset());
+          const presetDelete = document.getElementById('mms-repair-preset-delete');
+          if (presetDelete) presetDelete.addEventListener('click', () => this.deletePreset());
+          this.migratePresets();
           this.syncPromptField();
           this.refreshUndoState();
           this.refreshButton();
@@ -7519,50 +7538,194 @@ createCharacterEntry(text, categoryKey) {
           }
         },
 
-        // ---------- 提示词（替换语义：非空即整个替换默认系统提示词） ----------
-        loadPromptRaw() {
-          if (!this.hasVarsApi()) return '';
+        // ---------- 提示词预设（替换语义：选中预设的内容整个替换系统提示词） ----------
+        // 结构：{ active: 预设id, presets: [{ id, name, content, locked }] }
+        // content 为空串表示「用内置默认提示词」，locked 的内置预设不可编辑/删除/重命名
+        makeDefaultPreset() {
+          return { id: 'default', name: '默认（内置兜底）', content: '', locked: true };
+        },
+
+        normalizePresets(raw) {
+          const fallback = { active: 'default', presets: [this.makeDefaultPreset()] };
+          let src = raw;
+          if (typeof src === 'string') src = { prompt: src };
+          if (!src || typeof src !== 'object') return fallback;
+
+          let presets = Array.isArray(src.presets) ? src.presets.filter((p) => p && typeof p === 'object') : [];
+          // 旧版单条自定义（{prompt:'...'}）迁移成一条普通预设，文案不丢，并直接设为当前
+          let migratedId = null;
+          if (!presets.length && typeof src.prompt === 'string' && src.prompt.trim()) {
+            migratedId = 'p_legacy';
+            presets = [{ id: migratedId, name: '自定义（迁移）', content: src.prompt, locked: false }];
+          }
+          const list = [this.makeDefaultPreset()];
+          const seen = new Set(['default']);
+          for (const p of presets) {
+            if (p.id === 'default' || seen.has(p.id)) continue;
+            seen.add(p.id);
+            list.push({
+              id: String(p.id || 'p_' + list.length),
+              name: String(p.name || '未命名预设'),
+              content: typeof p.content === 'string' ? p.content : '',
+              locked: false,
+            });
+          }
+          const wantActive = src.active || migratedId;
+          const active = list.some((p) => p.id === wantActive) ? wantActive : 'default';
+          return { active, presets: list };
+        },
+
+        // 存储形态升级：读到旧结构（字符串 / {prompt}）就在首次启动时落盘成预设池。
+        // 只为真正的旧数据升级，全新环境不写空结构。
+        migratePresets() {
+          if (!this.hasVarsApi()) return;
           try {
             const g = getVariables({ type: 'global' }) || {};
-            const p = g[MMS_REPAIR_PROMPT_KEY];
-            if (typeof p === 'string') return p;
-            if (p && typeof p === 'object' && typeof p.prompt === 'string') return p.prompt;
+            const raw = g[MMS_REPAIR_PROMPT_KEY];
+            if (raw == null) return;
+            const isNewShape =
+              typeof raw === 'object' && Array.isArray(raw.presets) && raw.presets.length > 0;
+            if (isNewShape) return;
+            this.savePresets(this.normalizePresets(raw));
           } catch (e) {
             /* 忽略 */
           }
-          return '';
+        },
+
+        loadPresets() {
+          if (!this.hasVarsApi()) return this.normalizePresets(null);
+          try {
+            const g = getVariables({ type: 'global' }) || {};
+            return this.normalizePresets(g[MMS_REPAIR_PROMPT_KEY]);
+          } catch (e) {
+            return this.normalizePresets(null);
+          }
+        },
+
+        savePresets(state) {
+          if (!this.hasVarsApi()) return;
+          try {
+            insertOrAssignVariables({ [MMS_REPAIR_PROMPT_KEY]: state }, { type: 'global' });
+          } catch (e) {
+            console.warn('[MMSRepair] 保存修补提示词预设失败:', e);
+          }
+        },
+
+        activePreset() {
+          const st = this.loadPresets();
+          return st.presets.find((p) => p.id === st.active) || st.presets[0];
         },
 
         effectivePrompt() {
-          const custom = this.loadPromptRaw().trim();
-          return custom || MMS_REPAIR_DEFAULT_PROMPT;
+          const p = this.activePreset();
+          const content = (p && p.content ? p.content : '').trim();
+          return content || MMS_REPAIR_DEFAULT_PROMPT;
         },
 
-        savePrompt(value) {
-          if (!this.hasVarsApi()) return;
+        // 新建预设：初始值取内置默认提示词（等同桌面版「新建预设自动复制当前配置」）
+        addPreset() {
+          const st = this.loadPresets();
+          let name = null;
           try {
-            insertOrAssignVariables(
-              { [MMS_REPAIR_PROMPT_KEY]: { prompt: String(value == null ? '' : value) } },
-              { type: 'global' }
-            );
-            this.syncPromptField();
+            name = window.prompt('新预设名称（例：COC7 卡 / 现代都市卡）', '预设 ' + (st.presets.length));
           } catch (e) {
-            console.warn('[MMSRepair] 保存修补提示词失败:', e);
+            name = null;
           }
+          if (name == null) return;
+          const preset = {
+            id: 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+            name: String(name).trim() || '预设 ' + st.presets.length,
+            content: MMS_REPAIR_DEFAULT_PROMPT,
+            locked: false,
+          };
+          st.presets.push(preset);
+          st.active = preset.id;
+          this.savePresets(st);
+          this.syncPromptField();
+        },
+
+        renamePreset() {
+          const st = this.loadPresets();
+          const cur = st.presets.find((p) => p.id === st.active);
+          if (!cur || cur.locked) {
+            alert('内置默认预设不可重命名');
+            return;
+          }
+          let name = null;
+          try {
+            name = window.prompt('预设名称', cur.name);
+          } catch (e) {
+            name = null;
+          }
+          if (name == null || !String(name).trim()) return;
+          cur.name = String(name).trim();
+          this.savePresets(st);
+          this.syncPromptField();
+        },
+
+        deletePreset() {
+          const st = this.loadPresets();
+          const cur = st.presets.find((p) => p.id === st.active);
+          if (!cur) return;
+          if (cur.locked) {
+            alert('内置默认预设不可删除');
+            return;
+          }
+          if (!window.confirm('删除预设「' + cur.name + '」？')) return;
+          st.presets = st.presets.filter((p) => p.id !== cur.id);
+          st.active = 'default';
+          this.savePresets(st);
+          this.syncPromptField();
+        },
+
+        selectPreset(id) {
+          const st = this.loadPresets();
+          if (!st.presets.some((p) => p.id === id)) return;
+          st.active = id;
+          this.savePresets(st);
+          this.syncPromptField();
+        },
+
+        // 编辑当前预设正文；内置默认预设只读
+        savePresetContent(value) {
+          const st = this.loadPresets();
+          const cur = st.presets.find((p) => p.id === st.active);
+          if (!cur || cur.locked) return;
+          cur.content = String(value == null ? '' : value);
+          this.savePresets(st);
+          this.syncPromptField();
         },
 
         syncPromptField() {
           const el = document.getElementById('mms-repair-prompt');
           const hint = document.getElementById('mms-repair-prompt-hint');
-          const custom = this.loadPromptRaw();
+          const sel = document.getElementById('mms-repair-preset-select');
+          const st = this.loadPresets();
+          const cur = st.presets.find((p) => p.id === st.active) || st.presets[0];
+
+          if (sel) {
+            sel.innerHTML = '';
+            for (const p of st.presets) {
+              const opt = document.createElement('option');
+              opt.value = p.id;
+              opt.textContent = p.name;
+              sel.appendChild(opt);
+            }
+            sel.value = cur.id;
+          }
+
+          const builtin = !!cur.locked || !cur.content.trim();
           if (el && document.activeElement !== el) {
-            el.value = custom.trim() ? custom : MMS_REPAIR_DEFAULT_PROMPT;
+            el.value = builtin ? MMS_REPAIR_DEFAULT_PROMPT : cur.content;
             this.promptLoaded = el.value;
           }
+          if (el) el.readOnly = !!cur.locked;
           if (hint) {
-            hint.textContent = custom.trim()
-              ? '当前状态：使用自定义提示词（整个替换默认）'
-              : '当前状态：使用内置默认提示词（清空输入框即可回到默认）';
+            hint.textContent = cur.locked
+              ? '当前状态：预设「' + cur.name + '」（内置默认，只读；点 + 新建一条自己的预设）'
+              : cur.content.trim()
+              ? '当前状态：预设「' + cur.name + '」（整个替换内置默认提示词）'
+              : '当前状态：预设「' + cur.name + '」（内容为空，实际发送内置默认提示词）';
           }
         },
 
