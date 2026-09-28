@@ -44,8 +44,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC_NAME = process.argv[2] || 'MiniMapStatus.html';
 const IS_MOBILE = SRC_NAME === 'MiniMapStatusMobile.html';
 const IS_MOBILE_LLM = SRC_NAME === 'MiniMapStatusMobileLLM.html';
+const IS_PUBLIC = SRC_NAME === 'MiniMapStatus-公开版.html';
 const SRC = join(__dirname, SRC_NAME);
-const OUT_DISPLAY = IS_MOBILE_LLM
+const OUT_DISPLAY = IS_PUBLIC
+  ? join(__dirname, 'regex-美化状态栏[公开版].json')
+  : IS_MOBILE_LLM
   ? join(__dirname, 'regex-美化状态栏[手机专用LLM地图].json')
   : IS_MOBILE
   ? join(__dirname, 'regex-美化状态栏[手机专用].json')
@@ -54,7 +57,9 @@ const OUT_STRIP = join(__dirname, 'regex-状态栏标记清理[上下文].json')
 const TMP = join(__dirname, '_minify_tmp');
 
 // 固定 id：重复导入时保持同一身份，避免多副本
-const DISPLAY_ID = IS_MOBILE_LLM
+const DISPLAY_ID = IS_PUBLIC
+  ? '2b8a7c13-e4d5-4a7f-9b1a-8e2c3d4f5a6b' // 公开版独立 UUID，与原版独立共存互不覆盖
+  : IS_MOBILE_LLM
   ? 'f7d93e53-a3b3-4f25-8199-6822f7665ff2' // 手机 LLM 地图版 UUID，与手机专用版共存
   : IS_MOBILE
   ? '1fe27bc2-f26b-4946-a60e-5ad7c1a7766e' // 手机版原 UUID，覆盖更新既有导入
@@ -227,7 +232,9 @@ for (const [name, re] of [['手机版', MOBILE_FIND_REGEX_SOURCE], ['桌面版',
 
 const displayScript = makeRegexScript({
   id: DISPLAY_ID,
-  scriptName: IS_MOBILE_LLM
+  scriptName: IS_PUBLIC
+    ? '美化状态栏[公开版]'
+    : IS_MOBILE_LLM
     ? '美化状态栏[手机专用LLM地图]'
     : IS_MOBILE
     ? '美化状态栏[手机专用]'
@@ -243,7 +250,7 @@ console.log(`[build_regex] 已生成: ${OUT_DISPLAY}`);
 console.log(`  显示正则: ${displayRegex}`);
 console.log(`  嵌入HTML大小: ${displayScript.replaceString.length} 字符`);
 
-if (!IS_MOBILE && !IS_MOBILE_LLM) {
+if (!IS_MOBILE && !IS_MOBILE_LLM && !IS_PUBLIC) {
   const stripScript = makeRegexScript({
     id: STRIP_ID,
     scriptName: '状态栏标记清理[上下文]',
