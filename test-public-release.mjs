@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import assert from 'node:assert';
+import { extractInlineScripts, extractImageData, decodePipeline } from './test-lib.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HTML_PATH = join(__dirname, 'MiniMapStatus-公开版.html');
@@ -54,12 +55,7 @@ pass('MMS_IMAGE_DATA 起止标记块唯一且无歧义');
 // ---------------------------------------------------------
 // 2. 内联脚本语法检查
 // ---------------------------------------------------------
-const scriptRegex = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
-const scriptBlocks = [];
-let sm;
-while ((sm = scriptRegex.exec(html))) {
-  scriptBlocks.push(sm[1]);
-}
+const scriptBlocks = extractInlineScripts(html);
 assert(scriptBlocks.length >= 1, '必须至少包含 1 个内联脚本块');
 
 scriptBlocks.forEach((code, idx) => {
@@ -74,12 +70,7 @@ pass(`全量内联脚本 (${scriptBlocks.length} 块) new Function 语法校验�
 // ---------------------------------------------------------
 // 3. MMS_IMAGE_DATA 图片白名单断言
 // ---------------------------------------------------------
-const imgBlockMatch = html.match(/\/\* ==== MMS_IMAGE_DATA_START ==== \*\/([\s\S]*?)\/\* ==== MMS_IMAGE_DATA_END ==== \*\//);
-assert(imgBlockMatch, '未找到 MMS_IMAGE_DATA 标记块');
-
-const extractFn = new Function('window', imgBlockMatch[1] + '; return window.MMS_IMAGE_DATA;');
-const winStub = {};
-const extractedImageData = extractFn(winStub);
+const extractedImageData = extractImageData(html);
 
 assert(extractedImageData, 'window.MMS_IMAGE_DATA 提取失败');
 const { portrait, avatar, background } = extractedImageData;
@@ -174,7 +165,7 @@ const sandbox = new Function(
   'jsyaml', 'window', 'document',
   mmsScript + '\n;return {' +
   ' mmsBuildNewdayResult, mmsParseAttrList, mmsIsCurMax, mmsApplyAttrCommands,' +
-  ' mmsNormalizeName, mmsMatchOne, mmsCashCompute, mmsFindNameField, mmsAttrsToString,' +
+  ' mmsNormalizeName, mmsMatchOne, mmsNameMatch, mmsApplyItemCommands, mmsCashCompute, mmsFindNameField, mmsAttrsToString,' +
   ' mmsApplyRosterToState, mmsMergeState, mmsBuildSystemPrompt, mmsRenderMapArt,' +
   ' mmsPickFloorVarSlot, mmsIsStoryFragmentBlock };'
 );
@@ -233,10 +224,17 @@ const r10 = fns.mmsBuildNewdayResult(stateBase, b10, roster);
 assert(r10.state['状态栏']['角色列表'][0]['属性'].includes('[❤️HP:28/28]'), '回血封顶上限夹取');
 pass('回血倍率封顶逻辑断言通过');
 
-// 名字标准化与前缀匹配
+// 名字标准化 / 严格匹配（战斗结算用）与别名模糊匹配（清单命令用）是两套口径，分开断言。
+// 注意 mmsMatchOne 契约：全等 → 命中下标；无全等时按"剥括号备注的主名"全等且**唯一**才命中；否则 -1。
+// 该函数失败返回 -1（真值），断言必须比下标，不能比真假。
 assert.strictEqual(fns.mmsNormalizeName('🔮 冯·霍恩海姆 (队长)'), '冯霍恩海姆队长', 'mmsNormalizeName 归一');
-assert(fns.mmsMatchOne('威廉', ['威廉·退尔', '索恩']), '别名模糊匹配');
-pass('名册名字标准化与前缀匹配断言通过');
+assert.strictEqual(fns.mmsMatchOne(['威廉·退尔', '索恩'], '索恩'), 1, 'mmsMatchOne 全等命中返回下标');
+assert.strictEqual(fns.mmsMatchOne(['柯尔特M1911(夹克内侧)'], '柯尔特M1911'), 0, 'mmsMatchOne 剥括号备注主名唯一命中');
+assert.strictEqual(fns.mmsMatchOne(['威廉·退尔', '索恩'], '威廉'), -1, 'mmsMatchOne 不做子串/别名匹配');
+assert.strictEqual(fns.mmsMatchOne(['绷带(背包)', '绷带(腰包)'], '绷带'), -1, 'mmsMatchOne 主名命中不唯一时返回 -1');
+assert.strictEqual(fns.mmsMatchOne(['威廉·退尔', '索恩'], '张三'), -1, 'mmsMatchOne 无命中返回 -1');
+assert(fns.mmsNameMatch('绷带', '高级绷带'), 'mmsNameMatch 负责子串/别名模糊匹配');
+pass('名册名字标准化、严格匹配与别名模糊匹配断言通过');
 
 // ---------- 4.2 独立小地图 miniArt 断言 ----------
 const mkRoster = (miniEnabled) => ({
@@ -300,19 +298,7 @@ assert.strictEqual(scriptObj.markdownOnly, true, 'markdownOnly 为 true');
 assert.strictEqual(scriptObj.disabled, false, '默认启用 (disabled: false)');
 pass('公开版正则 JSON 元数据配置（独立UUID、名称、生效范围）断言通过');
 
-// 酒馆管线实体解码
-const NAMED = { lt: '<', gt: '>', quot: '"', amp: '&', apos: "'", not: '¬', copy: '©', reg: '®', times: '×' };
-const ENTITY_RE = /&(#[0-9]{1,5};|#x[0-9a-fA-F]{1,5};|amp;|lt;|gt;|quot;|apos;|not;|copy;|reg;|times;|amp|lt|gt|quot|not|copy|reg|times)/g;
-const decodePipeline = (t) =>
-  t.replace(ENTITY_RE, (m) => {
-    const body = m.slice(1);
-    if (body[0] === '#') {
-      return body[1] === 'x' || body[1] === 'X'
-        ? String.fromCodePoint(parseInt(body.slice(2, -1), 16))
-        : String.fromCodePoint(parseInt(body.slice(1, -1), 10));
-    }
-    return NAMED[body.replace(/;$/, '')];
-  });
+// 酒馆管线实体解码（复刻实现见 test-lib.mjs，与 test-runtime.mjs 共用一份）
 
 const decodedReplaceString = decodePipeline(scriptObj.replaceString);
 const outScripts = [...decodedReplaceString.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);

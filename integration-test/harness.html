@@ -118,15 +118,21 @@ yesterday_bill:
     ],
   };
 
+  // 版本选择：?src=public 跑公开版源码，默认跑非公开完整版（同一套断言覆盖两版，不复制 mock）
+  const SRC_FILE = (function () {
+    const q = new URLSearchParams(location.search).get('src');
+    return q === 'public' ? 'MiniMapStatus-公开版.html' : 'MiniMapStatus.html';
+  })();
+
   function runAll() {
     out.innerHTML = '';
     out.appendChild(totalRow);
-    totalRow.textContent = '运行中…';
+    totalRow.textContent = '运行中…（' + SRC_FILE + '）';
     passCount = 0; total = 0;
     logEl.innerText = '';
 
     // 提取 MMS 主脚本块（document.currentScript 前有 replace_string 包裹代码块）
-    fetch('../MiniMapStatus.html').then((r) => r.text()).then((html) => {
+    fetch('../' + SRC_FILE).then((r) => r.text()).then((html) => {
       const re = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
       const blocks = [];
       let m;
