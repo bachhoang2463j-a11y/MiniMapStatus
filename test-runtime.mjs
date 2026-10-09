@@ -66,6 +66,12 @@ class Clock {
   clear(id) {
     this.tasks.delete(id);
   }
+  /** 虚拟延时：只有时钟推进到点才 resolve（模拟真实请求占用时间窗） */
+  delay(ms) {
+    return new Promise((resolve) => {
+      this.schedule(() => resolve(), ms, []);
+    });
+  }
   pendingCount() {
     return this.tasks.size;
   }
@@ -82,8 +88,12 @@ class Clock {
       const [id, t] = next;
       this.tasks.delete(id);
       this.now = Math.max(this.now, t.due);
+      // 浏览器语义：定时器回调**不被 await**。异步回调（如 8 秒后的状态更新）
+      // 会在下一个回调触发时仍在飞行中——这正是"双 iframe 各排一个 8 秒定时器"
+      // 的真实竞争形态，串行等待会把竞争掩盖掉。
       try {
-        await t.fn(...t.args);
+        const r = t.fn(...t.args);
+        if (r && typeof r.then === 'function') r.catch((e) => this.errors.push(e));
       } catch (e) {
         this.errors.push(e);
       }
@@ -118,7 +128,14 @@ function makeFakeElement(tag = 'div') {
     replaceChild(c) { this.children.push(c); return c; },
     remove() {}, setAttribute() {}, getAttribute() { return null; }, removeAttribute() {},
     addEventListener() {}, removeEventListener() {}, dispatchEvent() { return true; },
-    querySelector() { return null; }, querySelectorAll() { return []; },
+    // 真实 DOM 里这些子元素是存在的（如卡片内的 .roster-edit-btn），返回桩元素而不是 null，
+    // 否则 `card.querySelector('.x').addEventListener(...)` 这类写法会直接抛错
+    querySelector(sel) {
+      if (!this._q) this._q = new Map();
+      if (!this._q.has(sel)) this._q.set(sel, Object.assign(makeFakeElement(), { _sel: sel }));
+      return this._q.get(sel);
+    },
+    querySelectorAll() { return []; },
     closest() { return null; }, focus() {}, blur() {}, click() {}, scrollIntoView() {},
     getBoundingClientRect() { return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 }; },
     offsetWidth: 0, offsetHeight: 0, clientWidth: 0, clientHeight: 0, scrollTop: 0, scrollLeft: 0,
@@ -189,6 +206,8 @@ function createHost(opts = {}) {
     errors: [],
   };
   if (opts.chat) host.chat.push(...opts.chat);
+  if (opts.chatVars) host.chatVars = JSON.parse(JSON.stringify(opts.chatVars));
+  if (opts.globalVars) host.globalVars = JSON.parse(JSON.stringify(opts.globalVars));
   host.emit = async (ev, ...args) => {
     const set = host.listeners.get(ev);
     if (!set) return;
@@ -208,6 +227,19 @@ function createHost(opts = {}) {
     return n;
   };
   host.eventSource = { on: host.on, off: host.off, removeListener: host.off, emit: host.emit };
+  // 宿主页 window 桩：所有 iframe 共享同一个 parent 对象（跨 iframe 共享状态就挂在这里）
+  host.parentStub = {
+    SillyTavern: {
+      getContext: () => ({
+        chat: host.chat,
+        eventSource: host.eventSource,
+        eventTypes: TAVERN_EVENTS,
+        getRequestHeaders: () => ({ 'X-CSRF-Token': 'test' }),
+        getCurrentChatId: () => host.chatId,
+      }),
+    },
+    document: makeFakeDocument(),
+  };
   return host;
 }
 
@@ -437,6 +469,9 @@ function createInstance(host, { floorId = 0, scriptText, jsyamlBlock }) {
     tavern_events: TAVERN_EVENTS,
     generateRaw: async (cfg) => {
       host.genCalls.push(cfg);
+      // 真实 LLM 请求要占用数秒：用虚拟延时建模，否则"两个 8 秒定时器"的竞争
+      // 会被瞬间返回的 mock 掩盖（排重逻辑看起来失效，实则是测试不真实）
+      if (host.genLatencyMs) await host.clock.delay(host.genLatencyMs);
       if (host.genGate) await host.genGate;
       if (!host.genHandler) throw new Error('测试未设置 genHandler');
       const r = host.genHandler(cfg, host.genCalls.length);
@@ -469,20 +504,9 @@ function createInstance(host, { floorId = 0, scriptText, jsyamlBlock }) {
   });
 
   vm.createContext(sandbox);
-  // iframe 里 window 就是全局对象；parent 指向宿主页
+  // iframe 里 window 就是全局对象；parent 指向宿主页（同一 host 的多个 iframe 共用同一个 parent 对象）
   vm.runInContext('globalThis.window = globalThis;', sandbox);
-  sandbox.parent = {
-    SillyTavern: {
-      getContext: () => ({
-        chat: host.chat,
-        eventSource: host.eventSource,
-        eventTypes: TAVERN_EVENTS,
-        getRequestHeaders: () => ({ 'X-CSRF-Token': 'test' }),
-        getCurrentChatId: () => host.chatId,
-      }),
-    },
-    document: doc,
-  };
+  sandbox.parent = host.parentStub;
   vm.runInContext('globalThis.window.parent = globalThis.parent;', sandbox);
 
   if (jsyamlBlock) vm.runInContext(jsyamlBlock, sandbox);
@@ -628,14 +652,123 @@ group('R2-自动更新排重', async (V) => {
   const newInst = createInstance(host, { floorId: newId, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
 
   host.genHandler = () => JSON.stringify(STATE_MODULE);
+  // 请求占用 2 秒（虚拟时间）：两个 8 秒定时器几乎同时触发，第二个必须复用第一个的请求
+  host.genLatencyMs = 2000;
   // 事件通道：旧楼实例代理触发；随后新楼 iframe 渲染完成
   await host.emit(TAVERN_EVENTS.MESSAGE_RECEIVED, newId);
   await newInst.MMS.boot();
   await drain();
 
-  await host.clock.advance(9000);
+  await host.clock.advance(9000); // 两个 8 秒定时器触发（此时请求仍在飞行）
+  await host.clock.advance(6000); // 让请求跑完
+  await drain();
   const targetCalls = host.genCalls.filter((c) => c.generation_id && c.generation_id.startsWith('mms-update-' + newId + '-'));
   ok('同一新楼层只发起 1 次状态更新请求', targetCalls.length === 1, `实际 ${targetCalls.length} 次`);
+});
+
+// ============ R2b/R2c/R2d 排重的其余边界 ============
+group('R2b-重复通知不额外请求', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  pushMessage(host, { mes: '第一楼' });
+  const prevId = pushMessage(host, { mes: '第二楼' });
+  const oldInst = createInstance(host, { floorId: prevId, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  await oldInst.MMS.boot();
+  await drain();
+  const newId = pushMessage(host, { mes: '第三楼' });
+  host.genHandler = () => JSON.stringify(STATE_MODULE);
+  host.genLatencyMs = 2000;
+
+  // 同一条通知重复到达三次（事件重放/多实例同时收到）
+  await host.emit(TAVERN_EVENTS.MESSAGE_RECEIVED, newId);
+  await host.emit(TAVERN_EVENTS.MESSAGE_RECEIVED, newId);
+  await host.emit(TAVERN_EVENTS.MESSAGE_RECEIVED, newId);
+  await drain();
+  await host.clock.advance(9000);
+  await host.clock.advance(6000);
+  await drain();
+
+  const calls = host.genCalls.filter((c) => c.generation_id && c.generation_id.includes('-' + newId + '-'));
+  ok('重复通知只产生 1 次请求', calls.length === 1, `实际 ${calls.length} 次`);
+});
+
+group('R2c-关闭自动更新后不发请求', async (V) => {
+  const host = createHost({
+    chatVars: { $mms_roster: makeRoster() },
+    globalVars: { $mms_config: { autoUpdate: false } },
+  });
+  pushMessage(host, { mes: '第一楼' });
+  const id = pushMessage(host, { mes: '第二楼，无状态' });
+  host.genHandler = () => JSON.stringify(STATE_MODULE);
+  const inst = createInstance(host, { floorId: id, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  await inst.MMS.boot();
+  await drain();
+  await host.clock.advance(20000);
+  await drain();
+  ok('autoUpdate=false 时不发起状态更新请求', host.genCalls.length === 0, `实际 ${host.genCalls.length} 次`);
+});
+
+group('R2d-真正的新楼不漏更新', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  pushMessage(host, { mes: '第一楼' });
+  const id = pushMessage(host, { mes: '第二楼，无状态' });
+  host.genHandler = () => JSON.stringify(STATE_MODULE);
+  host.genLatencyMs = 2000;
+  const inst = createInstance(host, { floorId: id, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  await inst.MMS.boot();
+  await drain();
+  await host.clock.advance(9000);
+  await host.clock.advance(6000);
+  await drain();
+  ok('新楼 boot 自行触发 1 次请求', host.genCalls.length === 1, `实际 ${host.genCalls.length} 次`);
+  ok('新楼状态已写入', !!host.chat[id].variables[0]?.stat_data, JSON.stringify(host.chat[id].variables[0]));
+});
+
+// ============ R1b 结算台账的失败/重放边界 ============
+group('R1b-结算台账边界', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  const id = pushMessage(host, {
+    mes: '第一天结束',
+    variables: [{ stat_data: JSON.parse(JSON.stringify(STATE_MODULE)), $mms_meta: { hash: 'h', ts: 1, mesId: 0 } }],
+  });
+  let releaseGate;
+  host.worldbookGate = new Promise((r) => { releaseGate = r; });
+  host.charWorldbooks = { primary: '测试世界书', additional: [] };
+  host.worldbooks['测试世界书'] = [];
+  const inst = createInstance(host, { floorId: id, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  inst.MMS.detectEnv();
+  inst.MMS.floorId = id;
+
+  // ① 身份守卫：切聊天后目标即失效；且此刻尚未落任何台账（可重试）
+  const target = inst.MMS.captureTarget(id);
+  host.chatId = 'other-chat';
+  ok('切聊天后目标判定为失效', inst.MMS.isTargetAlive(target) === false);
+  ok('失效时台账未被写入', inst.MMS.loadNewdaySync().lastId !== BILL.id,
+    `lastId=${JSON.stringify(inst.MMS.loadNewdaySync().lastId)}`);
+  host.chatId = 'test-chat';
+  ok('切回后目标恢复有效', inst.MMS.isTargetAlive(inst.MMS.captureTarget(id)) === true);
+
+  // ② 世界书注入被闸门挡住（异步未完成）时，结算必须已经写盘并落台账
+  const p1 = inst.MMS.applyNewdayBill(JSON.parse(JSON.stringify(BILL)));
+  await drain();
+  eq('注入未完成时结算已写盘（现金 455）', host.chat[id].variables[0].stat_data['状态栏']['据点']['现金'], '455美元');
+  ok('写盘成功后台账立刻落（不等注入）', inst.MMS.loadNewdaySync().lastId === BILL.id,
+    `lastId=${JSON.stringify(inst.MMS.loadNewdaySync().lastId)}`);
+
+  // ③ 同账单重放：不再扣款
+  await inst.MMS.applyNewdayBill(JSON.parse(JSON.stringify(BILL)));
+  await drain();
+  eq('同账单重放不重复扣款', host.chat[id].variables[0].stat_data['状态栏']['据点']['现金'], '455美元');
+
+  releaseGate();
+  await p1;
+  await drain();
+  eq('注入完成后金额不变（注入延迟/失败不影响结算）', host.chat[id].variables[0].stat_data['状态栏']['据点']['现金'], '455美元');
+
+  // ④ 新账单正常处理
+  const bill2 = Object.assign({}, BILL, { id: 'nd-100-def', totalCost: 10 });
+  await inst.MMS.applyNewdayBill(bill2);
+  await drain();
+  eq('新账单正常扣款（455 − 10 = 445）', host.chat[id].variables[0].stat_data['状态栏']['据点']['现金'], '445美元');
 });
 
 // ============ R3 API 预设：切回默认必须清空旧端点 ============
@@ -1000,6 +1133,7 @@ async function main() {
       } catch (e) {
         failures.push(`${g.name} 抛异常`);
         console.log(`  [FAIL] ${g.name} 抛异常: ${e && e.message ? e.message : e}`);
+        if (e && e.stack) console.log(String(e.stack).split('\n').slice(1, 5).join('\n'));
       }
     }
   }
@@ -1015,6 +1149,9 @@ async function main() {
     console.log('====================================================');
   }
 }
+
+// 直接运行时才跑；被 import 时只导出夹具（便于单独调试某个场景）
+export { createHost, createInstance, pushMessage, loadVersion, SOURCES, makeRoster, STATE_MODULE, BILL, drain, destroyInstance };
 
 main().catch((e) => {
   console.error('[test-runtime] 运行失败:', e);
