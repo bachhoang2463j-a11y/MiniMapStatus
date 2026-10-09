@@ -11567,6 +11567,159 @@ createCharacterEntry(text, categoryKey) {
         return out;
       }
 
+      // ---------- 同楼重算对账（保留手动编辑与结算直连的改动） ----------
+      //
+      // 背景：更新 AI 的输入永远是"前楼状态"（同一段剧情不能被重复应用增量），所以同一楼层
+      // 再算一次时结果也是从同一基线算出来的。若直接覆盖写盘，用户在该楼做的手动修正、
+      // 以及每日/战斗结算直连写入的数值都会被静默还原。
+      //
+      // 对账依据：$mms_meta.aiState（上次 AI 写入的结果）。当前保存值与它不一致的字段，
+      // 说明之后被外部改过 → 保留当前值；一致的字段 → 采用本次新算出的值。
+      // 手动值被保留后，本次对账结果会成为新的 aiState，因此下一轮 AI 增量仍能正常作用其上。
+
+      function mmsReconcileValue(cur, base, neu, key) {
+        const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+        if (same(cur, base)) return neu; // 未被动过：采用新结果
+        if (same(cur, neu)) return neu;
+        if (typeof cur === 'string' && typeof base === 'string' && typeof neu === 'string') {
+          const per = mmsReconcileString(cur, base, neu, key);
+          return per === null ? cur : per; // 非条目型字符串（穿着/内心等）：外部改动优先
+        }
+        if (Array.isArray(cur) && Array.isArray(base) && Array.isArray(neu)) {
+          return mmsReconcileArray(cur, base, neu);
+        }
+        if (
+          cur && base && neu &&
+          typeof cur === 'object' && typeof base === 'object' && typeof neu === 'object'
+        ) {
+          const out = {};
+          const keys = [];
+          for (const src of [cur, base, neu]) {
+            for (const k of Object.keys(src)) if (keys.indexOf(k) === -1) keys.push(k);
+          }
+          for (const k of keys) {
+            const inCur = Object.prototype.hasOwnProperty.call(cur, k);
+            const inBase = Object.prototype.hasOwnProperty.call(base, k);
+            const inNeu = Object.prototype.hasOwnProperty.call(neu, k);
+            if (!inCur) {
+              if (!inBase && inNeu) out[k] = neu[k]; // AI 新增
+              continue; // 外部删除：不复活
+            }
+            if (!inNeu) {
+              if (!same(cur[k], base[k])) out[k] = cur[k]; // 被外部改过 → 保留
+              continue; // 否则视为 AI 主动删除
+            }
+            out[k] = mmsReconcileValue(cur[k], base[k], neu[k], k);
+          }
+          return out;
+        }
+        return cur; // 类型都变了：外部改动优先
+      }
+
+      // 数组按条目身份配对（名字 / 【名字】 / 字符串本体），逐项对账；同名字条目递归进值级对账
+      function mmsReconcileArray(cur, base, neu, keyOfOverride) {
+        const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+        const keyOf =
+          keyOfOverride ||
+          ((x) => {
+            if (x == null) return '';
+            if (typeof x === 'string') {
+              const m = x.match(/【([^】]+)】/); // 小地图/人物行按名字配对，避免手改一行被当成新条目
+              return m ? m[1] : x;
+            }
+            if (typeof x === 'object') {
+              for (const k of ['角色', '用户']) {
+                if (x[k] && typeof x[k] === 'object') {
+                  const nk = mmsFindNameField(x[k]);
+                  if (nk) return String(x[k][nk]);
+                }
+              }
+              for (const k of ['名字', '名称', 'name']) {
+                if (k in x && typeof x[k] !== 'object') return String(x[k]);
+              }
+              try { return JSON.stringify(x); } catch (e) { return ''; }
+            }
+            return String(x);
+          });
+        const mb = new Map(base.map((x) => [keyOf(x), x]));
+        const mc = new Map(cur.map((x) => [keyOf(x), x]));
+        const out = [];
+        const used = new Set();
+        for (const n of neu) {
+          const k = keyOf(n);
+          used.add(k);
+          const c = mc.get(k);
+          const b = mb.get(k);
+          if (c === undefined) { out.push(n); continue; } // 现值没有：外部删过的不复活
+          if (b === undefined || same(c, b)) out.push(n); // 未被动过 → 用新值
+          else out.push(mmsReconcileValue(c, b, n, k)); // 动过 → 逐字段对账
+        }
+        for (const c of cur) {
+          if (c === undefined) continue;
+          const k = keyOf(c);
+          if (used.has(k)) continue;
+          // 新结果里没有：被外部改过的保留（视为手动保留），否则视为 AI 删除
+          if (!same(c, mb.get(k))) out.push(c);
+        }
+        return out;
+      }
+
+      // 条目型字符串对账：属性串按属性键、清单串按物品名逐项比较，
+      // 避免为保留一个 HP 改动而挡掉同一串里其它属性的更新。非条目型返回 null。
+      function mmsReconcileString(cur, base, neu, key) {
+        if (/属性|数值|状态值/.test(String(key || ''))) {
+          const pc = mmsParseAttrList(cur);
+          const pb = mmsParseAttrList(base);
+          const pn = mmsParseAttrList(neu);
+          if (!pc.length || !pn.length) return null;
+          const kOf = (a) => mmsAttrNormKey(a.display);
+          const sameAttr = (a, b) => !!b && a.display === b.display && a.value === b.value;
+          const mb = new Map(pb.map((a) => [kOf(a), a]));
+          const mc = new Map(pc.map((a) => [kOf(a), a]));
+          const out = [];
+          const used = new Set();
+          for (const n of pn) {
+            const k = kOf(n);
+            used.add(k);
+            const c = mc.get(k);
+            if (!c) { out.push(n); continue; }
+            out.push(sameAttr(c, mb.get(k)) ? n : c); // 该属性被外部改过 → 保留现值
+          }
+          for (const c of pc) {
+            const k = kOf(c);
+            if (used.has(k)) continue;
+            if (sameAttr(c, mb.get(k))) continue; // 未被外部改过 → 允许 AI 删除
+            out.push(c);
+          }
+          return out.map((a) => `[${a.display}:${a.value}]`).join('');
+        }
+        const pc = mmsParseItemList(cur);
+        const pb = mmsParseItemList(base);
+        const pn = mmsParseItemList(neu);
+        if (!pc.items.length || !pn.items.length) return null;
+        const items = mmsReconcileArray(pc.items, pb.items, pn.items, (it) =>
+          mmsItemBaseName(it.name) || mmsNormalizeName(it.name),
+        );
+        return mmsSerializeItemList({
+          prefixes: pc.prefixes.length ? pc.prefixes : pn.prefixes,
+          items,
+        });
+      }
+
+      // 同楼重算总对账：curState=本楼当前保存值，baseState=上次 AI 基线，newState=本次算出结果
+      function mmsReconcileRecompute(curState, baseState, newState) {
+        if (!curState || !baseState || !newState) return newState;
+        const pick = (s) => (s && s['状态栏'] && typeof s['状态栏'] === 'object' ? s['状态栏'] : s);
+        const cur = pick(curState);
+        const base = pick(baseState);
+        const neu = pick(newState);
+        if (!cur || !base || !neu || typeof neu !== 'object') return newState;
+        const merged = mmsReconcileValue(cur, base, neu, '');
+        return newState['状态栏'] && typeof newState['状态栏'] === 'object'
+          ? { 状态栏: merged }
+          : merged;
+      }
+
       // ---------- 更新器系统提示词（v5：名册/模块/标签数据动态注入，规范文本与结构参照静态生成） ----------
 
       // 依据名册（角色字段与模式并集）、固定模块列表、地图开关与标签分配，动态生成发送给更新 LLM 的系统提示词
@@ -13099,11 +13252,21 @@ createCharacterEntry(text, categoryKey) {
             this.setIndicator('error', '检测到并发写入（楼 ' + floorId + '）：本次写盘可能覆盖其他模块的改动，详见控制台');
           }
           const writeTs = Date.now();
+          const prevMeta = existingBag['$mms_meta'] || {};
+          const nextMeta = { hash: floorHash, ts: writeTs, mesId: floorId };
+          // aiState：**AI 原始结果**，作为"同楼重算保留手动/结算改动"的比对基线。
+          // 存原始结果而非对账后结果：更新 AI 的输入永远是前楼状态，它给出的值不会包含
+          // 本楼的手动修正，所以被手改过的字段会一直与基线不同 → 持续保留（手动值在该楼
+          // 一直是权威，直到用户自己再改或重新导入）；其余字段与基线一致 → 正常采用新结果。
+          // 只有基线型写入（AI 更新、名册同步、首次导入）刷新它；手动编辑与结算直连保留旧基线。
+          if (opts.baseline) nextMeta.aiState = opts.baseline;
+          else if (opts.setBaseline) nextMeta.aiState = normalized;
+          else if (prevMeta.aiState) nextMeta.aiState = prevMeta.aiState;
           const next = Object.assign({}, existingBag, {
             stat_data: normalized,
             // mesId：标记数据写入时的目标楼层——getVariables(message) 有向前继承语义，
             // 后续楼层会原样读到本条 meta，靠 mesId 区分"本楼数据"与"继承的前楼数据"
-            $mms_meta: { hash: floorHash, ts: writeTs, mesId: floorId },
+            $mms_meta: nextMeta,
           });
           delete next.__test_marker;
 
@@ -13127,7 +13290,7 @@ createCharacterEntry(text, categoryKey) {
           }
           // 降级 2：无 replaceVariables 时用 insertOrAssign（旧键可能残留）
           insertOrAssignVariables(
-            { stat_data: normalized, $mms_meta: { hash: floorHash, ts: writeTs, mesId: floorId } },
+            { stat_data: normalized, $mms_meta: nextMeta },
             { type: 'message', message_id: floorId },
           );
           this._floorWriteTs[floorId] = writeTs;
@@ -14651,10 +14814,46 @@ createCharacterEntry(text, categoryKey) {
                   return false;
                 }
 
-                this.appendHistory(prev ? prev.state : null, state, targetFloorId);
+                // 同楼重算对账：目标楼已有归属自己的状态时，先与"上次 AI 基线"比对，
+                // 保留被手动编辑/结算直连改过的字段——否则重算会把它们静默还原。
+                // 当前状态在此刻重读，把等待 LLM 期间发生的手动/结算改动一并纳入。
+                let finalState = state;
+                const nowVars = this.readFloorVars(targetFloorId);
+                const nowMeta = nowVars && nowVars.$mms_meta;
+                const nowState =
+                  nowVars && nowVars.stat_data ? mmsNormalizeState(nowVars.stat_data) || nowVars.stat_data : null;
+                const isRecompute = !!(nowState && nowMeta && nowMeta.mesId === targetFloorId);
+                if (isRecompute) {
+                  const baseAi = nowMeta.aiState || null;
+                  if (!baseAi) {
+                    // 旧存档无参照：展示差异，未经确认不覆盖（首次同楼重算才问一次）
+                    const diffLines = mmsDiffStates(nowState, state)
+                      .slice(0, 12)
+                      .map((d) => '· ' + d.label + (d.detail ? '（' + d.detail + '）' : ''));
+                    const okWrite = confirm(
+                      '本楼已有状态，但缺少「上次 AI 结果」参照（旧版本写入），无法自动判断哪些是你手动改过的。\n' +
+                        '本次重算将整体覆盖本楼状态，差异如下：\n' +
+                        (diffLines.join('\n') || '（无明显差异）') +
+                        '\n\n确定覆盖？取消则保留当前状态（本次结果丢弃）。',
+                    );
+                    if (!okWrite) {
+                      console.warn('[MMS] 同楼重算：用户取消覆盖，保留当前状态');
+                      this.setIndicator('error', '已取消覆盖（保留当前状态）');
+                      return false;
+                    }
+                  } else {
+                    finalState = mmsReconcileRecompute(nowState, baseAi, state);
+                  }
+                  // 覆盖前把当前状态存为回退点（历史记录里可一键恢复）
+                  this.appendHistory(null, nowState, targetFloorId);
+                }
+
+                // 历史快照：记录更新前→更新后的差异
+                this.appendHistory(prev ? prev.state : null, finalState, targetFloorId);
                 this.mmsRenderHistoryList(); // 设置面板若停在历史Tab，立即刷新（否则显示陈旧列表）
 
-                this.writeState(targetFloorId, state, { swipeId: target.swipeId });
+                // baseline 传**未经对账的 AI 原始结果**（理由见 writeState 内注释）
+                this.writeState(targetFloorId, finalState, { swipeId: target.swipeId, baseline: state });
                 // 结算已随本次更新落盘：此刻才记台账（幂等 + 硬锁窗口起点）
                 if (combatPending) {
                   this.saveCombatSync({
@@ -14668,11 +14867,11 @@ createCharacterEntry(text, categoryKey) {
                 }
 
                 const isLatest = this.checkLastAssistantFloor(targetFloorId);
-                if (isLatest) this.ensureInjection(state, targetFloorId);
+                if (isLatest) this.ensureInjection(finalState, targetFloorId);
 
                 if (targetFloorId === this.floorId) this.refreshFromVars();
                 if (this.env.hasEventApi) {
-                  eventEmit(MMS_EVENT_UPDATED, { message_id: targetFloorId, state });
+                  eventEmit(MMS_EVENT_UPDATED, { message_id: targetFloorId, state: finalState });
                 }
 
                 this.setIndicator('ok', '状态已更新');
@@ -14896,7 +15095,8 @@ createCharacterEntry(text, categoryKey) {
           }
           const state = mmsNormalizeState(parsed) || parsed;
           try {
-            this.writeState(this.floorId, state);
+            // 基线型写入：首次导入建立的初始状态就是后续 AI 更新的基线
+            this.writeState(this.floorId, state, { setBaseline: true });
             this.renderFromState(state);
             const isLatest = this.checkLastAssistantFloor(this.floorId);
             if (isLatest) this.ensureInjection(state, this.floorId);
@@ -16654,7 +16854,8 @@ createCharacterEntry(text, categoryKey) {
             const roster = this.loadRoster();
             const storyText = this.readFloorMaintext(this.floorId) || '';
             const merged = mmsApplyRosterToState(state, roster, storyText);
-            this.writeState(this.floorId, merged);
+            // 基线型写入：名册插入属于程序侧补全，应成为新的比对基线（否则会被误判为"手动改动"）
+            this.writeState(this.floorId, merged, { setBaseline: true });
             this.renderFromState(merged);
             if (this.checkLastAssistantFloor(this.floorId)) this.ensureInjection(merged, this.floorId);
             this.setIndicator('ok', '名册已应用');

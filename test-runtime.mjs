@@ -434,7 +434,7 @@ function createInstance(host, { floorId = 0, scriptText, jsyamlBlock }) {
     setInterval: () => 0,
     clearInterval: () => {},
     alert: (m) => host.logs.push(['alert', m]),
-    confirm: () => true,
+    confirm: (m) => { host.logs.push(['confirm', m]); return host.confirmAnswer !== false; },
     prompt: () => '',
     fetch: () => Promise.reject(new Error('测试环境禁止真实网络请求')),
     BroadcastChannel: class {
@@ -1026,7 +1026,7 @@ group('R6b-兼容路径保持', async (V) => {
 
 group('R8-重算保留手改', async (V) => {
   const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
-  const prevId = pushMessage(host, {
+  pushMessage(host, {
     mes: '第一楼', variables: [{ stat_data: JSON.parse(JSON.stringify(STATE_MODULE)), $mms_meta: { hash: 'h', ts: 1, mesId: 0 } }],
   });
   const id = pushMessage(host, { mes: '第二楼', variables: [{}] });
@@ -1035,7 +1035,60 @@ group('R8-重算保留手改', async (V) => {
   inst.MMS.floorId = id;
   inst.MMS.messageText = '第二楼';
   inst.MMS.isLastAssistantFloor = true;
-  // 更新 AI 每轮把 HP 减 3（模拟真实增量命令）
+  // 更新 AI 每轮把 HP 减 3，并给地点一个新值（用于验证"保留手改不挡其它字段"）
+  let gen = 0;
+  host.genHandler = () => {
+    gen++;
+    return JSON.stringify({
+      状态栏: {
+        日期和时间: '⏰ 1925年 · 6月13日 · 1' + gen + ':00',
+        地点: '📍 悉尼 · 地点' + gen,
+        角色列表: [{ 角色: { 名字: '李娟', 属性: '[❤️HP-3]' } }],
+      },
+    });
+  };
+
+  await inst.MMS.runUpdate(id);
+  await drain();
+  const afterAi = host.chat[id].variables[0].stat_data['状态栏'];
+  ok('第一次更新写入 HP 16/28', afterAi['角色列表'][0]['角色']['属性'].includes('[❤️HP:16/28]'),
+    `实际 ${afterAi['角色列表'][0]['角色']['属性']}`);
+  ok('第一次更新写入地点1', afterAi['地点'] === '📍 悉尼 · 地点1', `实际 ${afterAi['地点']}`);
+
+  // 用户手动修正 HP 到 12
+  const manual = JSON.parse(JSON.stringify(host.chat[id].variables[0].stat_data));
+  manual['状态栏']['角色列表'][0]['角色']['属性'] = '[❤️HP:12/28][💧MP:3/14]';
+  host.chat[id].variables[0].stat_data = manual;
+
+  // 再次「立即更新」：不得把手改的 12 覆盖回 16，但地点等其它字段照常更新
+  await inst.MMS.runUpdate(id);
+  await drain();
+  const after2 = host.chat[id].variables[0].stat_data['状态栏'];
+  ok('同楼重算保留手动修正的 HP 12/28', after2['角色列表'][0]['角色']['属性'].includes('[❤️HP:12/28]'),
+    `实际 ${after2['角色列表'][0]['角色']['属性']}`);
+  ok('保留手改不挡其它字段更新（地点→地点2）', after2['地点'] === '📍 悉尼 · 地点2', `实际 ${after2['地点']}`);
+
+  // 再算一次：手改值持续生效（更新 AI 的输入是前楼状态，不含本楼手改，故两者一直冲突，
+  // 手动值在该楼保持权威），且其它字段仍继续跟随 AI 更新
+  await inst.MMS.runUpdate(id);
+  await drain();
+  const after3 = host.chat[id].variables[0].stat_data['状态栏'];
+  ok('重复重算不还原手改的 HP 12/28', after3['角色列表'][0]['角色']['属性'].includes('[❤️HP:12/28]'),
+    `实际 ${after3['角色列表'][0]['角色']['属性']}`);
+  ok('重复重算仍更新其它字段（地点→地点3）', after3['地点'] === '📍 悉尼 · 地点3', `实际 ${after3['地点']}`);
+});
+
+group('R8b-重算保留结算值', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  pushMessage(host, {
+    mes: '第一楼', variables: [{ stat_data: JSON.parse(JSON.stringify(STATE_MODULE)), $mms_meta: { hash: 'h', ts: 1, mesId: 0 } }],
+  });
+  const id = pushMessage(host, { mes: '第二楼', variables: [{}] });
+  const inst = createInstance(host, { floorId: id, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  inst.MMS.detectEnv();
+  inst.MMS.floorId = id;
+  inst.MMS.messageText = '第二楼';
+  inst.MMS.isLastAssistantFloor = true;
   host.genHandler = () => JSON.stringify({
     状态栏: {
       日期和时间: '⏰ 1925年 · 6月13日 · 13:00',
@@ -1046,19 +1099,65 @@ group('R8-重算保留手改', async (V) => {
 
   await inst.MMS.runUpdate(id);
   await drain();
-  const afterAi = host.chat[id].variables[0].stat_data['状态栏']['角色列表'][0]['角色']['属性'];
-  ok('第一次更新写入 HP 16/28', afterAi.includes('[❤️HP:16/28]'), `实际 ${afterAi}`);
+  // 每日结算直连写入：现金 520 → 455（而 AI 的下一轮结果里现金仍是 520）
+  await inst.MMS.applyNewdayBill(JSON.parse(JSON.stringify(BILL)));
+  await drain();
+  eq('结算写入现金 455', host.chat[id].variables[0].stat_data['状态栏']['据点']['现金'], '455美元');
 
-  // 用户手动修正 HP 到 12
-  const manual = JSON.parse(JSON.stringify(host.chat[id].variables[0].stat_data));
-  manual['状态栏']['角色列表'][0]['角色']['属性'] = '[❤️HP:12/28][💧MP:3/14]';
-  host.chat[id].variables[0].stat_data = manual;
-
-  // 再次「立即更新」：不得把手改的 12 覆盖回 16
   await inst.MMS.runUpdate(id);
   await drain();
-  const after2 = host.chat[id].variables[0].stat_data['状态栏']['角色列表'][0]['角色']['属性'];
-  ok('同楼重算保留手动修正的 HP 12/28', after2.includes('[❤️HP:12/28]'), `实际 ${after2}`);
+  eq('重算后结算写入的现金仍为 455', host.chat[id].variables[0].stat_data['状态栏']['据点']['现金'], '455美元');
+});
+
+group('R8c-无基线需确认', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  pushMessage(host, {
+    mes: '第一楼', variables: [{ stat_data: JSON.parse(JSON.stringify(STATE_MODULE)), $mms_meta: { hash: 'h', ts: 1, mesId: 0 } }],
+  });
+  // 本楼已有状态但 meta 无 aiState（模拟旧版本写入）
+  const legacy = JSON.parse(JSON.stringify(STATE_MODULE));
+  legacy['状态栏']['角色列表'][0]['角色']['属性'] = '[❤️HP:12/28]';
+  const id = pushMessage(host, {
+    mes: '第二楼',
+    variables: [{ stat_data: legacy, $mms_meta: { hash: 'h2', ts: 2, mesId: 1 } }],
+  });
+  const inst = createInstance(host, { floorId: id, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  inst.MMS.detectEnv();
+  inst.MMS.floorId = id;
+  inst.MMS.messageText = '第二楼';
+  inst.MMS.isLastAssistantFloor = true;
+  host.genHandler = () => JSON.stringify({
+    状态栏: {
+      日期和时间: '⏰ 1925年 · 6月13日 · 14:00',
+      地点: '📍 悉尼 · 新地点',
+      角色列表: [{ 角色: { 名字: '李娟', 属性: '[❤️HP-3]' } }],
+    },
+  });
+
+  // 用户取消 → 不覆盖
+  host.confirmAnswer = false;
+  await inst.MMS.runUpdate(id);
+  await drain();
+  ok('取消时不覆盖当前状态', host.chat[id].variables[0].stat_data['状态栏']['地点'] === '📍 悉尼 · 酒店',
+    `实际 ${host.chat[id].variables[0].stat_data['状态栏']['地点']}`);
+  ok('取消时展示了差异并要求确认',
+    host.logs.some(([k, m]) => k === 'confirm' && String(m).includes('缺少「上次 AI 结果」参照')),
+    JSON.stringify(host.logs.filter(([k]) => k === 'confirm')));
+
+  // 用户确认 → 覆盖，并建立后续基线
+  host.confirmAnswer = true;
+  await inst.MMS.runUpdate(id);
+  await drain();
+  const slot = host.chat[id].variables[0];
+  ok('确认后按新结果覆盖（地点→新地点）', slot.stat_data['状态栏']['地点'] === '📍 悉尼 · 新地点',
+    `实际 ${slot.stat_data['状态栏']['地点']}`);
+  ok('覆盖后建立了基线（后续可自动对账）', !!slot.$mms_meta.aiState);
+
+  // 建立基线后再算：应走自动对账（不再弹确认）
+  const before = host.logs.filter(([k]) => k === 'confirm').length;
+  await inst.MMS.runUpdate(id);
+  await drain();
+  ok('建立基线后不再弹确认', host.logs.filter(([k]) => k === 'confirm').length === before);
 });
 
 // ============ R9 物品命令必须精确匹配 ============
