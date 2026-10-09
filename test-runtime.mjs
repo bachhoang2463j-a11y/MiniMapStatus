@@ -232,11 +232,20 @@ function createHost(opts = {}) {
     SillyTavern: {
       getContext: () => ({
         chat: host.chat,
+        chatMetadata: { variables: host.chatVars },
         eventSource: host.eventSource,
         eventTypes: TAVERN_EVENTS,
         getRequestHeaders: () => ({ 'X-CSRF-Token': 'test' }),
         getCurrentChatId: () => host.chatId,
       }),
+    },
+    // TavernHelper：宿主级生命周期守卫（换聊天清理）直接用宿主页这套接口
+    TavernHelper: {
+      getCharWorldbookNames: () => ({ ...host.charWorldbooks }),
+      getWorldbook: async (name) => JSON.parse(JSON.stringify(host.worldbooks[name] || [])),
+      updateWorldbookWith: async (name, fn) => {
+        host.worldbooks[name] = fn(JSON.parse(JSON.stringify(host.worldbooks[name] || [])));
+      },
     },
     document: makeFakeDocument(),
   };
@@ -1194,12 +1203,36 @@ group('R10-跨聊天注入清理', async (V) => {
   destroyInstance(inst);
   host.chat.length = 0;
   pushMessage(host, { mes: '' });
-  await host.emit(TAVERN_EVENTS.CHAT_CHANGED, 'new-chat');
+  host.chatId = 'chat-B';
+  await host.emit(TAVERN_EVENTS.CHAT_CHANGED, 'chat-B');
+  await host.clock.advance(600); // 守卫内的"等聊天加载"延时
   await drain();
 
   const entry2 = host.worldbooks['测试世界书'].find((e) => e && e.name && e.name.includes('MMS'));
-  ok('换到无状态聊天后旧注入条目被禁用', !!entry2 && entry2.enabled === false,
+  ok('换到无状态聊天后旧注入条目被禁用（无 iframe 也能清理）', !!entry2 && entry2.enabled === false,
     JSON.stringify(entry2 && { n: entry2.name, e: entry2.enabled }));
+
+  // A → B → A：回到有状态聊天应重新启用并写入该聊天内容
+  host.chatId = 'chat-A';
+  host.chat.length = 0;
+  pushMessage(host, {
+    mes: '第一楼', variables: [{ stat_data: JSON.parse(JSON.stringify(STATE_MODULE)), $mms_meta: { hash: 'h', ts: 1, mesId: 0 } }],
+  });
+  const inst2 = createInstance(host, { floorId: 0, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  await inst2.MMS.boot();
+  await drain();
+  const entry3 = host.worldbooks['测试世界书'].find((e) => e && e.name && e.name.includes('MMS'));
+  ok('回到有状态聊天后条目重新启用', !!entry3 && entry3.enabled === true,
+    JSON.stringify(entry3 && { n: entry3.name, e: entry3.enabled }));
+  ok('注入内容不含行动选项', !String(entry3 && entry3.content).includes('行动选项'));
+
+  // 宿主级守卫只注册一次（不随 iframe 数量累积）
+  ok('宿主级生命周期守卫只注册一次', !!host.parentStub.__mmsLifecycleGuard);
+  const guardRef = host.parentStub.__mmsLifecycleGuard;
+  const inst3 = createInstance(host, { floorId: 0, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  await inst3.MMS.boot();
+  await drain();
+  ok('再次 boot 不重复注册守卫', host.parentStub.__mmsLifecycleGuard === guardRef);
 });
 
 // ---------------------------------------------------------------- 运行

@@ -9849,6 +9849,23 @@ createCharacterEntry(text, categoryKey) {
         return best;
       }
 
+      // 宿主侧：当前聊天是否含状态数据（本楼变量或旧式 Status_block）。只读，不写任何东西。
+      // 读不到时保守返回 true（宁可不清理，也不误删有效注入）
+      function mmsChatHasState(ctx) {
+        try {
+          const chat = ctx && Array.isArray(ctx.chat) ? ctx.chat : [];
+          for (const m of chat) {
+            if (!m) continue;
+            const slot = m.variables && m.variables[m.swipe_id == null ? 0 : m.swipe_id];
+            if (slot && slot.stat_data) return true;
+            if (typeof m.mes === 'string' && /<Status_block>/i.test(m.mes)) return true;
+          }
+          return false;
+        } catch (e) {
+          return true;
+        }
+      }
+
       // 顶层模块键名去重：归一化相等的键（如「🏟️据点」与「据点」）合并为一个，
       // 与 preferNames 精确相等的键名优先保留；被弃键的缺失字段补齐进保留键后删除。
       // 返回是否有变化（原地修改 root）
@@ -14344,12 +14361,75 @@ createCharacterEntry(text, categoryKey) {
           }
         },
 
+        // 当前聊天标识（换聊天归属判定用；环境不支持时返回 null＝不做聊天级校验）
+        currentChatId() {
+          try {
+            const pw = typeof window !== 'undefined' ? window.parent : null;
+            const ctx =
+              pw && pw.SillyTavern && typeof pw.SillyTavern.getContext === 'function'
+                ? pw.SillyTavern.getContext()
+                : null;
+            if (ctx && typeof ctx.getCurrentChatId === 'function') return ctx.getCurrentChatId();
+          } catch (e) { /* 忽略 */ }
+          return null;
+        },
+
+        // 宿主级聊天生命周期守卫：换聊天时清理残留注入。
+        // 为什么必须挂在宿主页：清理原先注册在消息 iframe 内，而酒馆切聊天是
+        // "先移除旧消息（iframe 随之销毁，其监听被 JS-Slash-Runner 清掉）→ 再发 CHAT_CHANGED"。
+        // 新聊天没有 AI 楼时根本不存在 iframe，没人执行清理 → 角色卡世界书里残留上一个聊天的状态
+        // 并继续注入正文。这里在父页面 eventSource 上注册一次（用父页标记做幂等），
+        // iframe 销毁不影响；句柄留在父页便于诊断与注销。
+        ensureChatLifecycleGuard() {
+          try {
+            const pw = typeof window !== 'undefined' ? window.parent : null;
+            if (!pw) return;
+            if (pw.__mmsLifecycleGuard) return; // 已有守卫：不重复注册（防每楼累积）
+            const ST = pw.SillyTavern;
+            const ctx = ST && typeof ST.getContext === 'function' ? ST.getContext() : null;
+            const es = ctx && ctx.eventSource;
+            const et = ctx && ctx.eventTypes;
+            if (!es || !et || !et.CHAT_CHANGED || typeof es.on !== 'function') return;
+            const handler = () => { this.onChatChangedHostSide(); };
+            es.on(et.CHAT_CHANGED, handler);
+            pw.__mmsLifecycleGuard = { handler: handler, source: es, event: et.CHAT_CHANGED };
+          } catch (e) { /* 宿主不可用：仍由 boot 内的当次清理兜底 */ }
+        },
+
+        // 宿主侧换聊天清理：不依赖任何 iframe 存活，直接用酒馆主上下文读当前聊天，
+        // 无状态数据时禁用 MMS 自有注入条目（只碰本组件自己的条目，不动世界书其它内容）
+        async onChatChangedHostSide() {
+          try {
+            const pw = typeof window !== 'undefined' ? window.parent : null;
+            const ST = pw && pw.SillyTavern;
+            const ctx = ST && typeof ST.getContext === 'function' ? ST.getContext() : null;
+            if (!ctx) return;
+            await new Promise((r) => setTimeout(r, 500)); // 等聊天加载完成
+            if (mmsChatHasState(ctx)) return; // 当前聊天有状态 → 不动
+            const TH = pw.TavernHelper;
+            if (!TH || typeof TH.getCharWorldbookNames !== 'function' || typeof TH.updateWorldbookWith !== 'function') return;
+            const charWb = await Promise.resolve(TH.getCharWorldbookNames('current'));
+            const wbName =
+              charWb && charWb.primary ? charWb.primary : (charWb && charWb.additional && charWb.additional[0]) || null;
+            if (!wbName) return;
+            const entries = await TH.getWorldbook(wbName);
+            const existing = (entries || []).find((e) => e && e.name === MMS_WB_ENTRY_NAME);
+            if (!existing || !existing.enabled) return;
+            await TH.updateWorldbookWith(wbName, (list) =>
+              list.map((e) => (e && e.name === MMS_WB_ENTRY_NAME ? Object.assign({}, e, { enabled: false }) : e)),
+            );
+            console.info('[MMS] 换到无状态聊天，已禁用世界书条目「' + MMS_WB_ENTRY_NAME + '」');
+          } catch (e) { /* 忽略：下次有 iframe 时 boot 内的当次清理会兜底 */ }
+        },
+
         // 状态注入：写入当前角色卡主世界书的「MMS-状态栏数据」蓝灯条目（与蚀心数据库同模式）。
         // 同一角色卡所有聊天共用一本世界书（不新建聊天世界书，避免列表臃肿）；
         // 换聊天时条目内容随当前聊天的最新状态自动重写。
         // 位置/深度/排序默认 at_depth/0/10/system，用户可在世界书编辑器自由调整，脚本更新只改内容不动位置。
         async ensureInjection(state, floorId) {
           if (!this.env.hasWorldbookApi || !state) return;
+          // 归属快照：在任何 await 之前固定聊天身份，写入前复核（见下方"归属复核"）
+          const chatAtStart = this.currentChatId();
           try {
             const rootKey = Object.keys(state)[0];
             if (!rootKey) return;
@@ -14375,6 +14455,16 @@ createCharacterEntry(text, categoryKey) {
               if (!created) throw new Error('创建角色卡世界书失败');
               await rebindCharWorldbooks('current', { primary: charName, additional: [] });
               wbName = charName;
+            }
+
+            // 归属复核：等待期间换了聊天 → 丢弃本次注入，避免把上一个聊天的状态写进
+            // 角色卡共享世界书（该条目会被新聊天继续注入正文）
+            if (chatAtStart != null) {
+              const chatNow = this.currentChatId();
+              if (chatNow != null && chatNow !== chatAtStart) {
+                console.info('[MMS] 注入期间已切换聊天，丢弃本次注入');
+                return;
+              }
             }
 
             // 查找已有条目
@@ -18117,9 +18207,8 @@ createCharacterEntry(text, categoryKey) {
                     const msg = getCurrentMessage();
                     if (msg && typeof msg.message === 'string') this.messageText = msg.message;
                   }
-                  if (this.env.hasWorldbookApi && !this.hasValidState()) {
-                    this.disableWorldbookEntry();
-                  }
+                  // 世界书清理已改由宿主级守卫（ensureChatLifecycleGuard）承担：
+                  // iframe 内的监听在切聊天时随 iframe 一起被销毁，覆盖不到"新聊天无 iframe"的场景
                 } catch (e) { /* 忽略 */ }
               });
             } catch (e) {
@@ -18131,6 +18220,9 @@ createCharacterEntry(text, categoryKey) {
           if (this.env.hasWorldbookApi && !this.hasValidState()) {
             this.disableWorldbookEntry();
           }
+
+          // 宿主级换聊天守卫：注册一次即可覆盖"新聊天没有 iframe"的场景
+          this.ensureChatLifecycleGuard();
 
           this.setupDriftGuard();
         },
