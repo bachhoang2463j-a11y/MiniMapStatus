@@ -24,7 +24,7 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { extractMainScript, extractInlineScripts } from './test-lib.mjs';
+import { extractMainScript, extractInlineScripts, decodePipeline } from './test-lib.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -539,32 +539,65 @@ function destroyInstance(instance) {
 }
 
 // ---------------------------------------------------------------- 版本配置
+// 四份输入：两份源码 + 两份构建产物（产物经酒馆管线实体解码后跑同一套用例，
+// 覆盖"压缩/转义后行为是否仍正确"这一层，而不只是语法）
 const SOURCES = [
   {
-    key: 'private', label: '非公开完整版',
+    key: 'private', label: '非公开完整版（源码）',
     html: 'MiniMapStatus.html',
-    json: 'regex-美化状态栏[独立更新].json',
     id: '43f2c434-708b-467e-b9fd-dac04dc1d80e',
     name: '美化状态栏[独立更新]',
     isPublic: false,
     imgKey: 'mms_img_data_llm_v1',
   },
   {
-    key: 'public', label: '公开版',
+    key: 'public', label: '公开版（源码）',
     html: 'MiniMapStatus-公开版.html',
-    json: 'regex-美化状态栏[公开版].json',
     id: '2b8a7c13-e4d5-4a7f-9b1a-8e2c3d4f5a6b',
     name: '美化状态栏[公开版]',
     isPublic: true,
     // 修复目标：公开版使用独立键，避免被非公开版本机快照整表覆盖
     imgKey: 'mms_img_data_public_v1',
   },
+  {
+    key: 'private-json', label: '非公开版（正则产物）',
+    json: 'regex-美化状态栏[独立更新].json',
+    jsyamlFrom: 'MiniMapStatus.html',
+    id: '43f2c434-708b-467e-b9fd-dac04dc1d80e',
+    name: '美化状态栏[独立更新]',
+    isPublic: false,
+    imgKey: 'mms_img_data_llm_v1',
+  },
+  {
+    key: 'public-json', label: '公开版（正则产物）',
+    json: 'regex-美化状态栏[公开版].json',
+    jsyamlFrom: 'MiniMapStatus-公开版.html',
+    id: '2b8a7c13-e4d5-4a7f-9b1a-8e2c3d4f5a6b',
+    name: '美化状态栏[公开版]',
+    isPublic: true,
+    imgKey: 'mms_img_data_public_v1',
+  },
 ];
 
 function loadVersion(S) {
-  const html = readFileSync(join(__dirname, S.html), 'utf8');
+  // 产物形态：replaceString 是 ``` 包裹的压缩 HTML，先按酒馆管线解码实体再当源码用
+  const html = S.json
+    ? decodePipeline(JSON.parse(readFileSync(join(__dirname, S.json), 'utf8')).replaceString)
+    : readFileSync(join(__dirname, S.html), 'utf8');
   const scriptText = extractMainScript(html);
-  const jsyamlBlock = extractInlineScripts(html).find((b) => b.includes('INLINE-DEP js-yaml START'));
+  // js-yaml：源码里按 INLINE-DEP 标记取；产物里该注释已被压缩器剥掉，改按"定义了 jsyaml 的非主脚本块"
+  // 识别，识别不到时退回同版本源码的内联块（js-yaml 是第三方库，版本与源码一致）
+  let jsyamlBlock = extractInlineScripts(html).find((b) => b.includes('INLINE-DEP js-yaml START'));
+  if (!jsyamlBlock) {
+    jsyamlBlock = extractInlineScripts(html).find(
+      (b) => !b.includes('MMS_COMBAT_RESULT_VAR') && /jsyaml|YAMLException/.test(b),
+    );
+  }
+  if (!jsyamlBlock && S.jsyamlFrom) {
+    jsyamlBlock = extractInlineScripts(readFileSync(join(__dirname, S.jsyamlFrom), 'utf8')).find((b) =>
+      b.includes('INLINE-DEP js-yaml START'),
+    );
+  }
   if (!jsyamlBlock) throw new Error('未找到内联 js-yaml 块');
   return { S, html, scriptText, jsyamlBlock };
 }
@@ -1183,6 +1216,31 @@ group('R9-物品精确匹配', async (V) => {
   ok('消耗命中最短同名项而非首个子串项', out.includes('[高级绷带x5]') && out.includes('[绷带x1]'), `实际 ${out}`);
   const out2 = fn('[绷带x2][高级绷带x5]', '[绷带-1]');
   ok('清单顺序调换后仍命中同一项', out2.includes('[绷带x1]') && out2.includes('[高级绷带x5]'), `实际 ${out2}`);
+
+  // 括号备注 = 随身放置位置：换位置应改写备注而不是新增条目
+  const noteOut = fn('[柯尔特M1911(夹克内侧)]', '[柯尔特M1911(腰后)]');
+  ok('换放置位置改写备注而非新增条目', noteOut === '[柯尔特M1911(腰后)]', `实际 ${noteOut}`);
+
+  // 同型多件（备注不同）时命令有歧义 → 不动，绝不按顺序扣第一把
+  const amb = '[柯尔特M1911(玛德琳)][柯尔特M1911(弗兰克)]';
+  const ambOut = fn(amb, '[柯尔特M1911-1]');
+  ok('同型多件且有歧义时不做改动', ambOut === amb, `实际 ${ambOut}`);
+
+  // 中文冒号计数按原格式回写
+  const colonOut = fn('[.45子弹：700]', '[.45子弹-40]');
+  ok('中文冒号计数按原格式回写（700 → 660）', colonOut === '[.45子弹：660]', `实际 ${colonOut}`);
+
+  // 计数条目归零保留（渲染层标红），无数量物品消耗即移除
+  const zeroOut = fn('[绷带x2]', '[绷带-5]');
+  ok('计数物品归零保留为 x0（不删除）', zeroOut === '[绷带x0]', `实际 ${zeroOut}`);
+  const noCountOut = fn('[手电筒]', '[手电筒-1]');
+  ok('无数量物品消耗即移除', noCountOut === '', `实际 ${noCountOut}`);
+  const setZeroOut = fn('[子弹:10]', '[子弹:0]');
+  ok('set 0 同样保留条目', setZeroOut === '[子弹:0]', `实际 ${setZeroOut}`);
+
+  // 装饰前缀与零数量语义不受影响
+  const prefixOut = fn('[💼] [绷带x2]', '[绷带-1]');
+  ok('装饰前缀保留', prefixOut.includes('[💼]') && prefixOut.includes('[绷带x1]'), `实际 ${prefixOut}`);
 });
 
 // ============ R10 换聊天后世界书注入不得残留旧聊天状态 ============
@@ -1257,7 +1315,7 @@ async function main() {
     const V = loadVersion(S);
     // 沙箱尾部导出纯函数（供 R9 之类直接调用）
     V.scriptText += '\n;globalThis.__mmsExports = { mmsApplyItemCommands, mmsApplyAttrCommands, mmsCashCompute, mmsPickFloorVarSlot, mmsMatchOne, mmsMergeState };';
-    console.log(`\n--- ${S.label}（${S.html}）---`);
+    console.log(`\n--- ${S.label} ---`);
     for (const g of groups) {
       console.log(`\n[${g.name}]`);
       try {
