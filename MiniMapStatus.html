@@ -12291,6 +12291,8 @@ createCharacterEntry(text, categoryKey) {
             // 幂等：同一结算只应用一次（比对台账，多实例抢跑最坏情况是同值重写）
             if (this.loadCombatSync().lastId === result.id) return null;
           }
+          // 身份快照：在任何 await 之前固定目标 swipe
+          const target = inline ? null : this.captureTarget(targetFloor);
 
           let base = baseState;
           if (!base) {
@@ -12328,9 +12330,14 @@ createCharacterEntry(text, categoryKey) {
           }
 
           this.sanitizeState(state);
+          // 身份复核：等待期间切聊天/删楼 → 丢弃（不落台账，下次进入时重试）
+          if (target && !this.isTargetAlive(target)) {
+            console.warn('[MMS] 战斗结算目标楼层已失效，本次结果已丢弃');
+            return null;
+          }
           // 写前快照：结算写错（例如战斗失败后重打）可用「剧情回溯」回滚
           this.appendHistory(base, state, targetFloor);
-          this.writeState(targetFloor, state);
+          this.writeState(targetFloor, state, { swipeId: target ? target.swipeId : undefined });
           if (this.checkLastAssistantFloor(targetFloor)) await this.ensureInjection(state, targetFloor);
           if (targetFloor === this.floorId) this.refreshFromVars();
           if (this.env.hasEventApi) {
@@ -12434,6 +12441,8 @@ createCharacterEntry(text, categoryKey) {
           if (!this.checkLastAssistantFloor(targetFloor)) return null;
           // 幂等：同一账单只应用一次（比对台账，多实例抢跑最坏情况是同值重写）
           if (this.loadNewdaySync().lastId === bill.id) return null;
+          // 身份快照：在任何 await 之前固定目标 swipe
+          const target = this.captureTarget(targetFloor);
 
           let base = null;
           const vars = this.readFloorVars(targetFloor);
@@ -12453,9 +12462,15 @@ createCharacterEntry(text, categoryKey) {
           const healedCount = report.healed.length;
           const totalCost = Math.max(0, Number(bill.totalCost) || 0);
 
+          // 身份复核：等待期间切聊天/删楼 → 丢弃（不落台账，下次进入时重试）
+          if (!this.isTargetAlive(target)) {
+            console.warn('[MMS] 每日结算目标楼层已失效，本次结果已丢弃');
+            this.notifyNewdayApplied(bill.id, false, { error: '目标楼层已失效' });
+            return null;
+          }
           // 写前快照：结算写错可用「剧情回溯」回滚
           this.appendHistory(base, state, targetFloor);
-          this.writeState(targetFloor, state);
+          this.writeState(targetFloor, state, { swipeId: target.swipeId });
           if (this.checkLastAssistantFloor(targetFloor)) await this.ensureInjection(state, targetFloor);
           if (targetFloor === this.floorId) this.refreshFromVars();
           if (this.env.hasEventApi) {
@@ -12947,17 +12962,32 @@ createCharacterEntry(text, categoryKey) {
             const cur = getVariables({ type: 'message', message_id: floorId }) || null;
             if (cur && cur.stat_data) return cur;
             // swipe 槽兜底：同层 regenerate 后当前槽为空、数据还在旧槽里（酒馆助手只暴露当前槽），
-            // 读不到会被误判成"本楼无状态"→ 状态栏假清空、编辑数据/注入拿到空数据
-            return mmsPickFloorVarSlot(this.readFloorVarSlots(floorId)) || cur;
+            // 读不到会被误判成"本楼无状态"→ 状态栏假清空、编辑数据/注入拿到空数据。
+            // 必须返回**副本**：模块/角色实时编辑器会就地改这个对象，返回活引用会把旧 swipe
+            // 的状态一起改掉（"每 swipe 独立快照"失效）。
+            const info = this.readFloorVarSlots(floorId);
+            const picked = info && mmsPickFloorVarSlot(info.slots);
+            return picked ? JSON.parse(JSON.stringify(picked)) : cur;
           } catch (e) {
             console.warn('[MMS] 读取楼层变量失败:', e);
             return null;
           }
         },
 
-        // 同楼全部 swipe 槽：酒馆助手没有暴露非当前槽，只能从原生 chat 数组取；
-        // 拿不到（非酒馆环境/跨域）时返回 null，调用方按原语义降级
+        // 同楼全部 swipe 槽 + 当前页号。**一律返回副本**，调用方不得就地改宿主数据。
+        // 优先酒馆助手的官方消息 API（getChatMessages include_swipes，原生支持指定 swipe 读取，
+        // 返回的已是深拷贝）；不可用时退回原生 chat 数组（酒馆助手只暴露当前槽，其余槽只能
+        // 从这里取）并自行深拷贝。拿不到时返回 null，调用方按原语义降级。
         readFloorVarSlots(floorId) {
+          try {
+            if (typeof getChatMessages === 'function') {
+              const arr = getChatMessages(floorId, { include_swipes: true });
+              const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+              if (m && Array.isArray(m.swipes_data)) {
+                return { slots: m.swipes_data, swipeId: typeof m.swipe_id === 'number' ? m.swipe_id : 0, swipes: m.swipes, info: m.swipes_info };
+              }
+            }
+          } catch (e) { /* 退回原生读取 */ }
           try {
             const pw = typeof window !== 'undefined' ? window.parent : null;
             const ctx =
@@ -12965,19 +12995,119 @@ createCharacterEntry(text, categoryKey) {
                 ? pw.SillyTavern.getContext()
                 : null;
             const msg = ctx && Array.isArray(ctx.chat) ? ctx.chat[floorId] : null;
-            return msg && Array.isArray(msg.variables) ? msg.variables : null;
+            if (!msg || !Array.isArray(msg.variables)) return null;
+            return {
+              slots: msg.variables.map((s) => (s && typeof s === 'object' ? JSON.parse(JSON.stringify(s)) : {})),
+              swipeId: typeof msg.swipe_id === 'number' ? msg.swipe_id : 0,
+              swipes: Array.isArray(msg.swipes) ? msg.swipes.slice() : null,
+              info: null,
+            };
           } catch (e) {
             return null;
           }
         },
 
-        writeState(floorId, state) {
+        // 异步链路身份快照：请求发起时固定"聊天 + 楼层 + swipe + 正文"，
+        // 返回后逐项复核，避免切聊天/删楼/切 swipe 后把过期结果写进错误位置
+        captureTarget(floorId) {
+          let chatId = null;
+          try {
+            const pw = typeof window !== 'undefined' ? window.parent : null;
+            const ctx =
+              pw && pw.SillyTavern && typeof pw.SillyTavern.getContext === 'function'
+                ? pw.SillyTavern.getContext()
+                : null;
+            if (ctx && typeof ctx.getCurrentChatId === 'function') chatId = ctx.getCurrentChatId();
+          } catch (e) { /* 环境不支持则不做聊天级校验 */ }
+          const info = this.readFloorVarSlots(floorId);
+          return {
+            floorId: floorId,
+            chatId: chatId,
+            swipeId: info && typeof info.swipeId === 'number' ? info.swipeId : null,
+          };
+        },
+
+        // 目标是否仍然有效：聊天未切换、楼层仍存在。失效时调用方必须丢弃本次结果。
+        isTargetAlive(target) {
+          if (!target || target.floorId == null) return false;
+          try {
+            if (typeof getChatMessages !== 'function') return false;
+            const arr = getChatMessages(target.floorId, { include_swipes: true });
+            const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+            if (!m) return false;
+          } catch (e) {
+            return false;
+          }
+          if (target.chatId != null) {
+            let chatId = null;
+            try {
+              const pw = typeof window !== 'undefined' ? window.parent : null;
+              const ctx =
+                pw && pw.SillyTavern && typeof pw.SillyTavern.getContext === 'function'
+                  ? pw.SillyTavern.getContext()
+                  : null;
+              if (ctx && typeof ctx.getCurrentChatId === 'function') chatId = ctx.getCurrentChatId();
+            } catch (e) { /* 忽略 */ }
+            if (chatId != null && chatId !== target.chatId) return false;
+          }
+          return true;
+        },
+
+        // 写回指定 swipe 槽（**不切换用户当前页**）。
+        // setChatMessages 的两条分支都不能直接满足：data 分支只写当前槽，swipes_data 分支
+        // 会顺带把 swipe_id 切过去。所以做"读整数组 → 只换本槽 → 用原 swipe_id 整数组写回"，
+        // swipes/swipes_info 原样回填，用户看到的页与正文都不变。
+        // 返回是否成功；失败时调用方降级为当前槽写入（旧行为）。
+        writeStateToSwipe(floorId, swipeId, next) {
+          if (typeof getChatMessages !== 'function' || typeof setChatMessages !== 'function') return false;
+          if (swipeId == null || swipeId < 0) return false;
+          let cur = null;
+          try {
+            const arr = getChatMessages(floorId, { include_swipes: true });
+            cur = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
+          } catch (e) {
+            return false;
+          }
+          if (!cur || !Array.isArray(cur.swipes_data)) return false;
+          if (swipeId >= cur.swipes_data.length) return false;
+          const swipesData = cur.swipes_data.map((d, i) => (i === swipeId ? next : d));
+          try {
+            setChatMessages(
+              [
+                {
+                  message_id: floorId,
+                  swipe_id: typeof cur.swipe_id === 'number' ? cur.swipe_id : swipeId,
+                  swipes: Array.isArray(cur.swipes) ? cur.swipes : undefined,
+                  swipes_data: swipesData,
+                  swipes_info: Array.isArray(cur.swipes_info) ? cur.swipes_info : undefined,
+                },
+              ],
+              { refresh: 'none' },
+            );
+            return true;
+          } catch (e) {
+            console.warn('[MMS] 按 swipe 写回失败，降级为当前槽写入:', e);
+            return false;
+          }
+        },
+
+        // opts.swipeId：异步链路在请求发起时固定的目标槽；缺省＝写入当刻的当前页（同步编辑器用）
+        writeState(floorId, state, opts = {}) {
           // 写入前统一规范化，确保存储的永远是干净的模块化格式（无旧用户列表残留）
           const normalized = mmsNormalizeState(state) || state;
-          // meta.hash 记目标楼正文哈希：代理更新（旧楼实例代跑新楼的更新）时
+          const info = this.readFloorVarSlots(floorId);
+          const targetSwipe =
+            opts.swipeId != null
+              ? opts.swipeId
+              : info && typeof info.swipeId === 'number'
+              ? info.swipeId
+              : null;
+          // meta.hash 记目标楼（目标 swipe 版本）正文哈希：代理更新（旧楼实例代跑新楼的更新）时
           // this.messageText 是发起楼的文本，必须取目标楼文本才算"本楼数据与正文一致"
           let floorText = this.messageText;
-          if (floorId !== this.floorId && typeof getChatMessages === 'function') {
+          if (info && Array.isArray(info.swipes) && targetSwipe != null && typeof info.swipes[targetSwipe] === 'string') {
+            floorText = info.swipes[targetSwipe];
+          } else if (floorId !== this.floorId && typeof getChatMessages === 'function') {
             try {
               const arr = getChatMessages(floorId);
               const m = Array.isArray(arr) && arr.length > 0 ? arr[0] : arr;
@@ -12985,30 +13115,43 @@ createCharacterEntry(text, categoryKey) {
             } catch (e) { /* 取不到就退回本楼文本（常规同楼写入不受影响） */ }
           }
           const floorHash = this.hashStr(floorText);
-          // 用 replaceVariables 整体替换 stat_data（insertOrAssign 的深合并无法删除旧键，
-          // 导致编辑器里删掉的模块/字段写不进去）
+          // 目标槽的现有数据：按 swipe 取（当前页可能不是目标槽），拿不到才退回 getVariables
+          const existingBag =
+            info && targetSwipe != null && info.slots[targetSwipe] && typeof info.slots[targetSwipe] === 'object'
+              ? info.slots[targetSwipe]
+              : (typeof getVariables === 'function'
+                  ? getVariables({ type: 'message', message_id: floorId }) || {}
+                  : {});
+          // 并发写检测：本实例上次写此楼后 stat_data 已被其他写者改过（如 ShopBlock 结算直写），
+          // 本次整体替换会覆盖其改动——只告警不改写盘行为。首次写此楼（无台账）或旧数据
+          // 无 $mms_meta.ts 时不判；本实例同流程内的连环写（如结算内联写后再终写）台账自洽不误报
+          if (!this._floorWriteTs) this._floorWriteTs = {};
+          const curMeta = existingBag['$mms_meta'];
+          const curTs = curMeta && typeof curMeta.ts === 'number' ? curMeta.ts : null;
+          const lastSelf = this._floorWriteTs[floorId];
+          if (curTs !== null && typeof lastSelf === 'number' && curTs !== lastSelf) {
+            console.warn('[MMS] 检测到同楼并发写入：楼 ' + floorId + ' 的 stat_data 在本实例上次写盘后已被其他写者修改（meta.ts ' + lastSelf + ' → ' + curTs + '），本次写盘将覆盖其改动', curMeta);
+            this.setIndicator('error', '检测到并发写入（楼 ' + floorId + '）：本次写盘可能覆盖其他模块的改动，详见控制台');
+          }
+          const writeTs = Date.now();
+          const next = Object.assign({}, existingBag, {
+            stat_data: normalized,
+            // mesId：标记数据写入时的目标楼层——getVariables(message) 有向前继承语义，
+            // 后续楼层会原样读到本条 meta，靠 mesId 区分"本楼数据"与"继承的前楼数据"
+            $mms_meta: { hash: floorHash, ts: writeTs, mesId: floorId },
+          });
+          delete next.__test_marker;
+
+          // 首选：按固定的 swipe 整数组写回（不切页、不重载 iframe）
+          if (targetSwipe != null && this.writeStateToSwipe(floorId, targetSwipe, next)) {
+            this._floorWriteTs[floorId] = writeTs;
+            this.broadcastSync('state', { floorId });
+            return;
+          }
+          // 降级 1：用 replaceVariables 整体替换当前槽的 stat_data
+          // （insertOrAssign 的深合并无法删除旧键，导致编辑器里删掉的模块/字段写不进去）
           try {
             if (typeof replaceVariables === 'function') {
-              const existing = getVariables({ type: 'message', message_id: floorId }) || {};
-              // 并发写检测：本实例上次写此楼后 stat_data 已被其他写者改过（如 ShopBlock 结算直写），
-              // 本次整体替换会覆盖其改动——只告警不改写盘行为。首次写此楼（无台账）或旧数据
-              // 无 $mms_meta.ts 时不判；本实例同流程内的连环写（如结算内联写后再终写）台账自洽不误报
-              if (!this._floorWriteTs) this._floorWriteTs = {};
-              const curMeta = existing['$mms_meta'];
-              const curTs = curMeta && typeof curMeta.ts === 'number' ? curMeta.ts : null;
-              const lastSelf = this._floorWriteTs[floorId];
-              if (curTs !== null && typeof lastSelf === 'number' && curTs !== lastSelf) {
-                console.warn('[MMS] 检测到同楼并发写入：楼 ' + floorId + ' 的 stat_data 在本实例上次写盘后已被其他写者修改（meta.ts ' + lastSelf + ' → ' + curTs + '），本次写盘将覆盖其改动', curMeta);
-                this.setIndicator('error', '检测到并发写入（楼 ' + floorId + '）：本次写盘可能覆盖其他模块的改动，详见控制台');
-              }
-              delete existing.__test_marker;
-              const writeTs = Date.now();
-              const next = Object.assign({}, existing, {
-                stat_data: normalized,
-                // mesId：标记数据写入时的目标楼层——getVariables(message) 有向前继承语义，
-                // 后续楼层会原样读到本条 meta，靠 mesId 区分"本楼数据"与"继承的前楼数据"
-                $mms_meta: { hash: floorHash, ts: writeTs, mesId: floorId },
-              });
               replaceVariables(next, { type: 'message', message_id: floorId });
               this._floorWriteTs[floorId] = writeTs;
               this.broadcastSync('state', { floorId });
@@ -13017,14 +13160,12 @@ createCharacterEntry(text, categoryKey) {
           } catch (e) {
             console.warn('[MMS] replaceVariables 失败，回退到 insertOrAssign:', e);
           }
-          // 降级：无 replaceVariables 时用 insertOrAssign（旧键可能残留）
-          const fbTs = Date.now();
+          // 降级 2：无 replaceVariables 时用 insertOrAssign（旧键可能残留）
           insertOrAssignVariables(
-            { stat_data: normalized, $mms_meta: { hash: floorHash, ts: fbTs, mesId: floorId } },
+            { stat_data: normalized, $mms_meta: { hash: floorHash, ts: writeTs, mesId: floorId } },
             { type: 'message', message_id: floorId },
           );
-          if (!this._floorWriteTs) this._floorWriteTs = {};
-          this._floorWriteTs[floorId] = fbTs;
+          this._floorWriteTs[floorId] = writeTs;
           this.broadcastSync('state', { floorId });
         },
 
@@ -14372,6 +14513,9 @@ createCharacterEntry(text, categoryKey) {
           const cfg = this.loadConfig();
           this.updating = true;
           this.setIndicator('updating', '正在通过独立 AI 更新状态…');
+          // 身份快照：在任何 await 之前固定"聊天 + 楼层 + swipe"，
+          // 返回后据此复核并写回同一 swipe，避免等待期间用户切 swipe/切聊天导致写错位置
+          const target = this.captureTarget(targetFloorId);
           // 状态桶解包：兼容 {状态栏:{...}} 与裸桶两种形态（与 mmsMergeState 的解包口径一致）
           const bucketOf = (s) =>
             s && s['状态栏'] && typeof s['状态栏'] === 'object' ? s['状态栏'] : s;
@@ -14534,11 +14678,18 @@ createCharacterEntry(text, categoryKey) {
                   }
                 }
 
+                // 身份复核：等待期间切了聊天或删了目标楼 → 本次结果已过期，丢弃而不是写错位置
+                if (!this.isTargetAlive(target)) {
+                  console.warn('[MMS] 目标楼层已失效（切换聊天或删除楼层），丢弃本次更新结果');
+                  this.setIndicator('error', '目标楼层已失效，本次更新结果已丢弃');
+                  return false;
+                }
+
                 // 历史快照：记录更新前→更新后的差异
                 this.appendHistory(prev ? prev.state : null, state, targetFloorId);
                 this.mmsRenderHistoryList(); // 设置面板若停在历史Tab，立即刷新（否则显示陈旧列表）
 
-                this.writeState(targetFloorId, state);
+                this.writeState(targetFloorId, state, { swipeId: target.swipeId });
                 // 结算已随本次更新落盘：此刻才记台账（幂等 + 硬锁窗口起点）
                 if (combatPending) {
                   this.saveCombatSync({

@@ -176,6 +176,7 @@ function createHost(opts = {}) {
     worldbooks: opts.worldbooks || {},
     charWorldbooks: { primary: null, additional: [] },
     charName: opts.charName || '测试角色',
+    chatId: opts.chatId || 'test-chat',
     regexes: opts.regexes || { global: [], character: [] },
     listeners: new Map(),
     bcSubs: new Map(),
@@ -477,7 +478,7 @@ function createInstance(host, { floorId = 0, scriptText, jsyamlBlock }) {
         eventSource: host.eventSource,
         eventTypes: TAVERN_EVENTS,
         getRequestHeaders: () => ({ 'X-CSRF-Token': 'test' }),
-        getCurrentChatId: () => 'test-chat',
+        getCurrentChatId: () => host.chatId,
       }),
     },
     document: doc,
@@ -814,7 +815,82 @@ group('R7-异步写回归属', async (V) => {
     `槽1=${JSON.stringify(host.chat[id].variables[1])}`);
 });
 
-// ============ R8 同楼重算不得覆盖手动修正 ============
+// ============ R7b/R7c 异步结果必须与发起时的聊天/楼层绑定 ============
+group('R7b-切聊天丢弃过期结果', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  const prevId = pushMessage(host, {
+    mes: '第一楼', variables: [{ stat_data: JSON.parse(JSON.stringify(STATE_MODULE)), $mms_meta: { hash: 'h', ts: 1, mesId: 0 } }],
+  });
+  const id = pushMessage(host, { mes: '第二楼', variables: [{}] });
+  const inst = createInstance(host, { floorId: prevId, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  inst.MMS.detectEnv();
+  inst.MMS.floorId = prevId;
+  inst.MMS.messageText = '第一楼';
+  inst.MMS.isLastAssistantFloor = true;
+
+  let release;
+  host.genGate = new Promise((r) => { release = r; });
+  host.genHandler = () => JSON.stringify(STATE_MODULE);
+
+  const p = inst.MMS.runUpdate(id);
+  await drain();
+  host.chatId = 'another-chat'; // 用户切了聊天
+  release();
+  await p;
+  await drain();
+
+  ok('切聊天后过期结果不写入原楼层', !host.chat[id].variables[0]?.stat_data,
+    `槽0=${JSON.stringify(host.chat[id].variables[0])}`);
+});
+
+group('R7c-删楼丢弃过期结果', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  const prevId = pushMessage(host, {
+    mes: '第一楼', variables: [{ stat_data: JSON.parse(JSON.stringify(STATE_MODULE)), $mms_meta: { hash: 'h', ts: 1, mesId: 0 } }],
+  });
+  const id = pushMessage(host, { mes: '第二楼', variables: [{}] });
+  const inst = createInstance(host, { floorId: prevId, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  inst.MMS.detectEnv();
+  inst.MMS.floorId = prevId;
+  inst.MMS.messageText = '第一楼';
+  inst.MMS.isLastAssistantFloor = true;
+
+  let release;
+  host.genGate = new Promise((r) => { release = r; });
+  host.genHandler = () => JSON.stringify(STATE_MODULE);
+
+  const p = inst.MMS.runUpdate(id);
+  await drain();
+  host.chat[id] = undefined; // 目标楼被删除
+  release();
+  await p;
+  await drain();
+
+  ok('删楼后过期结果不写入（楼层已不存在）', !host.chat[id], `槽=${JSON.stringify(host.chat[id])}`);
+});
+
+// ============ R6b 既有兼容路径不得被隔离修复破坏 ============
+group('R6b-兼容路径保持', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  const legacyText = '正文\n<Status_block>\n状态栏:\n  日期和时间: "⏰ 1925年 · 6月13日"\n  地点: "📍 悉尼 · 酒店"\n</Status_block>';
+  const legacyId = pushMessage(host, { mes: legacyText });
+  const id = pushMessage(host, { mes: '第二楼' });
+  const inst = createInstance(host, { floorId: id, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  inst.MMS.detectEnv();
+  inst.MMS.floorId = id;
+
+  const legacy = inst.MMS.readLegacyState(legacyId);
+  ok('旧式 Status_block 仍可解析', !!legacy && !!legacy['状态栏'], JSON.stringify(legacy));
+
+  const prev = await inst.MMS.findPrevState(id);
+  ok('无本楼状态时仍能回溯到前楼旧格式状态', !!prev && prev.floorId === legacyId,
+    JSON.stringify(prev && { f: prev.floorId }));
+
+  const slots = inst.MMS.readFloorVarSlots(legacyId);
+  ok('readFloorVarSlots 返回副本而非宿主活引用', !!slots && slots.slots !== host.chat[legacyId].variables,
+    '返回了宿主 chat[].variables 本体');
+});
+
 group('R8-重算保留手改', async (V) => {
   const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
   const prevId = pushMessage(host, {
