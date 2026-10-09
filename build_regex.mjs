@@ -66,6 +66,31 @@ const DISPLAY_ID = IS_PUBLIC
   : '43f2c434-708b-467e-b9fd-dac04dc1d80e';
 const STRIP_ID = '3288eda7-da4d-4021-9b85-02f6f1026b42';
 
+// 脚本名与 UUID 同为"版本身份"：源码内 MMS_SELF_REGEX_ID / MMS_SELF_REGEX_NAME 决定
+// 「保存到源码」写回哪条正则，必须与这里一致（下方 checkSelfIdentity 断言拦截漂移）
+const DISPLAY_NAME = IS_PUBLIC
+  ? '美化状态栏[公开版]'
+  : IS_MOBILE_LLM
+  ? '美化状态栏[手机专用LLM地图]'
+  : IS_MOBILE
+  ? '美化状态栏[手机专用]'
+  : '美化状态栏[独立更新]';
+
+/**
+ * 版本身份一致性断言：源码内的自我身份必须等于构建配置。
+ * 起因：公开版曾照抄完整版的 UUID/脚本名，导致公开版「保存到源码」把图片配置
+ * 写进完整版的正则（两版共存时必现）。
+ */
+function checkSelfIdentity(html, id, name) {
+  const idM = html.match(/MMS_SELF_REGEX_ID\s*=\s*'([^']+)'/);
+  const nameM = html.match(/MMS_SELF_REGEX_NAME\s*=\s*'([^']+)'/);
+  if (!idM || !nameM) {
+    fail(`${SRC_NAME} 缺少 MMS_SELF_REGEX_ID / MMS_SELF_REGEX_NAME（「保存到源码」的定位身份）`);
+  }
+  if (idM[1] !== id) fail(`源码 MMS_SELF_REGEX_ID=${idM[1]} 与构建配置 ${id} 不一致`);
+  if (nameM[1] !== name) fail(`源码 MMS_SELF_REGEX_NAME=${nameM[1]} 与构建配置 ${name} 不一致`);
+}
+
 const MARKER = '【状态栏标记点】';
 
 // 与 build_inline_deps.mjs 的内联标记块配套（token 提取需剔除，防别名类名污染）
@@ -179,6 +204,7 @@ function buildWidgetReplacement() {
   if (!/<\/html>/i.test(html)) {
     throw new Error(`${SRC_NAME} 内容异常：未找到 </html>`);
   }
+  if (!IS_MOBILE && !IS_MOBILE_LLM) checkSelfIdentity(html, DISPLAY_ID, DISPLAY_NAME);
   checkFaSubset(html);
   const minified = buildMinifiedHtml(html);
   console.log(`[build_regex] 产物压缩: ${html.length} -> ${minified.length} 字符（-${Math.round((1 - minified.length / html.length) * 100)}%）`);
@@ -232,13 +258,7 @@ for (const [name, re] of [['手机版', MOBILE_FIND_REGEX_SOURCE], ['桌面版',
 
 const displayScript = makeRegexScript({
   id: DISPLAY_ID,
-  scriptName: IS_PUBLIC
-    ? '美化状态栏[公开版]'
-    : IS_MOBILE_LLM
-    ? '美化状态栏[手机专用LLM地图]'
-    : IS_MOBILE
-    ? '美化状态栏[手机专用]'
-    : '美化状态栏[独立更新]',
+  scriptName: DISPLAY_NAME,
   findRegex: displayRegex,
   replaceString: buildWidgetReplacement(),
   markdownOnly: true,

@@ -4360,6 +4360,12 @@ window.MMS_IMAGE_DATA = {
       // 图片数据标记块定位（供「保存到源码」精确替换；惰性匹配到第一处 END 标记即止）
       const MMS_IMG_BLOCK_RE = /\/\* ==== MMS_IMAGE_DATA_START[\s\S]*?MMS_IMAGE_DATA_END ==== \*\//;
 
+      // 本版本自身的正则身份（「保存到源码」据此定位承载本页面的那条正则）。
+      // 必须与 build_regex.mjs 的 DISPLAY_ID / 脚本名一致——构建脚本会断言二者相等；
+      // 公开版与完整版共存时，若照抄对方的身份就会把图片配置写进对方的正则。
+      const MMS_SELF_REGEX_ID = '43f2c434-708b-467e-b9fd-dac04dc1d80e';
+      const MMS_SELF_REGEX_NAME = '美化状态栏[独立更新]';
+
       // 既有引用保持兼容：绑定只读，内容仍可变（applyRosterAvatars 等继续原位写键）
       window.PORTRAIT_MAP = window.MMS_IMAGE_DATA.portrait;
       const BACKGROUND_MAP = window.MMS_IMAGE_DATA.background;
@@ -12100,6 +12106,13 @@ createCharacterEntry(text, categoryKey) {
         saveConfig(cfg) {
           try {
             if (!this.env.hasVarsApi) return;
+            // 用 replaceVariables 整体替换全局变量：insertOrAssign 的深合并删不掉键，
+            // 会让"清空某配置项"（如切回默认预设清掉 topP）实际失效
+            if (typeof replaceVariables === 'function') {
+              const g = getVariables({ type: 'global' }) || {};
+              replaceVariables(Object.assign({}, g, { $mms_config: cfg }), { type: 'global' });
+              return;
+            }
             insertOrAssignVariables({ $mms_config: cfg }, { type: 'global' });
           } catch (e) {
             console.error('[MMS] 保存配置失败:', e);
@@ -15423,11 +15436,25 @@ createCharacterEntry(text, categoryKey) {
           if (delBtn) delBtn.disabled = !!(preset && preset.locked);
         },
 
+        // 把激活预设的 API 配置同步到 $mms_config。
+        // 必须是"整体替换"而非 Object.assign 合并：默认预设的 config 是空对象，
+        // 合并会残留上一个预设的地址/密钥/模型/代理名——界面显示"当前酒馆连接"，
+        // 实际请求却仍发往旧端点。非 API 类配置（自动更新、结算开关等）不在此列，保持不动。
         syncActiveApiToConfig(data) {
           const preset = data.presets.find((p) => p.id === data.active) || data.presets[0];
           if (!preset) return;
           const c = this.loadConfig();
-          Object.assign(c, preset.config || {});
+          const p = preset.config || {};
+          c.apiUrl = p.apiUrl || '';
+          c.apiKey = p.apiKey || '';
+          c.model = p.model || '';
+          c.preset = p.preset || '';
+          c.source = p.source || 'custom';
+          c.contextFloors = p.contextFloors != null ? p.contextFloors : 2;
+          c.temperature = p.temperature != null ? p.temperature : 0.3;
+          c.maxTokens = p.maxTokens != null ? p.maxTokens : 4096;
+          if (p.topP != null && p.topP !== '') c.topP = p.topP;
+          else delete c.topP;
           this.saveConfig(c);
         },
 
@@ -17287,11 +17314,13 @@ createCharacterEntry(text, categoryKey) {
           return startMark + '\nwindow.MMS_IMAGE_DATA = ' + json + ';\n' + endMark;
         },
 
-        // 定位承载本页面的正则（build_regex.mjs 的固定 UUID 优先，其次标记块，最后脚本名）
+        // 定位承载本页面的正则（按"本版本身份"打分，唯一最高分才采用）。
+        // 只认带图片标记块的条目（没有标记块本来就写不进去），避免选中另一版本或其他组件；
+        // 身份用 build_regex.mjs 固定 UUID 优先、脚本名次之；同分（多个候选）时返回 ambiguous
+        // 交由调用方提示用户，绝不"随便挑第一个"——那会把配置写进另一版本的正则。
         async findSelfRegex() {
-          const SELF_ID = '43f2c434-708b-467e-b9fd-dac04dc1d80e';
-          const SELF_NAME = '美化状态栏[独立更新]';
           const options = [{ type: 'global' }, { type: 'character', name: 'current' }];
+          const found = [];
           for (const option of options) {
             let regexes;
             try {
@@ -17301,14 +17330,23 @@ createCharacterEntry(text, categoryKey) {
               continue;
             }
             if (!Array.isArray(regexes) || !regexes.length) continue;
-            const hasMarker = (r) => String((r && r.replace_string) || '').includes('MMS_IMAGE_DATA_START');
-            let index = regexes.findIndex((r) => r && r.id === SELF_ID && hasMarker(r));
-            if (index < 0) index = regexes.findIndex((r) => r && r.id === SELF_ID);
-            if (index < 0) index = regexes.findIndex(hasMarker);
-            if (index < 0) index = regexes.findIndex((r) => r && (r.script_name === SELF_NAME || r.scriptName === SELF_NAME));
-            if (index >= 0) return { option, regexes, index };
+            regexes.forEach((r, index) => {
+              if (!r) return;
+              if (!String(r.replace_string || '').includes('MMS_IMAGE_DATA_START')) return;
+              let score = 0;
+              if (r.id === MMS_SELF_REGEX_ID) score += 4;
+              if (r.script_name === MMS_SELF_REGEX_NAME || r.scriptName === MMS_SELF_REGEX_NAME) score += 2;
+              found.push({ option, regexes, index, score });
+            });
           }
-          return null;
+          if (!found.length) return null;
+          found.sort((a, b) => b.score - a.score);
+          const best = found[0];
+          const tied = found.filter((f) => f.score === best.score);
+          if (tied.length > 1) {
+            return { ambiguous: true, count: tied.length, scopes: tied.map((t) => t.option.type) };
+          }
+          return { option: best.option, regexes: best.regexes, index: best.index };
         },
 
         // 核心流程：校验 → 定位正则 → 精确替换标记块 → replaceTavernRegexes 写回
@@ -17356,7 +17394,15 @@ createCharacterEntry(text, categoryKey) {
           try {
             const found = await this.findSelfRegex();
             if (!found) {
-              alert('未找到承载本页面的正则脚本（美化状态栏[独立更新]）。\n请确认该正则未被删除或改名；改动已自动保存在本设备，可「导出」先备份。');
+              alert('未找到承载本页面的正则脚本（' + MMS_SELF_REGEX_NAME + '）。\n请确认该正则未被删除或改名；改动已自动保存在本设备，可「导出」先备份。');
+              return;
+            }
+            if (found.ambiguous) {
+              alert(
+                '检测到 ' + found.count + ' 条带图片数据标记块的正则（作用域：' + found.scopes.join('、') +
+                  '），无法确定哪一条承载本页面，为安全起见已取消写入。\n' +
+                  '请删除或禁用多余的那一条后重试；改动已自动保存在本设备，可「导出」先备份。',
+              );
               return;
             }
             const { option, regexes, index } = found;

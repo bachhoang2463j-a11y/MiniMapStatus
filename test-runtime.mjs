@@ -708,6 +708,32 @@ group('R4-图片写回目标', async (V) => {
   ok('另一版本正则未被改动', !String(otherAfter.replace_string).includes('新头像'));
 });
 
+// ============ R4b 身份无法唯一确定时必须拒绝写入 ============
+group('R4b-身份歧义拒绝', async (V) => {
+  const mkRegex = (id, name) => ({
+    id, script_name: name, replace_string: '/* ==== MMS_IMAGE_DATA_START ==== */\nwindow.MMS_IMAGE_DATA = {};\n/* ==== MMS_IMAGE_DATA_END ==== */',
+  });
+  // 同一版本被导入两次（UUID 不同、脚本名相同）→ 无法确定承载本页面的那一条
+  const host = createHost({
+    regexes: { global: [mkRegex('dup-a', V.S.name), mkRegex('dup-b', V.S.name)], character: [] },
+    chatVars: { $mms_roster: makeRoster() },
+  });
+  const id = pushMessage(host, { mes: '正文' });
+  const inst = createInstance(host, { floorId: id, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  inst.MMS.detectEnv();
+  inst.MMS.floorId = id;
+  inst.MMS.initImageUI();
+  inst.MMS.imageData.avatar['新头像'] = 'https://example.com/a.png';
+
+  await inst.MMS.saveImageDataToSource();
+  await drain();
+
+  const untouched = host.regexes.global.every((r) => !String(r.replace_string).includes('新头像'));
+  ok('身份歧义时两条正则都未被写入', untouched);
+  ok('身份歧义时给出提示', host.logs.some(([k, m]) => k === 'alert' && String(m).includes('无法确定')),
+    JSON.stringify(host.logs.filter(([k]) => k === 'alert')));
+});
+
 // ============ R5 公开版图片表不得被非公开版本机快照覆盖 ============
 group('R5-公开版图片隔离', async (V) => {
   if (!V.S.isPublic) {
@@ -727,6 +753,9 @@ group('R5-公开版图片隔离', async (V) => {
   ok('公开版内置图片表未被旧快照整表覆盖（无旧角色）', !data.portrait['弗兰克'],
     `实际 portrait 键=${JSON.stringify(Object.keys(data.portrait))}`);
   ok('公开版未改写非公开版的旧快照键', host.localStorage.get('mms_img_data_llm_v1') === legacySnapshot);
+  ok('公开版头像导出键与非公开版隔离',
+    inst.sandbox.window.MMS_AVATAR_EXPORT_KEY !== 'mms_avatar_export_v1',
+    `实际 ${inst.sandbox.window.MMS_AVATAR_EXPORT_KEY}`);
 });
 
 // ============ R6 swipe 编辑不得污染旧槽 ============
