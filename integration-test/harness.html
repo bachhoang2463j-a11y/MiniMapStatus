@@ -461,7 +461,9 @@ yesterday_bill:
 
     // ---------- ③ 接线存在性 ----------
     assert('接线：readFloorVars 在当前槽无 stat_data 时走 mmsPickFloorVarSlot 兜底', () => {
-      return /readFloorVars\(floorId\) \{[\s\S]{0,600}?mmsPickFloorVarSlot\(this\.readFloorVarSlots\(floorId\)\)/.test(mmsScript);
+      // 兜底路径：取全部 swipe 槽 → mmsPickFloorVarSlot 选最近写入的一份 → 返回**副本**
+      // （副本是"每 swipe 独立快照"的前提：模块/角色实时编辑器会就地改这个对象）
+      return /readFloorVars\(floorId\) \{[\s\S]{0,900}?readFloorVarSlots\(floorId\)[\s\S]{0,300}?mmsPickFloorVarSlot\(info\.slots\)[\s\S]{0,200}?JSON\.parse\(JSON\.stringify\(picked\)\)/.test(mmsScript);
     });
     assert('接线：readFloorVarSlots 经 window.parent.SillyTavern.getContext().chat 取同楼全部槽', () => {
       return /readFloorVarSlots\(floorId\) \{[\s\S]{0,600}?window\.parent[\s\S]{0,400}?ctx\.chat\[floorId\][\s\S]{0,200}?msg\.variables/.test(mmsScript);

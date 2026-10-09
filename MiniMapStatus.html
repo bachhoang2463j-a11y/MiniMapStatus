@@ -11752,13 +11752,15 @@ createCharacterEntry(text, categoryKey) {
         return cur; // 类型都变了：外部改动优先
       }
 
-      // 数组按条目身份配对（名字 / 【名字】 / 字符串本体），逐项对账；同名字条目递归进值级对账
+      // 数组按条目身份配对（名字 / 【名字】 / 位置），逐项对账；同名字条目递归进值级对账。
+      // 无名对象必须按**位置**配对：用 JSON 当键会让"手改过的同一条"因键变化而配不上，
+      // 结果既 push 新值又 push 手改值 → 同一逻辑条目在结果里出现两次。
       function mmsReconcileArray(cur, base, neu, keyOfOverride) {
         const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
         const keyOf =
           keyOfOverride ||
-          ((x) => {
-            if (x == null) return '';
+          ((x, i) => {
+            if (x == null) return '#' + i;
             if (typeof x === 'string') {
               const m = x.match(/【([^】]+)】/); // 小地图/人物行按名字配对，避免手改一行被当成新条目
               return m ? m[1] : x;
@@ -11773,41 +11775,44 @@ createCharacterEntry(text, categoryKey) {
               for (const k of ['名字', '名称', 'name']) {
                 if (k in x && typeof x[k] !== 'object') return String(x[k]);
               }
-              try { return JSON.stringify(x); } catch (e) { return ''; }
+              return '#' + i;
             }
             return String(x);
           });
-        const mb = new Map(base.map((x) => [keyOf(x), x]));
-        const mc = new Map(cur.map((x) => [keyOf(x), x]));
+        const mb = new Map(base.map((x, i) => [keyOf(x, i), x]));
+        const mc = new Map(cur.map((x, i) => [keyOf(x, i), x]));
         const out = [];
         const used = new Set();
-        for (const n of neu) {
-          const k = keyOf(n);
+        neu.forEach((n, i) => {
+          const k = keyOf(n, i);
           used.add(k);
           const c = mc.get(k);
           const b = mb.get(k);
-          if (c === undefined) { out.push(n); continue; } // 现值没有：外部删过的不复活
+          if (c === undefined) { out.push(n); return; } // 现值没有：外部删过的不复活
           if (b === undefined || same(c, b)) out.push(n); // 未被动过 → 用新值
           else out.push(mmsReconcileValue(c, b, n, k)); // 动过 → 逐字段对账
-        }
-        for (const c of cur) {
-          if (c === undefined) continue;
-          const k = keyOf(c);
-          if (used.has(k)) continue;
+        });
+        cur.forEach((c, i) => {
+          if (c === undefined) return;
+          const k = keyOf(c, i);
+          if (used.has(k)) return;
           // 新结果里没有：被外部改过的保留（视为手动保留），否则视为 AI 删除
           if (!same(c, mb.get(k))) out.push(c);
-        }
+        });
         return out;
       }
 
       // 条目型字符串对账：属性串按属性键、清单串按物品名逐项比较，
       // 避免为保留一个 HP 改动而挡掉同一串里其它属性的更新。非条目型返回 null。
       function mmsReconcileString(cur, base, neu, key) {
+        // 整串除装饰前缀与 [...] 条目外不能有其它文本；否则（如「想起[老加]的话」）不是清单串，
+        // 交回调用方整体保留现值——按清单序列化会把括号外的正文丢掉
+        const pureList = (str) => String(str).replace(/\[[^\[\]]*\]/g, '').trim() === '';
         if (/属性|数值|状态值/.test(String(key || ''))) {
           const pc = mmsParseAttrList(cur);
           const pb = mmsParseAttrList(base);
           const pn = mmsParseAttrList(neu);
-          if (!pc.length || !pn.length) return null;
+          if (!pc.length || !pn.length || !pureList(cur) || !pureList(neu)) return null;
           const kOf = (a) => mmsAttrNormKey(a.display);
           const sameAttr = (a, b) => !!b && a.display === b.display && a.value === b.value;
           const mb = new Map(pb.map((a) => [kOf(a), a]));
@@ -11832,7 +11837,7 @@ createCharacterEntry(text, categoryKey) {
         const pc = mmsParseItemList(cur);
         const pb = mmsParseItemList(base);
         const pn = mmsParseItemList(neu);
-        if (!pc.items.length || !pn.items.length) return null;
+        if (!pc.items.length || !pn.items.length || !pureList(cur) || !pureList(neu)) return null;
         const items = mmsReconcileArray(pc.items, pb.items, pn.items, (it) =>
           mmsItemBaseName(it.name) || mmsNormalizeName(it.name),
         );
@@ -12469,6 +12474,13 @@ createCharacterEntry(text, categoryKey) {
 
         // 战斗结算入口：同一份战报只允许一个实例进入实际结算流程（双通道排重，理由同每日结算）
         async applyCombatResult(result, opts = {}) {
+          // 同每日结算：单写者与幂等判定先于 claim（父页事件同步遍历，先占位会误挡最后楼实例）
+          if (!opts.inline && result && result.id != null) {
+            const preFloor = opts.floorId != null ? opts.floorId : this.floorId;
+            if (preFloor == null) return null;
+            if (!this.checkLastAssistantFloor(preFloor)) return null;
+            if (this.loadCombatSync().lastId === result.id) return null;
+          }
           const taskKey = result && result.id != null ? 'combat:' + result.id : null;
           if (taskKey && !this.claimTask(taskKey, 'combat')) return null;
           try {
@@ -12638,6 +12650,15 @@ createCharacterEntry(text, categoryKey) {
         // 事件与 BroadcastChannel 两条通道几乎同时到达，而台账要等写盘成功才记，
         // 不先占位就会出现"已扣款、未记账"窗口 → 重复扣款/重复回血。
         async applyNewdayBill(bill) {
+          // 单写者与幂等判定必须在 claim 之前：父页面事件通道是**同步**遍历所有实例的监听，
+          // 先 claim 会让"非最后楼实例"抢占后立刻 return null，真正的最后楼实例反而拿不到 claim
+          // （直连被跳过、回执不发，只能等下一轮兜底）
+          if (!this.env.hasVarsApi || !bill) return null;
+          if (this.loadConfig().newdaySync === false) return null;
+          const preFloor = this.floorId;
+          if (preFloor == null) return null;
+          if (!this.checkLastAssistantFloor(preFloor)) return null;
+          if (this.loadNewdaySync().lastId === bill.id) return null;
           const taskKey = bill && bill.id != null ? 'newday:' + bill.id : null;
           if (taskKey && !this.claimTask(taskKey, 'newday')) return null;
           try {
@@ -13194,18 +13215,88 @@ createCharacterEntry(text, categoryKey) {
           }
         },
 
-        // 占用一个进行中任务位；返回是否占用成功（false＝已有同键任务在跑）
+        // 本实例标识：共享台账里的条目记录持有者，便于识别"持有者已销毁"的僵尸条目
+        instanceId() {
+          if (!this._instId) {
+            this._instId = 'mms-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+          }
+          return this._instId;
+        },
+
+        // 存活登记（父页面）：pagehide 置 false；供"接管已销毁持有者的条目"判定
+        markInstanceAlive(alive) {
+          try {
+            const pw = typeof window !== 'undefined' ? window.parent : null;
+            if (!pw) return;
+            if (!pw.__mmsInstances || typeof pw.__mmsInstances !== 'object') pw.__mmsInstances = {};
+            pw.__mmsInstances[this.instanceId()] = !!alive;
+          } catch (e) { /* 忽略 */ }
+        },
+
+        isInstanceAlive(id) {
+          try {
+            const pw = typeof window !== 'undefined' ? window.parent : null;
+            const m = pw && pw.__mmsInstances;
+            return !!(m && m[id]);
+          } catch (e) {
+            return false;
+          }
+        },
+
+        // 注册"实例销毁时释放本实例持有的共享条目"（只注册一次）。
+        // 必须做这件事：共享台账挂在父页面、比 iframe 活得久，而 await 的续体随 iframe 一起消失，
+        // finally 不会执行 → 串行链永久 pending、inflight 永久残留 → 之后整个会话的状态更新
+        // 都被静默阻塞（直到刷新页面）。切聊天/删楼正是销毁消息 iframe 的典型时机。
+        ensureTeardownHook() {
+          if (this._teardownHooked) return;
+          this._teardownHooked = true;
+          this.markInstanceAlive(true);
+          try {
+            if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+              window.addEventListener('pagehide', () => {
+                this.markInstanceAlive(false);
+                this.releaseOwnTasks();
+              });
+            }
+          } catch (e) { /* 忽略 */ }
+        },
+
+        // 释放本实例持有的共享条目（pagehide 时调用；幂等）
+        releaseOwnTasks() {
+          const tasks = this.sharedTasks();
+          if (!tasks) return;
+          const me = this.instanceId();
+          for (const k of Object.keys(tasks.inflight)) {
+            if (tasks.inflight[k] && tasks.inflight[k].owner === me) delete tasks.inflight[k];
+          }
+          const chain = tasks.chain;
+          if (chain && chain.owner === me && typeof chain.release === 'function') {
+            if (tasks.chain === chain) delete tasks.chain;
+            try { chain.release(); } catch (e) { /* 忽略 */ }
+          }
+        },
+
+        // 占用一个进行中任务位；返回是否占用成功（false＝已有同键任务在跑）。
+        // 持有者已销毁的僵尸条目会被接管，避免"占用者不在了但键还在"造成永久阻塞
         claimTask(key, kind) {
           const tasks = this.sharedTasks();
           if (!tasks) return true;
-          if (tasks.inflight[key]) return false;
-          tasks.inflight[key] = { ts: Date.now(), kind: kind || '' };
+          this.ensureTeardownHook();
+          const cur = tasks.inflight[key];
+          if (cur) {
+            const mine = cur.owner === this.instanceId();
+            if (mine || !cur.owner || this.isInstanceAlive(cur.owner)) return false;
+            delete tasks.inflight[key]; // 僵尸：持有者已销毁 → 接管
+          }
+          tasks.inflight[key] = { ts: Date.now(), kind: kind || '', owner: this.instanceId() };
           return true;
         },
 
         releaseTask(key) {
           const tasks = this.sharedTasks();
-          if (tasks && tasks.inflight[key]) delete tasks.inflight[key];
+          if (tasks && tasks.inflight[key] && tasks.inflight[key].owner === this.instanceId()) {
+            delete tasks.inflight[key];
+          }
         },
 
         // ---------- 状态读写 ----------
@@ -13326,18 +13417,19 @@ createCharacterEntry(text, categoryKey) {
           if (swipeId >= cur.swipes_data.length) return false;
           const swipesData = cur.swipes_data.map((d, i) => (i === swipeId ? next : d));
           try {
-            setChatMessages(
+            // 只传 swipe_id + swipes_data：酒馆助手会自行沿用宿主现有的 swipes/swipe_info
+            // （整数组回填 swipes_info 会在宿主缺项时把当前页 extra 覆盖成空对象）
+            const p = setChatMessages(
               [
                 {
                   message_id: floorId,
                   swipe_id: typeof cur.swipe_id === 'number' ? cur.swipe_id : swipeId,
-                  swipes: Array.isArray(cur.swipes) ? cur.swipes : undefined,
                   swipes_data: swipesData,
-                  swipes_info: Array.isArray(cur.swipes_info) ? cur.swipes_info : undefined,
                 },
               ],
               { refresh: 'none' },
             );
+            if (p && typeof p.catch === 'function') p.catch((e) => console.warn('[MMS] 按 swipe 写回失败:', e));
             return true;
           } catch (e) {
             console.warn('[MMS] 按 swipe 写回失败，降级为当前槽写入:', e);
@@ -13414,8 +13506,11 @@ createCharacterEntry(text, categoryKey) {
           }
           // 降级 1：用 replaceVariables 整体替换当前槽的 stat_data
           // （insertOrAssign 的深合并无法删除旧键，导致编辑器里删掉的模块/字段写不进去）
+          // 仅当目标槽就是当前页（或拿不到槽信息）时才降级：否则会把目标槽的数据写进当前槽
+          const sameSwipeFallback =
+            targetSwipe == null || !info || typeof info.swipeId !== 'number' || targetSwipe === info.swipeId;
           try {
-            if (typeof replaceVariables === 'function') {
+            if (sameSwipeFallback && typeof replaceVariables === 'function') {
               replaceVariables(next, { type: 'message', message_id: floorId });
               this._floorWriteTs[floorId] = writeTs;
               this.broadcastSync('state', { floorId });
@@ -13423,6 +13518,10 @@ createCharacterEntry(text, categoryKey) {
             }
           } catch (e) {
             console.warn('[MMS] replaceVariables 失败，回退到 insertOrAssign:', e);
+          }
+          if (!sameSwipeFallback) {
+            console.warn('[MMS] 目标 swipe 已变化，放弃本次写盘（避免写错槽）: 目标', targetSwipe, '当前', info && info.swipeId);
+            return;
           }
           // 降级 2：无 replaceVariables 时用 insertOrAssign（旧键可能残留）
           insertOrAssignVariables(
@@ -15114,7 +15213,12 @@ createCharacterEntry(text, categoryKey) {
           const manual = !!options.manual;
           const tasks = this.sharedTasks();
           const key = 'update:' + targetFloorId;
-          const existing = tasks && tasks.inflight[key];
+          let existing = tasks && tasks.inflight[key];
+          // 僵尸条目（持有者已销毁）不加入：其 done 永不 settle，加入会永久停在"更新中"
+          if (existing && existing.owner && existing.owner !== this.instanceId() && !this.isInstanceAlive(existing.owner)) {
+            delete tasks.inflight[key];
+            existing = null;
+          }
           if (existing) {
             if (manual) {
               alert('状态更新正在进行中，请稍候');
@@ -15129,7 +15233,7 @@ createCharacterEntry(text, categoryKey) {
             }
             return shared;
           }
-          const entry = { ts: Date.now(), kind: 'update' };
+          const entry = { ts: Date.now(), kind: 'update', owner: this.instanceId() };
           let resolveDone = () => {};
           entry.done = new Promise((r) => { resolveDone = r; });
           if (tasks) tasks.inflight[key] = entry;
@@ -15138,11 +15242,26 @@ createCharacterEntry(text, categoryKey) {
           // （事件）时，第二个会被直接丢弃 → 新楼漏更新。排队则保证"后楼不在前楼提交前计算"。
           let releaseChain = () => {};
           if (tasks) {
-            const prevChain = tasks.chain || Promise.resolve();
-            tasks.chain = new Promise((r) => { releaseChain = r; });
-            try {
-              await prevChain;
-            } catch (e) { /* 前序失败不影响后续排队者 */ }
+            this.ensureTeardownHook();
+            const prevChain = tasks.chain;
+            const entryChain = { owner: this.instanceId(), promise: null, release: null };
+            entryChain.promise = new Promise((r) => { entryChain.release = () => r(); });
+            tasks.chain = entryChain; // 先占位，避免两个请求同时看到"无链"
+            releaseChain = () => {
+              if (tasks.chain === entryChain) delete tasks.chain;
+              try { entryChain.release(); } catch (e) { /* 忽略 */ }
+            };
+            if (prevChain && prevChain !== entryChain) {
+              // 持有者已销毁的僵尸链：直接接管并释放，否则 await 永不 settle → 队列永久卡死
+              if (prevChain.owner && prevChain.owner !== this.instanceId() && !this.isInstanceAlive(prevChain.owner)) {
+                if (tasks.chain === prevChain) delete tasks.chain;
+                try { prevChain.release(); } catch (e) { /* 忽略 */ }
+              } else {
+                try {
+                  await prevChain.promise;
+                } catch (e) { /* 前序失败不影响后续排队者 */ }
+              }
+            }
           }
           try {
             return await this.runUpdate(targetFloorId, { manual });
@@ -18342,6 +18461,8 @@ createCharacterEntry(text, categoryKey) {
 
           // 宿主级换聊天守卫：注册一次即可覆盖"新聊天没有 iframe"的场景
           this.ensureChatLifecycleGuard();
+          // 销毁钩子：iframe 被销毁（切聊天/删楼）时释放本实例持有的共享任务，防止串行链卡死
+          this.ensureTeardownHook();
 
           this.setupDriftGuard();
         },

@@ -429,6 +429,13 @@ function createInstance(host, { floorId = 0, scriptText, jsyamlBlock }) {
   };
 
   Object.assign(sandbox, {
+    // 真实 iframe 移除会触发 pagehide（JS-Slash-Runner 也依赖它做清理）；
+    // 这里记录监听，destroyInstance 时派发，用来验证"销毁时释放共享任务"
+    addEventListener: (type, fn) => {
+      if (!instance.windowListeners) instance.windowListeners = {};
+      (instance.windowListeners[type] = instance.windowListeners[type] || []).push(fn);
+    },
+    removeEventListener: () => {},
     console: {
       log: (...a) => host.logs.push(['log', ...a]),
       info: (...a) => host.logs.push(['info', ...a]),
@@ -529,8 +536,12 @@ function createInstance(host, { floorId = 0, scriptText, jsyamlBlock }) {
   return instance;
 }
 
-/** 模拟 iframe 被销毁（酒馆助手在 pagehide 时清掉本 iframe 的事件监听） */
+/** 模拟 iframe 被销毁：先派发 pagehide（浏览器/酒馆助手的清理时机），再清掉本 iframe 的监听 */
 function destroyInstance(instance) {
+  const winListeners = (instance.windowListeners && instance.windowListeners.pagehide) || [];
+  for (const fn of winListeners) {
+    try { fn({ type: 'pagehide' }); } catch (e) { instance.host.errors.push(e); }
+  }
   for (const { ev, wrapper } of instance.listeners) instance.host.off(ev, wrapper);
   instance.listeners.clear();
   for (const ch of instance.bc) { instance.host.bcSubs.get(ch.name)?.delete(ch); }
@@ -811,6 +822,70 @@ group('R1b-结算台账边界', async (V) => {
   await inst.MMS.applyNewdayBill(bill2);
   await drain();
   eq('新账单正常扣款（455 − 10 = 445）', host.chat[id].variables[0].stat_data['状态栏']['据点']['现金'], '445美元');
+});
+
+// ============ R2e 更新进行中销毁 iframe：不得让共享串行链永久卡死 ============
+group('R2e-销毁不卡死队列', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  pushMessage(host, { mes: '第一楼' });
+  const id = pushMessage(host, { mes: '第二楼，无状态' });
+  host.genHandler = () => JSON.stringify(STATE_MODULE);
+  // 永不 resolve 的闸门：模拟"LLM 请求随 iframe 一起死掉"（续体不再执行 → finally 不会跑）
+  host.genGate = new Promise(() => {});
+
+  const a = createInstance(host, { floorId: id, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  await a.MMS.boot();
+  await drain();
+  await host.clock.advance(9000);
+  ok('请求已发出并卡在飞行中', host.genCalls.length === 1, `实际 ${host.genCalls.length}`);
+  const tasks = host.parentStub.__mmsSharedTasks;
+  ok('共享台账里有该楼进行中条目', !!(tasks && tasks.inflight['update:' + id]), JSON.stringify(tasks && Object.keys(tasks.inflight || {})));
+  ok('共享串行链已被占用', !!(tasks && tasks.chain));
+
+  // 更新进行中切聊天/删楼 → iframe 销毁（pagehide）：必须释放本实例持有的共享条目
+  destroyInstance(a);
+  ok('销毁后进行中条目已释放', !(tasks.inflight && tasks.inflight['update:' + id]),
+    JSON.stringify(Object.keys((tasks && tasks.inflight) || {})));
+  ok('销毁后串行链已释放', !tasks.chain);
+  ok('销毁后实例标记为不存活', a.MMS.isInstanceAlive(a.MMS.instanceId()) === false);
+
+  // 新实例（新聊天/重新渲染）请求同一楼层：必须能真正发出请求，而不是卡在僵尸链上
+  const b = createInstance(host, { floorId: id, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  await b.MMS.boot();
+  await drain();
+  await host.clock.advance(20000);
+  await drain();
+  ok('销毁后新实例仍能发起更新（串行链未卡死）', host.genCalls.length >= 2,
+    `实际 ${host.genCalls.length} 次（销毁前 1 次）`);
+});
+
+// ============ R1c 事件通道：claim 不得被非最后楼实例抢占 ============
+group('R1c-直连不被抢占', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  host.charWorldbooks = { primary: '测试世界书', additional: [] };
+  host.worldbooks['测试世界书'] = [];
+  // 旧楼（非最后 AI 楼）与最后楼各一个实例，两者都注册了结算事件监听
+  pushMessage(host, {
+    mes: '第一楼', variables: [{ stat_data: JSON.parse(JSON.stringify(STATE_MODULE)), $mms_meta: { hash: 'h0', ts: 1, mesId: 0 } }],
+  });
+  const lastId = pushMessage(host, {
+    mes: '第二楼', variables: [{ stat_data: JSON.parse(JSON.stringify(STATE_MODULE)), $mms_meta: { hash: 'h1', ts: 2, mesId: 1 } }],
+  });
+  const oldInst = createInstance(host, { floorId: 0, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  const lastInst = createInstance(host, { floorId: lastId, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  await oldInst.MMS.boot();
+  await lastInst.MMS.boot();
+  await drain();
+
+  // 结算载荷写入聊天变量，再按"父页同步遍历监听"的方式派发事件
+  host.chatVars.$newday_bill_result = JSON.parse(JSON.stringify(BILL));
+  await host.emit('newday:bill-settle', JSON.parse(JSON.stringify(BILL)));
+  await drain();
+
+  const slot = host.chat[lastId].variables[0].stat_data['状态栏'];
+  eq('最后楼实例完成直连结算（现金 455）', slot['据点']['现金'], '455美元');
+  ok('台账已记（最后楼实例未被打断）', lastInst.MMS.loadNewdaySync().lastId === BILL.id,
+    `lastId=${JSON.stringify(lastInst.MMS.loadNewdaySync().lastId)}`);
 });
 
 // ============ R3 API 预设：切回默认必须清空旧端点 ============
@@ -1203,6 +1278,74 @@ group('R8c-无基线需确认', async (V) => {
 });
 
 // ============ R9 物品命令必须精确匹配 ============
+// ============ R8d 自由字符串含方括号不得被重排 ============
+group('R8d-自由串不被重排', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  pushMessage(host, {
+    mes: '第一楼', variables: [{ stat_data: JSON.parse(JSON.stringify(STATE_MODULE)), $mms_meta: { hash: 'h', ts: 1, mesId: 0 } }],
+  });
+  const id = pushMessage(host, { mes: '第二楼', variables: [{}] });
+  const inst = createInstance(host, { floorId: id, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  inst.MMS.detectEnv();
+  inst.MMS.floorId = id;
+  inst.MMS.messageText = '第二楼';
+  inst.MMS.isLastAssistantFloor = true;
+  host.genHandler = () => JSON.stringify({
+    状态栏: {
+      日期和时间: '⏰ 1925年 · 6月13日 · 13:00',
+      地点: '📍 悉尼 · 酒店',
+      角色列表: [{ 角色: { 名字: '李娟', 属性: '[❤️HP-3]', 内心: '💭 想起[老加]的话' } }],
+    },
+  });
+
+  await inst.MMS.runUpdate(id);
+  await drain();
+  // 手改自由字段（含方括号，但括号外有正文）→ 重算时不得被拆成纯清单
+  const manual = JSON.parse(JSON.stringify(host.chat[id].variables[0].stat_data));
+  manual['状态栏']['角色列表'][0]['角色']['内心'] = '💭 想起[老加]的警告，必须小心';
+  host.chat[id].variables[0].stat_data = manual;
+
+  await inst.MMS.runUpdate(id);
+  await drain();
+  const inner = host.chat[id].variables[0].stat_data['状态栏']['角色列表'][0]['角色']['内心'];
+  ok('含方括号的自由文本未被重排成纯清单', inner === '💭 想起[老加]的警告，必须小心', `实际 ${inner}`);
+});
+
+// ============ R8e 无名对象数组不得因手改而重复 ============
+group('R8e-无名数组不重复', async (V) => {
+  const host = createHost({ chatVars: { $mms_roster: makeRoster() } });
+  const base = JSON.parse(JSON.stringify(STATE_MODULE));
+  base['状态栏']['线索'] = { 列表: [{ 摘要: '甲' }, { 摘要: '乙' }] };
+  pushMessage(host, { mes: '第一楼', variables: [{ stat_data: base, $mms_meta: { hash: 'h', ts: 1, mesId: 0 } }] });
+  const id = pushMessage(host, { mes: '第二楼', variables: [{}] });
+  const inst = createInstance(host, { floorId: id, scriptText: V.scriptText, jsyamlBlock: V.jsyamlBlock });
+  inst.MMS.detectEnv();
+  inst.MMS.floorId = id;
+  inst.MMS.messageText = '第二楼';
+  inst.MMS.isLastAssistantFloor = true;
+  host.genHandler = () => JSON.stringify({
+    状态栏: {
+      日期和时间: '⏰ 1925年 · 6月13日 · 13:00',
+      地点: '📍 悉尼 · 酒店',
+      线索: { 列表: [{ 摘要: '甲' }, { 摘要: '乙' }] },
+      角色列表: [{ 角色: { 名字: '李娟', 属性: '[❤️HP-3]' } }],
+    },
+  });
+
+  await inst.MMS.runUpdate(id);
+  await drain();
+  const manual = JSON.parse(JSON.stringify(host.chat[id].variables[0].stat_data));
+  manual['状态栏']['线索']['列表'][0]['摘要'] = '甲（手改）';
+  host.chat[id].variables[0].stat_data = manual;
+
+  await inst.MMS.runUpdate(id);
+  await drain();
+  const list = host.chat[id].variables[0].stat_data['状态栏']['线索']['列表'];
+  ok('手改的无名对象条目未被复制成两条', list.length === 2, `实际 ${JSON.stringify(list)}`);
+  ok('手改内容保留', list[0]['摘要'] === '甲（手改）', `实际 ${JSON.stringify(list[0])}`);
+});
+
+// ============ R9 物品精确匹配 ============
 group('R9-物品精确匹配', async (V) => {
   const host = createHost();
   pushMessage(host, { mes: '正文' });
