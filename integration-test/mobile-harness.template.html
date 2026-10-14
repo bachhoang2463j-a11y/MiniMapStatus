@@ -18,7 +18,7 @@
 </head>
 <body>
 <h1>手机轻量版 · 移植回归 Harness</h1>
-<p>内嵌 MiniMapStatusMobile.html（srcdoc iframe + mock 酒馆 API），覆盖：设置面板四 tab / 主题圆点 / 图片管理 / 标签池与复制 / 地图开关 / 独立大地图（AI 生成 mock）/ 立绘（原版引擎整幅渲染，无双栏无灯箱）/ 徽章折叠。</p>
+<p>内嵌 MiniMapStatusMobile.html（srcdoc iframe + mock 酒馆 API），覆盖：设置面板五 tab / 主题圆点 / 图片管理 / 标签池与复制 / 地图开关 / 独立大地图（AI 生成 mock）/ 立绘（原版引擎整幅渲染，无双栏无灯箱）/ 徽章折叠 / 独立监控（伪页签 + 词条解析 + 开关）。</p>
 <button id="run" type="button">▶ 运行全部断言</button>
 <div id="out"></div>
 <pre id="log"></pre>
@@ -81,7 +81,7 @@
     '  角色列表:',
     '    - 名字: 弗兰克',
     '      立绘: 【立绘弗兰克】',
-    "      属性: \"[❤️HP:80/100][🛡️防:5][💥攻:12][⚡速:8][🎯命中:75][🍀幸运:60][🔫武器:步枪][🧪物品:绷带][💊药品:止痛药][📖情报:地图][🔑钥匙:房卡][💰现金:120美元]\"",
+    "      属性: \"[❤️HP:80/100][🛡️防:5][💥攻:12][⚡速:8][🎯命中:75][🍀幸运:60][🔫武器:步枪][🧪物品:绷带][💊药品:止痛药][📖情报:地图][🔑钥匙:房卡][💰现金:120美元][快感:72][精液:26/40ML][淫水;11/20ML]\"",
     '    - 名字: 埃利奥特',
     "      属性: '[❤️HP:50/50]'",
     '  小地图:',
@@ -104,7 +104,11 @@
 
   const store = {
     chat: {
-      $mms_roster: { bigmapArt: { enabled: true, note: '', style: 'flat' }, maps: { minimap: true, bigmap: true } },
+      $mms_roster: {
+        bigmapArt: { enabled: true, note: '', style: 'flat' },
+        maps: { minimap: true, bigmap: true },
+        monitor: { enabled: true },
+      },
     },
     global: {},
   };
@@ -208,13 +212,13 @@
       assert('再次点击收起', () => /^\+\d+$/.test(btn.textContent.trim()));
     })();
 
-    group('四、设置面板（四 tab 仪表盘）');
+    group('四、设置面板（五 tab 仪表盘）');
     click(q('#settings-btn'));
     await sleep(100);
     assert('设置面板就地展开（主视图隐藏）', () => q('#settings-panel').style.display === 'block' && q('#mms-main-view').style.display === 'none');
-    assert('恰好 4 个页签', () => qa('.setting-tab-btn').length === 4);
-    assert('页签名：界面与交互/独立LLM更新/地图管理/图片管理', () =>
-      ['界面与交互', '独立LLM更新', '地图管理', '图片管理'].every((n) => qa('.setting-tab-btn').some((b) => b.textContent.includes(n))));
+    assert('恰好 5 个页签', () => qa('.setting-tab-btn').length === 5);
+    assert('页签名：界面与交互/独立LLM更新/地图管理/图片管理/独立监控', () =>
+      ['界面与交互', '独立LLM更新', '地图管理', '图片管理', '独立监控'].every((n) => qa('.setting-tab-btn').some((b) => b.textContent.includes(n))));
     assert('主题圆点 6 个', () => qa('.theme-dot-btn').length === 6);
     (function () {
       const dayDot = qa('.theme-dot-btn').find((b) => b.getAttribute('data-theme') === 'day');
@@ -300,6 +304,64 @@
       assert('风格切换零 AI 调用（本地重绘）', () => win.generateRawCalls.length === before);
       assert('风格切换后羊皮纸/平面互切', () => q('#mms-bigart-style').value === 'parchment');
     }
+
+    group('八、独立监控（伪页签 + 词条解析）');
+    const monTabList = qa('.character-tab-btn');
+    const monTab = monTabList.find((b) => b.textContent.includes('监控'));
+    assert('「📡监控」伪页签插在角色页签栏末尾', () => !!monTab && monTabList[monTabList.length - 1] === monTab);
+    if (monTab) {
+      click(monTab);
+      await sleep(150);
+      assert('点击后监控面板激活（面板在 #characters-container 之外，重渲不被清空）', () =>
+        q('#mms-monitor-panel').classList.contains('active'));
+      assert('快感 72 → 阴茎勃起（五等分 60-79 档）', () => q('#mms-mon-status').textContent.includes('阴茎勃起'));
+      assert('视频源切到勃起档 mp4', () => (q('#mms-mon-video').getAttribute('src') || '').includes('cyzf4n.mp4'));
+      assert('精液试管填充 65%（26/40ML）', () => q('#mms-mon-fill-semen').style.height === '65%');
+      assert('淫水试管填充 55%（11/20ML，分号分隔也能解析）', () => q('#mms-mon-fill-fluid').style.height === '55%');
+      assert('试管原始数值文本回显', () =>
+        q('#mms-mon-raw-semen').textContent === '26/40ML' && q('#mms-mon-raw-fluid').textContent === '11/20ML');
+      assert('试管液面挂上晃动动效（::before mmsMonSlosh）', () =>
+        win.getComputedStyle(q('#mms-mon-fill-semen'), '::before').animationName === 'mmsMonSlosh');
+    }
+
+    group('九、独立监控 · 词条缺失与总开关');
+    const yamlOriginal = q('#yaml-data-source').textContent;
+    q('#yaml-data-source').textContent = yamlOriginal.replace('[精液:26/40ML]', '');
+    win.reRenderStatusBar();
+    await sleep(350);
+    assert('精液词条缺失：左试管整支隐藏、视频窗仍在', () =>
+      win.getComputedStyle(q('#mms-mon-slot-semen')).visibility === 'hidden' &&
+      !q('#mms-mon-screen-wrap').classList.contains('is-off'));
+
+    q('#yaml-data-source').textContent = yamlOriginal.replace('[快感:72]', '');
+    win.reRenderStatusBar();
+    await sleep(350);
+    assert('快感词条缺失：视频窗整块收起、试管仍在', () =>
+      q('#mms-mon-screen-wrap').classList.contains('is-off') &&
+      win.getComputedStyle(q('#mms-mon-slot-semen')).visibility !== 'hidden');
+
+    q('#yaml-data-source').textContent = yamlOriginal;
+    win.reRenderStatusBar();
+    await sleep(350);
+    assert('恢复词条后全部复原', () =>
+      win.getComputedStyle(q('#mms-mon-slot-semen')).visibility !== 'hidden' &&
+      !q('#mms-mon-screen-wrap').classList.contains('is-off') &&
+      q('#mms-mon-fill-semen').style.height === '65%');
+
+    const monChk = q('#mms-monitor-enabled');
+    monChk.checked = false;
+    monChk.dispatchEvent(new Event('change', { bubbles: true }));
+    await sleep(400);
+    assert('关闭独立监控：监控页签消失、面板隐藏', () =>
+      !qa('.character-tab-btn').some((b) => b.textContent.includes('监控')) &&
+      !q('#mms-monitor-panel').classList.contains('active'));
+    assert('关闭状态写入聊天变量 $mms_roster.monitor.enabled=false', () =>
+      win.__getStore().chat.$mms_roster.monitor.enabled === false);
+
+    monChk.checked = true;
+    monChk.dispatchEvent(new Event('change', { bubbles: true }));
+    await sleep(400);
+    assert('重新开启：监控页签重新出现', () => qa('.character-tab-btn').some((b) => b.textContent.includes('监控')));
 
     finish();
   }

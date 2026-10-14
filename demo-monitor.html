@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>独立监控模块 · 样式 Demo</title>
+<style>
+/* ============================================================
+   本文件是【样式预览 Demo】，不参与构建、不进正则 JSON。
+   上半部分 = 手机版状态栏卡片仿真外壳（只为看清落位）
+   下半部分 = 监控模块本体样式（这一段将原样移植进 MiniMapStatusMobile.html）
+   ============================================================ */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: #14101c;
+  color: #c9d4e3;
+  font-family: "Noto Sans SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 14px 12px 40px;
+  -webkit-text-size-adjust: 100%;
+}
+.demo-wrap { max-width: 420px; margin: 0 auto; }
+
+/* ---------- Demo 顶部说明条 ---------- */
+.demo-banner {
+  border: 1px dashed #4a5568; border-radius: 10px;
+  padding: 8px 10px; margin-bottom: 12px;
+  font-size: 11px; color: #9fb0c4; line-height: 1.5;
+}
+.demo-banner b { color: #d8b46a; }
+
+/* ============================================================
+   状态栏卡片仿真外壳（近似 MiniMapStatusMobile.html 的 .status-block）
+   ============================================================ */
+.status-card {
+  border-radius: 22px; overflow: hidden;
+  border: 1px solid rgba(120, 130, 150, 0.3);
+  background: #1b1626;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  margin-bottom: 14px;
+}
+.card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 10px 16px;
+  background: linear-gradient(to right, rgba(157, 124, 245, 0.2), rgba(157, 124, 245, 0.05));
+  border-bottom: 1px solid rgba(120, 130, 150, 0.2);
+  font-size: 13px; color: #c9d4e3;
+}
+.card-header .meta { display: flex; flex-direction: column; gap: 1px; }
+.card-header .gear {
+  width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto;
+  border: 1px solid rgba(120, 130, 150, 0.5);
+  display: flex; align-items: center; justify-content: center;
+  color: #9d7cf5; font-size: 13px;
+}
+.card-maintext { padding: 12px 16px; font-size: 14px; color: #b9c4d4; }
+.card-section { border-top: 1px solid rgba(120, 130, 150, 0.2); }
+.card-summary {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; font-size: 13px; font-weight: 600;
+  color: #c9d4e3; cursor: pointer; list-style: none;
+}
+.card-summary::-webkit-details-marker { display: none; }
+.card-summary .label { display: flex; align-items: center; gap: 8px; color: #9d7cf5; }
+.card-summary .label .txt { color: #c9d4e3; }
+.card-summary .count {
+  font-size: 11px; font-weight: 500; color: #9d7cf5;
+  border: 1px solid rgba(157, 124, 245, 0.4); border-radius: 999px;
+  padding: 1px 8px;
+}
+.chev { transition: transform .3s; font-size: 11px; color: #9d7cf5; }
+details[open] > .card-summary .chev { transform: rotate(180deg); }
+.card-actions {
+  border-top: 1px solid rgba(120, 130, 150, 0.2);
+  background: linear-gradient(to bottom, #221b30, rgba(157, 124, 245, 0.1));
+  border-radius: 0 0 22px 22px;
+  padding: 10px 14px 12px;
+}
+.card-actions h3 { margin: 0 0 6px; font-size: 13px; color: #c9d4e3; }
+.card-actions li { font-size: 13px; color: #a8b4c6; margin-bottom: 4px; }
+.card-actions ul { margin: 0; padding-left: 18px; }
+
+/* ---------- 角色状态详情的页签栏（复刻 .character-tabs / .character-tab-btn） ---------- */
+.card-tabs {
+  display: flex; flex-wrap: wrap; gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(120, 130, 150, 0.2);
+}
+.character-tab-btn {
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(157, 124, 245, 0.25);
+  background: linear-gradient(145deg, rgba(157, 124, 245, 0.12), rgba(157, 124, 245, 0.05));
+  color: rgba(255, 255, 255, 0.75);
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  font-family: inherit;
+}
+.character-tab-btn:hover {
+  background: linear-gradient(145deg, rgba(157, 124, 245, 0.25), rgba(157, 124, 245, 0.12));
+  border-color: rgba(157, 124, 245, 0.45);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+.character-tab-btn.active {
+  background: linear-gradient(145deg, #a88bf7 0%, #8b6ce0 100%);
+  color: white;
+  border-color: #9d7cf5;
+  box-shadow: 0 3px 8px rgba(157, 124, 245, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.card-panel { display: none; }
+.card-panel.active { display: block; animation: cardFadeIn .3s ease; }
+@keyframes cardFadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+.card-panel-placeholder { padding: 14px 16px; font-size: 12px; color: #8b98ab; }
+
+/* ============================================================
+   ▼▼▼ 以下为【监控模块本体】样式 —— 将原样移植进手机版 ▼▼▼
+   全部使用 mms-mon 前缀，避免与手机版既有类名冲突
+   ============================================================ */
+
+/* --- 监控面板容器：黑金终端风，自成一套配色，不跟随 6 套主题 --- */
+.mms-mon-body {
+  background: #0a0a0a;
+  padding: 14px 12px;
+  font-family: "Rajdhani", "Courier New", Courier, monospace;
+  position: relative;
+  overflow: hidden;
+}
+
+/* --- 舞台：左试管 / 中视频 / 右试管 --- */
+.mms-mon-stage {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* 快感词条缺失时视频窗整块收起，两支试管居中 */
+.mms-mon-stage.is-video-off { justify-content: center; gap: 34px; }
+.mms-mon-screen-wrap.is-off { display: none; }
+
+.mms-mon-side {
+  flex: 0 0 22%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+}
+.mms-mon-side.is-empty { visibility: hidden; }
+
+/* --- 试管 --- */
+.mms-mon-vial-label {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: rgba(197, 160, 89, 0.7);
+  white-space: nowrap;
+}
+.mms-mon-vial {
+  position: relative;
+  width: 15px;
+  height: 118px;
+  background: #030303;
+  border: 1px solid rgba(197, 160, 89, 0.28);
+  border-radius: 999px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.95);
+}
+.mms-mon-vial-fill {
+  width: 100%;
+  height: 0%;
+  position: relative;
+  transition: height .7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* 液面：比管身更宽的椭圆，被 overflow:hidden 裁切后形成左右晃动的弯月面 */
+.mms-mon-vial-fill::before {
+  content: "";
+  position: absolute;
+  top: -3px; left: -25%;
+  width: 150%; height: 8px;
+  border-radius: 50%;
+  animation: mmsMonSlosh 3.4s ease-in-out infinite;
+}
+@keyframes mmsMonSlosh {
+  0%   { transform: translateX(-3px) rotate(-6deg) scaleY(1); }
+  25%  { transform: translateX(1.5px) translateY(-1px) rotate(3deg) scaleY(0.86); }
+  50%  { transform: translateX(3px) rotate(6deg) scaleY(1); }
+  75%  { transform: translateX(-1.5px) translateY(1px) rotate(-3deg) scaleY(1.1); }
+  100% { transform: translateX(-3px) rotate(-6deg) scaleY(1); }
+}
+/* 精液：乳白 */
+.mms-mon-vial.is-semen .mms-mon-vial-fill {
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.65);
+}
+.mms-mon-vial.is-semen .mms-mon-vial-fill::before { background: rgba(255, 255, 255, 0.95); }
+/* 淫水：灰半透明 */
+.mms-mon-vial.is-fluid .mms-mon-vial-fill {
+  background: rgba(160, 160, 172, 0.55);
+  box-shadow: 0 0 12px rgba(160, 160, 172, 0.45);
+}
+.mms-mon-vial.is-fluid .mms-mon-vial-fill::before {
+  background: rgba(208, 208, 220, 0.8);
+  /* 与精液错开相位，两支试管不同步晃动 */
+  animation-duration: 4.2s;
+  animation-delay: -1.3s;
+}
+
+.mms-mon-vial-val {
+  font-size: 10px;
+  color: #e6d5b8;
+  letter-spacing: 0.06em;
+}
+.mms-mon-vial-raw {
+  font-size: 8px;
+  color: rgba(197, 160, 89, 0.5);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* --- 视频窗 --- */
+.mms-mon-screen-wrap {
+  flex: 1 1 auto;
+  max-width: 148px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.mms-mon-screen-frame {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  background: #050505;
+  border: 1px solid rgba(197, 160, 89, 0.18);
+  border-radius: 12px;
+  padding: 4px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.85);
+}
+.mms-mon-screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.9);
+  cursor: pointer;
+}
+.mms-mon-screen video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  filter: saturate(0.6) contrast(1.2) brightness(0.85) sepia(0.1);
+}
+.mms-mon-screen video.is-hidden { display: none; }
+.mms-mon-screen .vignette {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.7) 90%, rgba(0,0,0,0.9) 100%);
+}
+.mms-mon-screen .scanline {
+  position: absolute; left: 0; width: 100%; height: 1px;
+  background: rgba(197, 160, 89, 0.25);
+  animation: mmsMonScan 4s linear infinite;
+  pointer-events: none;
+}
+@keyframes mmsMonScan {
+  0% { top: 0; opacity: 0; }
+  5% { opacity: 1; }
+  95% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+.mms-mon-screen .corner {
+  position: absolute; width: 14px; height: 14px;
+  border-color: rgba(197, 160, 89, 0.45); border-style: solid; border-width: 0;
+  pointer-events: none;
+}
+.mms-mon-screen .corner.tl { top: 8px; left: 8px; border-top-width: 1px; border-left-width: 1px; }
+.mms-mon-screen .corner.br { bottom: 8px; right: 8px; border-bottom-width: 1px; border-right-width: 1px; }
+/* 视频加载失败时的占位（离线/被墙时至少不白屏） */
+.mms-mon-screen .fallback {
+  position: absolute; inset: 0;
+  display: none;
+  flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; color: rgba(197, 160, 89, 0.55); font-size: 10px; letter-spacing: 0.15em;
+  text-align: center; padding: 0 8px;
+}
+.mms-mon-screen.is-novideo .fallback { display: flex; }
+.mms-mon-screen .fallback .big { font-size: 22px; opacity: 0.7; }
+
+/* LIVE 角标 */
+.mms-mon-live {
+  position: absolute; top: -9px; right: 10px; z-index: 3;
+  display: flex; align-items: center; gap: 5px;
+  background: #000; border: 1px solid rgba(153, 27, 27, 0.6);
+  border-radius: 3px; padding: 2px 6px;
+}
+.mms-mon-live .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #dc2626;
+  animation: mmsMonPulse 1.4s ease-in-out infinite;
+}
+.mms-mon-live .txt {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.2em; color: #ef4444;
+}
+.mms-mon-live.is-paused .dot { animation: none; background: #6b7280; }
+.mms-mon-live.is-paused .txt { color: #9ca3af; }
+@keyframes mmsMonPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px #dc2626; }
+  50% { opacity: 0.3; box-shadow: 0 0 1px #dc2626; }
+}
+
+/* 视频窗底部状态条 */
+.mms-mon-status {
+  margin-top: 9px;
+  background: #000;
+  border: 1px solid rgba(197, 160, 89, 0.28);
+  border-radius: 3px;
+  padding: 3px 10px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: rgba(197, 160, 89, 0.75);
+  white-space: nowrap;
+}
+
+/* 无数据提示（第一个角色三个词条全缺时） */
+.mms-mon-empty {
+  padding: 18px 10px;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: rgba(197, 160, 89, 0.45);
+}
+.mms-mon-empty .big { display: block; font-size: 20px; margin-bottom: 6px; opacity: 0.6; }
+
+/* ============================================================
+   ▲▲▲ 监控模块本体样式结束 ▲▲▲
+   ============================================================ */
+
+/* ---------- Demo 控制面板（仅演示用，不随功能发布） ---------- */
+.demo-controls {
+  border: 1px dashed #4a5568;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 12px;
+  color: #9fb0c4;
+}
+.demo-controls .title {
+  font-size: 11px; letter-spacing: 0.1em; color: #7d8ca1;
+  margin-bottom: 10px; padding-bottom: 8px;
+  border-bottom: 1px dashed #3b4657;
+}
+.demo-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 10px; flex-wrap: wrap;
+}
+.demo-row input[type="range"] { flex: 1 1 120px; min-width: 90px; accent-color: #c5a059; }
+.demo-row .val {
+  flex: 0 0 auto; min-width: 88px; text-align: right;
+  font-family: "Courier New", monospace; color: #e6d5b8;
+}
+.demo-row input[type="checkbox"] { accent-color: #c5a059; width: 15px; height: 15px; }
+.demo-row .chk { display: flex; align-items: center; gap: 5px; color: #b9c4d4; white-space: nowrap; }
+.demo-hint { font-size: 11px; color: #7d8ca1; margin-top: 6px; line-height: 1.5; }
+.demo-hint code {
+  background: rgba(255,255,255,0.06); padding: 1px 4px; border-radius: 3px;
+  font-size: 10px; color: #d8b46a;
+}
+</style>
+</head>
+<body>
+<div class="demo-wrap">
+
+  <div class="demo-banner">
+    <b>样式预览 Demo</b> —— 上半部分是手机版状态栏卡片仿真外壳（紫色主题），
+    <b>📡 监控</b> 是「角色状态详情」页签栏里的一枚伪页签（与小地图/大地图同一插入机制）。
+    底部演示控制条仅用于试看效果，不随功能发布。
+  </div>
+
+  <!-- ===== 状态栏卡片仿真外壳 ===== -->
+  <div class="status-card">
+    <div class="card-header">
+      <div class="meta">
+        <span>📍 悉尼 · 总督套房</span>
+        <span>⏰ 1925年 · 6月13日 · 12:40</span>
+      </div>
+      <div class="gear">⚙</div>
+    </div>
+
+    <div class="card-maintext">
+      门缝里透出昏黄的灯光，走廊尽头的留声机还在转。埃利奥特靠在墙边，呼吸压得很低。
+    </div>
+
+    <div class="card-section">
+      <details open>
+        <summary class="card-summary">
+          <span class="label">👥 <span class="txt">角色状态详情</span> <span class="count">4 名常驻</span></span>
+          <span class="chev">▼</span>
+        </summary>
+
+        <!-- 页签栏：小地图 / 大地图 由 mapModuleNames 插入，角色来自角色列表，监控是新增伪页签 -->
+        <div class="card-tabs" id="card-tabs">
+          <button class="character-tab-btn" type="button"> 🗺️小地图</button>
+          <button class="character-tab-btn" type="button"> 🌏大地图</button>
+          <button class="character-tab-btn" type="button"> 🔮埃利奥特</button>
+          <button class="character-tab-btn" type="button"> 🔪弗兰克</button>
+          <button class="character-tab-btn active" type="button" id="tab-monitor"> 📡监控</button>
+        </div>
+
+        <!-- 其它页签的内容（Demo 不展开） -->
+        <div class="card-panel card-panel-placeholder" id="panel-other">
+          （角色卡片 / 地图面板区域，本 Demo 不展开）
+        </div>
+
+        <!-- ★ 监控页签的内容 ★ -->
+        <div class="card-panel active" id="mms-monitor-panel">
+          <div class="mms-mon-body" id="mms-mon-body">
+            <div class="mms-mon-stage" id="mms-mon-stage">
+
+              <!-- 左：精液试管 -->
+              <div class="mms-mon-side" id="mms-mon-slot-semen">
+                <div class="mms-mon-vial-label">精液</div>
+                <div class="mms-mon-vial is-semen">
+                  <div class="mms-mon-vial-fill" id="mms-mon-fill-semen"></div>
+                </div>
+                <div class="mms-mon-vial-val" id="mms-mon-val-semen">00%</div>
+                <div class="mms-mon-vial-raw" id="mms-mon-raw-semen">0/40ML</div>
+              </div>
+
+              <!-- 中：视频窗 -->
+              <div class="mms-mon-screen-wrap" id="mms-mon-screen-wrap">
+                <div class="mms-mon-live" id="mms-mon-live">
+                  <span class="dot"></span><span class="txt" id="mms-mon-live-txt">LIVE</span>
+                </div>
+                <div class="mms-mon-screen-frame">
+                  <div class="mms-mon-screen" id="mms-mon-screen">
+                    <video id="mms-mon-video" muted playsinline autoplay loop preload="metadata"></video>
+                    <div class="vignette"></div>
+                    <div class="scanline"></div>
+                    <div class="corner tl"></div>
+                    <div class="corner br"></div>
+                    <div class="fallback">
+                      <span class="big">📡</span>
+                      <span>NO SIGNAL</span>
+                      <span id="mms-mon-fallback-name">阴茎疲软</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="mms-mon-status" id="mms-mon-status">STATUS: 阴茎疲软</div>
+              </div>
+
+              <!-- 右：淫水试管 -->
+              <div class="mms-mon-side" id="mms-mon-slot-fluid">
+                <div class="mms-mon-vial-label">淫水</div>
+                <div class="mms-mon-vial is-fluid">
+                  <div class="mms-mon-vial-fill" id="mms-mon-fill-fluid"></div>
+                </div>
+                <div class="mms-mon-vial-val" id="mms-mon-val-fluid">00%</div>
+                <div class="mms-mon-vial-raw" id="mms-mon-raw-fluid">0/20ML</div>
+              </div>
+            </div>
+
+            <!-- 三个词条全缺时的提示 -->
+            <div class="mms-mon-empty" id="mms-mon-empty" style="display:none">
+              <span class="big">📡</span>
+              未检测到监控词条
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <div class="card-actions">
+      <h3>🧑 埃利奥特 的行动选项</h3>
+      <ul>
+        <li>1. 🎲【侦查检定】检查门锁附近的痕迹</li>
+        <li>2. 🎯 敲门询问屋内的人</li>
+        <li>3. ⌛ 隐蔽观察侧窗的动静</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ===== Demo 控制条 ===== -->
+  <div class="demo-controls">
+    <div class="title">▼ 演示控制条（仅 Demo，不随功能发布）</div>
+
+    <div class="demo-row">
+      <label class="chk"><input type="checkbox" id="ctl-enabled" checked> 独立监控</label>
+      <span class="demo-hint" style="margin:0">关闭后「📡监控」页签整枚消失</span>
+    </div>
+
+    <div class="demo-row">
+      <label class="chk"><input type="checkbox" id="ctl-pleasure-on" checked> 快感</label>
+      <input type="range" id="ctl-pleasure" min="0" max="100" step="1" value="72">
+      <span class="val" id="ctl-pleasure-val">72 · 阴茎勃起</span>
+    </div>
+
+    <div class="demo-row">
+      <label class="chk"><input type="checkbox" id="ctl-semen-on" checked> 精液</label>
+      <input type="range" id="ctl-semen" min="0" max="40" step="1" value="26">
+      <span class="val" id="ctl-semen-val">26/40ML · 65%</span>
+    </div>
+
+    <div class="demo-row">
+      <label class="chk"><input type="checkbox" id="ctl-fluid-on" checked> 淫水</label>
+      <input type="range" id="ctl-fluid" min="0" max="20" step="1" value="11">
+      <span class="val" id="ctl-fluid-val">11/20ML · 55%</span>
+    </div>
+
+    <div class="demo-hint">
+      分档规则（快感五等分）：<code>0-19 疲软</code> <code>20-39 微勃</code> <code>40-59 半勃</code>
+      <code>60-79 勃起</code> <code>80-100 全勃</code>。<br>
+      「快感」独立驱动视频窗；「精液 / 淫水」各自驱动一支试管（液面有晃动动效）。
+      取消勾选即模拟该词条不存在 —— 试管整支消失、视频窗整块收起；三者全缺则显示「未检测到监控词条」。
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* 源正则里的 5 段视频（外链，构建管线原样透传） */
+const MMS_MON_VIDEO_MAP = {
+  '阴茎全勃': 'https://files.catbox.moe/gpi2gv.mp4',
+  '阴茎勃起': 'https://files.catbox.moe/cyzf4n.mp4',
+  '阴茎半勃': 'https://files.catbox.moe/vv3h4j.mp4',
+  '阴茎微勃': 'https://files.catbox.moe/ujbl9r.mp4',
+  '阴茎疲软': 'https://files.catbox.moe/t1k4ms.mp4',
+};
+
+/* 快感值 → 档位名（五等分） */
+function mmsMonBand(v) {
+  if (!isFinite(v)) return '阴茎疲软';
+  if (v >= 80) return '阴茎全勃';
+  if (v >= 60) return '阴茎勃起';
+  if (v >= 40) return '阴茎半勃';
+  if (v >= 20) return '阴茎微勃';
+  return '阴茎疲软';
+}
+
+const $ = (id) => document.getElementById(id);
+
+let currentBand = '';
+
+function renderVideo(band) {
+  const video = $('mms-mon-video');
+  const screen = $('mms-mon-screen');
+  $('mms-mon-status').textContent = 'STATUS: ' + band;
+  $('mms-mon-fallback-name').textContent = band;
+  if (band === currentBand) return;
+  currentBand = band;
+
+  const url = MMS_MON_VIDEO_MAP[band];
+  screen.classList.remove('is-novideo');
+  video.classList.remove('is-hidden');
+  if (!url) { screen.classList.add('is-novideo'); video.classList.add('is-hidden'); return; }
+  video.src = url;
+  video.load();
+  const p = video.play();
+  if (p && p.catch) p.catch(() => {});
+}
+
+/* 视频加载失败 → 显示 NO SIGNAL 占位，避免白屏 */
+document.addEventListener('DOMContentLoaded', () => {
+  const video = $('mms-mon-video');
+  video.addEventListener('error', () => {
+    $('mms-mon-screen').classList.add('is-novideo');
+    video.classList.add('is-hidden');
+  });
+});
+
+/* 页签切换（Demo 里只有「监控」与「其它」两块内容） */
+function selectTab(btn) {
+  document.querySelectorAll('.character-tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const isMonitor = btn.id === 'tab-monitor';
+  $('mms-monitor-panel').classList.toggle('active', isMonitor);
+  $('panel-other').classList.toggle('active', !isMonitor);
+  if (isMonitor) {
+    const p = $('mms-mon-video').play();
+    if (p && p.catch) p.catch(() => {});
+  }
+}
+document.querySelectorAll('.character-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => selectTab(btn));
+});
+
+/* 单支试管：返回该词条是否存在，并同步填充/数值 */
+function applyTube(key, on, cur, max) {
+  const pct = Math.max(0, Math.min(100, (cur / max) * 100));
+  $(`ctl-${key}-val`).textContent = on ? `${cur}/${max}ML · ${Math.round(pct)}%` : '词条缺失';
+  $('mms-mon-slot-' + key).classList.toggle('is-empty', !on);
+  if (on) {
+    $('mms-mon-fill-' + key).style.height = pct + '%';
+    $('mms-mon-val-' + key).textContent = String(Math.round(pct)).padStart(2, '0') + '%';
+    $('mms-mon-raw-' + key).textContent = cur + '/' + max + 'ML';
+  }
+  return on;
+}
+
+function apply() {
+  const enabled = $('ctl-enabled').checked;
+  // 关闭 → 「📡监控」页签整枚消失；若当时正停在监控页签则回退到第一个页签
+  const monTab = $('tab-monitor');
+  monTab.style.display = enabled ? '' : 'none';
+  if (!enabled && monTab.classList.contains('active')) {
+    const first = document.querySelector('.character-tab-btn:not(#tab-monitor)');
+    if (first) selectTab(first);
+  }
+  if (!enabled) return;
+
+  // 快感 → 生殖器视频（独立于试管）
+  const pleasureOn = $('ctl-pleasure-on').checked;
+  const pleasure = parseFloat($('ctl-pleasure').value);
+  const band = mmsMonBand(pleasure);
+  $('ctl-pleasure-val').textContent = pleasureOn ? pleasure + ' · ' + band : '词条缺失';
+  $('mms-mon-screen-wrap').classList.toggle('is-off', !pleasureOn);
+  if (pleasureOn) {
+    renderVideo(band);
+  } else {
+    const v = $('mms-mon-video');
+    if (!v.paused) v.pause();
+  }
+
+  // 精液 / 淫水 → 两支试管（缺失则整支消失）
+  const semenOn = applyTube('semen', $('ctl-semen-on').checked, parseFloat($('ctl-semen').value), 40);
+  const fluidOn = applyTube('fluid', $('ctl-fluid-on').checked, parseFloat($('ctl-fluid').value), 20);
+
+  // 三个词条全无 → 空状态
+  const anyEntry = pleasureOn || semenOn || fluidOn;
+  $('mms-mon-stage').classList.toggle('is-video-off', !pleasureOn);
+  $('mms-mon-stage').style.display = anyEntry ? '' : 'none';
+  $('mms-mon-empty').style.display = anyEntry ? 'none' : '';
+}
+
+['ctl-enabled', 'ctl-pleasure-on', 'ctl-pleasure', 'ctl-semen-on', 'ctl-semen', 'ctl-fluid-on', 'ctl-fluid']
+  .forEach((id) => $(id).addEventListener('input', apply));
+
+/* 点击视频窗切换播放/暂停（与源正则一致） */
+$('mms-mon-screen').addEventListener('click', () => {
+  const video = $('mms-mon-video');
+  const live = $('mms-mon-live');
+  if (video.paused) {
+    const p = video.play();
+    if (p && p.catch) p.catch(() => {});
+    live.classList.remove('is-paused');
+    $('mms-mon-live-txt').textContent = 'LIVE';
+  } else {
+    video.pause();
+    live.classList.add('is-paused');
+    $('mms-mon-live-txt').textContent = 'PAUSED';
+  }
+});
+
+document.addEventListener('DOMContentLoaded', apply);
+</script>
+</body>
+</html>
