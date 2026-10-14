@@ -3390,7 +3390,8 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <span class="text-xs font-bold">📡 独立监控（「角色状态详情」页签栏多出一个「监控」页签）</span>
             </label>
             <p class="settings-hint">
-              监控页签读取<b>第一个角色</b>的 [快感:x]、[精液:x/yML]、[淫水;x/yML] 词条（冒号/分号均可）：
+              监控页签读取<b>第一个角色</b>的 [快感:x]、[精液:x/yML]、[淫水;x/yML] 词条（冒号/分号均可，
+              键名前可带 emoji，如 [🔥快感: 92%]）：
               快感按五等分映射到 5 段生殖器视频（0-19 疲软 / 20-39 微勃 / 40-59 半勃 / 60-79 勃起 / 80-100 全勃）；
               精液与淫水各自驱动一支试管的填充进度，词条不存在时对应试管整支消失。
               开关状态存于聊天变量 $mms_roster.monitor，随聊天导出。
@@ -10002,11 +10003,12 @@ window.MMS_IMAGE_DATA = {
           return inner && typeof inner === 'object' ? inner : item;
         }
 
-        // 扫该角色全部字符串字段（字段名叫什么都不影响），冒号/分号、全角/半角均可
+        // 扫该角色全部字符串字段（字段名叫什么都不影响）。分隔符冒号/分号、全角/半角均可；
+        // 键名前允许任意前缀（emoji 等），如 [🔥快感: 92%]、[💦精液: 26/40ML]
         monitorEntries(charData) {
           const out = { pleasure: '', semen: '', fluid: '' };
           if (!charData || typeof charData !== 'object') return out;
-          const re = /\[(快感|精液|淫水)\s*[:：;；]\s*([^\]]+)\]/g;
+          const re = /\[[^\]]*?(快感|精液|淫水)\s*[:：;；]\s*([^\]]+)\]/g;
           Object.keys(charData).forEach((key) => {
             const val = charData[key];
             if (typeof val !== 'string') return;
