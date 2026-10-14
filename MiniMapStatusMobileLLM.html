@@ -2426,6 +2426,202 @@ function buildPortraitHTML(roleName, portraitUrl) {
             color: #9fb0c4; font-size: 0.8rem; display: flex; flex-direction: column; gap: 6px; align-items: center;
         }
         .mms-bm-placeholder .sub { font-size: 0.68rem; color: #7d8ca1; }
+
+        /* ===== 独立监控模块（设置 → 独立监控）=====
+           黑金终端风，自成一套配色，不跟随 6 套主题；全部 mms-mon 前缀避免与既有类名冲突 */
+        .mms-mon-body {
+            background: #0a0a0a;
+            padding: 14px 12px;
+            font-family: "Rajdhani", "Courier New", Courier, monospace;
+            position: relative;
+            overflow: hidden;
+        }
+        .mms-mon-stage {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        /* 快感词条缺失时视频窗整块收起，两支试管居中 */
+        .mms-mon-stage.is-video-off { justify-content: center; gap: 34px; }
+        .mms-mon-screen-wrap.is-off { display: none; }
+        .mms-mon-side {
+            flex: 0 0 22%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 7px;
+        }
+        .mms-mon-side.is-empty { visibility: hidden; }
+        .mms-mon-vial-label {
+            font-size: 9px;
+            letter-spacing: 0.18em;
+            color: rgba(197, 160, 89, 0.7);
+            white-space: nowrap;
+        }
+        .mms-mon-vial {
+            position: relative;
+            width: 15px;
+            height: 118px;
+            background: #030303;
+            border: 1px solid rgba(197, 160, 89, 0.28);
+            border-radius: 999px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.95);
+        }
+        .mms-mon-vial-fill {
+            width: 100%;
+            height: 0%;
+            position: relative;
+            transition: height .7s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        /* 液面：比管身更宽的椭圆，被 overflow:hidden 裁切后形成左右晃动的弯月面 */
+        .mms-mon-vial-fill::before {
+            content: "";
+            position: absolute;
+            top: -3px; left: -25%;
+            width: 150%; height: 8px;
+            border-radius: 50%;
+            animation: mmsMonSlosh 3.4s ease-in-out infinite;
+        }
+        @keyframes mmsMonSlosh {
+            0%   { transform: translateX(-3px) rotate(-6deg) scaleY(1); }
+            25%  { transform: translateX(1.5px) translateY(-1px) rotate(3deg) scaleY(0.86); }
+            50%  { transform: translateX(3px) rotate(6deg) scaleY(1); }
+            75%  { transform: translateX(-1.5px) translateY(1px) rotate(-3deg) scaleY(1.1); }
+            100% { transform: translateX(-3px) rotate(-6deg) scaleY(1); }
+        }
+        /* 精液：乳白 */
+        .mms-mon-vial.is-semen .mms-mon-vial-fill {
+            background: rgba(255, 255, 255, 0.85);
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.65);
+        }
+        .mms-mon-vial.is-semen .mms-mon-vial-fill::before { background: rgba(255, 255, 255, 0.95); }
+        /* 淫水：灰半透明 */
+        .mms-mon-vial.is-fluid .mms-mon-vial-fill {
+            background: rgba(160, 160, 172, 0.55);
+            box-shadow: 0 0 12px rgba(160, 160, 172, 0.45);
+        }
+        .mms-mon-vial.is-fluid .mms-mon-vial-fill::before {
+            background: rgba(208, 208, 220, 0.8);
+            /* 与精液错开相位，两支试管不同步晃动 */
+            animation-duration: 4.2s;
+            animation-delay: -1.3s;
+        }
+        .mms-mon-vial-val { font-size: 10px; color: #e6d5b8; letter-spacing: 0.06em; }
+        .mms-mon-vial-raw {
+            font-size: 8px;
+            color: rgba(197, 160, 89, 0.5);
+            letter-spacing: 0.04em;
+            white-space: nowrap;
+        }
+        .mms-mon-screen-wrap {
+            flex: 1 1 auto;
+            max-width: 148px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .mms-mon-screen-frame {
+            width: 100%;
+            aspect-ratio: 9 / 16;
+            background: #050505;
+            border: 1px solid rgba(197, 160, 89, 0.18);
+            border-radius: 12px;
+            padding: 4px;
+            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.85);
+        }
+        .mms-mon-screen {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #000;
+            box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.9);
+            cursor: pointer;
+        }
+        .mms-mon-screen video {
+            width: 100%; height: 100%;
+            object-fit: cover;
+            display: block;
+            filter: saturate(0.6) contrast(1.2) brightness(0.85) sepia(0.1);
+        }
+        .mms-mon-screen video.is-hidden { display: none; }
+        .mms-mon-screen .vignette {
+            position: absolute; inset: 0; pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.7) 90%, rgba(0,0,0,0.9) 100%);
+        }
+        .mms-mon-screen .scanline {
+            position: absolute; left: 0; width: 100%; height: 1px;
+            background: rgba(197, 160, 89, 0.25);
+            animation: mmsMonScan 4s linear infinite;
+            pointer-events: none;
+        }
+        @keyframes mmsMonScan {
+            0% { top: 0; opacity: 0; }
+            5% { opacity: 1; }
+            95% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        .mms-mon-screen .corner {
+            position: absolute; width: 14px; height: 14px;
+            border-color: rgba(197, 160, 89, 0.45); border-style: solid; border-width: 0;
+            pointer-events: none;
+        }
+        .mms-mon-screen .corner.tl { top: 8px; left: 8px; border-top-width: 1px; border-left-width: 1px; }
+        .mms-mon-screen .corner.br { bottom: 8px; right: 8px; border-bottom-width: 1px; border-right-width: 1px; }
+        /* 视频加载失败时的占位（离线/被墙时至少不白屏） */
+        .mms-mon-screen .fallback {
+            position: absolute; inset: 0;
+            display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+            gap: 6px; color: rgba(197, 160, 89, 0.55); font-size: 10px; letter-spacing: 0.15em;
+            text-align: center; padding: 0 8px;
+        }
+        .mms-mon-screen.is-novideo .fallback { display: flex; }
+        .mms-mon-screen .fallback .big { font-size: 22px; opacity: 0.7; }
+        .mms-mon-live {
+            position: absolute; top: -9px; right: 10px; z-index: 3;
+            display: flex; align-items: center; gap: 5px;
+            background: #000; border: 1px solid rgba(153, 27, 27, 0.6);
+            border-radius: 3px; padding: 2px 6px;
+        }
+        .mms-mon-live .dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: #dc2626;
+            animation: mmsMonPulse 1.4s ease-in-out infinite;
+        }
+        .mms-mon-live .txt { font-size: 9px; font-weight: 700; letter-spacing: 0.2em; color: #ef4444; }
+        .mms-mon-live.is-paused .dot { animation: none; background: #6b7280; }
+        .mms-mon-live.is-paused .txt { color: #9ca3af; }
+        @keyframes mmsMonPulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 6px #dc2626; }
+            50% { opacity: 0.3; box-shadow: 0 0 1px #dc2626; }
+        }
+        .mms-mon-status {
+            margin-top: 9px;
+            background: #000;
+            border: 1px solid rgba(197, 160, 89, 0.28);
+            border-radius: 3px;
+            padding: 3px 10px;
+            font-size: 9px;
+            letter-spacing: 0.16em;
+            color: rgba(197, 160, 89, 0.75);
+            white-space: nowrap;
+        }
+        .mms-mon-empty {
+            padding: 18px 10px;
+            text-align: center;
+            font-size: 10px;
+            letter-spacing: 0.14em;
+            color: rgba(197, 160, 89, 0.45);
+        }
+        .mms-mon-empty .big { display: block; font-size: 20px; margin-bottom: 6px; opacity: 0.6; }
     </style>
   </head>
   <body class="romantic-mode">
@@ -2498,6 +2694,61 @@ function buildPortraitHTML(roleName, portraitUrl) {
               <div id="characters-container" class="p-3">
                 <div class="flex justify-center py-6">
                   <div class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-primary"></div>
+                </div>
+              </div>
+
+              <!-- 独立监控面板：作为「角色状态详情」页签栏里的一个伪页签内容
+                   （与小地图/大地图同一插入机制；由设置 →「独立监控」开关控制是否出现）。
+                   放在 #characters-container 之外，重渲染时不被清空，视频不会每次重载。 -->
+              <div id="mms-monitor-panel" class="character-panel mms-mon-body">
+                <div class="mms-mon-stage" id="mms-mon-stage">
+                  <!-- 左：精液试管 -->
+                  <div class="mms-mon-side" id="mms-mon-slot-semen">
+                    <div class="mms-mon-vial-label">精液</div>
+                    <div class="mms-mon-vial is-semen">
+                      <div class="mms-mon-vial-fill" id="mms-mon-fill-semen"></div>
+                    </div>
+                    <div class="mms-mon-vial-val" id="mms-mon-val-semen">00%</div>
+                    <div class="mms-mon-vial-raw" id="mms-mon-raw-semen">--</div>
+                  </div>
+
+                  <!-- 中：视频窗 -->
+                  <div class="mms-mon-screen-wrap" id="mms-mon-screen-wrap">
+                    <div class="mms-mon-live" id="mms-mon-live">
+                      <span class="dot"></span><span class="txt" id="mms-mon-live-txt">LIVE</span>
+                    </div>
+                    <div class="mms-mon-screen-frame">
+                      <div class="mms-mon-screen" id="mms-mon-screen">
+                        <video id="mms-mon-video" muted playsinline loop preload="metadata"></video>
+                        <div class="vignette"></div>
+                        <div class="scanline"></div>
+                        <div class="corner tl"></div>
+                        <div class="corner br"></div>
+                        <div class="fallback">
+                          <span class="big">📡</span>
+                          <span>NO SIGNAL</span>
+                          <span id="mms-mon-fallback-name">阴茎疲软</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="mms-mon-status" id="mms-mon-status">STATUS: --</div>
+                  </div>
+
+                  <!-- 右：淫水试管 -->
+                  <div class="mms-mon-side" id="mms-mon-slot-fluid">
+                    <div class="mms-mon-vial-label">淫水</div>
+                    <div class="mms-mon-vial is-fluid">
+                      <div class="mms-mon-vial-fill" id="mms-mon-fill-fluid"></div>
+                    </div>
+                    <div class="mms-mon-vial-val" id="mms-mon-val-fluid">00%</div>
+                    <div class="mms-mon-vial-raw" id="mms-mon-raw-fluid">--</div>
+                  </div>
+                </div>
+
+                <!-- 三个词条全缺时的提示 -->
+                <div class="mms-mon-empty" id="mms-mon-empty" style="display: none">
+                  <span class="big">📡</span>
+                  未检测到监控词条
                 </div>
               </div>
             </div>
@@ -2648,6 +2899,9 @@ function buildPortraitHTML(roleName, portraitUrl) {
             </button>
             <button id="tab-btn-images" class="pb-2 setting-tab-btn hover:text-gray-200 shrink-0" type="button">
               <i class="fa fa-picture-o mr-1"></i>图片管理
+            </button>
+            <button id="tab-btn-monitor" class="pb-2 setting-tab-btn hover:text-gray-200 shrink-0" type="button">
+              <i class="fa fa-crosshairs mr-1"></i>独立监控
             </button>
           </div>
         </div>
@@ -2951,6 +3205,24 @@ function buildPortraitHTML(roleName, portraitUrl) {
             立绘按角色名匹配（含「弗兰克脱衣」等状态变体）；小头像按角色名匹配小地图标记。
             链接需以 http(s):// 开头；改动即时自动保存（本设备），「恢复内置」可重置，「导出/导入」可跨设备迁移。
           </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- Tab 5：独立监控 -->
+        <!-- ============================================================ -->
+        <div id="tab-content-monitor" class="p-3.5 space-y-3" style="display: none">
+          <div class="roster-surface rounded-xl border border-gray-700/10 p-2.5 space-y-2">
+            <label class="mms-toggle-row">
+              <input type="checkbox" id="mms-monitor-enabled" />
+              <span class="text-xs font-bold">📡 独立监控（「角色状态详情」页签栏多出一个「监控」页签）</span>
+            </label>
+            <p class="settings-hint">
+              监控页签读取<b>第一个角色</b>的 [快感:x]、[精液:x/yML]、[淫水;x/yML] 词条（冒号/分号均可）：
+              快感按五等分映射到 5 段生殖器视频（0-19 疲软 / 20-39 微勃 / 40-59 半勃 / 60-79 勃起 / 80-100 全勃）；
+              精液与淫水各自驱动一支试管的填充进度，词条不存在时对应试管整支消失。
+              开关状态存于聊天变量 $mms_roster.monitor，随聊天导出。
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -3926,6 +4198,7 @@ window.MMS_IMAGE_DATA = {
         ai: 'LLM地图',
         repair: 'LLM修补',
         images: '图片管理',
+        monitor: '独立监控',
       };
 
       function mmsToggleSettingsView(show) {
@@ -4143,6 +4416,18 @@ window.MMS_IMAGE_DATA = {
         if (foldMinusBtn) foldMinusBtn.addEventListener('click', () => setFoldCharLimit(getBadgeFoldCharLimit() - 2));
         if (foldPlusBtn) foldPlusBtn.addEventListener('click', () => setFoldCharLimit(getBadgeFoldCharLimit() + 2));
         syncFoldCharUI();
+
+        // 独立监控开关：切换后立即重渲，「监控」页签随之出现/消失
+        const monitorChk = document.getElementById('mms-monitor-enabled');
+        if (monitorChk) {
+          monitorChk.checked = MMS.isMonitorEnabled();
+          monitorChk.addEventListener('change', () => {
+            const rr = MMS.loadRoster();
+            rr.monitor.enabled = monitorChk.checked;
+            MMS.saveRoster(rr);
+            reRenderStatusBar();
+          });
+        }
       }
 
       function updateDisplayMode(mode) {
@@ -4962,6 +5247,7 @@ window.MMS = {
             maps: { minimap: true, bigmap: true },
             miniArt: { note: '', style: 'flat' },
             bigArt: { note: '', style: 'flat' },
+            monitor: { enabled: false },
           };
           try {
             if (!this.hasVarsApi()) return fallback;
@@ -4980,6 +5266,7 @@ window.MMS = {
               maps: maps,
               miniArt: normArt(r.miniArt) || fallback.miniArt,
               bigArt: normArt(r.bigArt) || fallback.bigArt,
+              monitor: { enabled: !!(r.monitor && r.monitor.enabled) },
             };
           } catch (e) {
             console.warn('[MMS] 读取地图配置失败:', e);
@@ -4996,6 +5283,7 @@ window.MMS = {
               maps: roster.maps || { minimap: true, bigmap: true },
               miniArt: roster.miniArt || { note: '', style: 'flat' },
               bigArt: roster.bigArt || { note: '', style: 'flat' },
+              monitor: roster.monitor || { enabled: false },
             });
             if (typeof replaceVariables === 'function') {
               replaceVariables(Object.assign({}, chatVars, { $mms_roster: next }), { type: 'chat' });
@@ -5005,6 +5293,11 @@ window.MMS = {
           } catch (e) {
             console.warn('[MMS] 保存地图配置失败:', e);
           }
+        },
+
+        // 独立监控开关（存于 $mms_roster.monitor，随聊天导出）
+        isMonitorEnabled() {
+          return !!this.loadRoster().monitor.enabled;
         },
 
         // ---------- 绘图 API 配置 ----------
@@ -6526,6 +6819,79 @@ window.MMS = {
       }
     
 
+      // ===== 独立监控模块：视频档位映射与播放控制 =====
+      const MMS_MON_VIDEO_MAP = {
+        '阴茎全勃': 'https://files.catbox.moe/gpi2gv.mp4',
+        '阴茎勃起': 'https://files.catbox.moe/cyzf4n.mp4',
+        '阴茎半勃': 'https://files.catbox.moe/vv3h4j.mp4',
+        '阴茎微勃': 'https://files.catbox.moe/ujbl9r.mp4',
+        '阴茎疲软': 'https://files.catbox.moe/t1k4ms.mp4',
+      };
+
+      // 快感值 → 视频档位（0-100 五等分）
+      function mmsMonBand(v) {
+        if (!isFinite(v)) return '阴茎疲软';
+        if (v >= 80) return '阴茎全勃';
+        if (v >= 60) return '阴茎勃起';
+        if (v >= 40) return '阴茎半勃';
+        if (v >= 20) return '阴茎微勃';
+        return '阴茎疲软';
+      }
+
+      let mmsMonCurrentBand = '';
+
+      function mmsMonSetVideo(band) {
+        const video = document.getElementById('mms-mon-video');
+        const screen = document.getElementById('mms-mon-screen');
+        const fbName = document.getElementById('mms-mon-fallback-name');
+        if (fbName) fbName.textContent = band;
+        if (!video || !screen) return;
+        if (band === mmsMonCurrentBand) return;
+        mmsMonCurrentBand = band;
+
+        const url = MMS_MON_VIDEO_MAP[band];
+        screen.classList.remove('is-novideo');
+        video.classList.remove('is-hidden');
+        if (!url) {
+          screen.classList.add('is-novideo');
+          video.classList.add('is-hidden');
+          return;
+        }
+        video.src = url;
+        video.load();
+        // 仅当监控页签正显示时才起播，避免后台加载视频
+        const panel = document.getElementById('mms-monitor-panel');
+        if (panel && panel.classList.contains('active')) {
+          const p = video.play();
+          if (p && p.catch) p.catch(() => {});
+        }
+      }
+
+      // 视频加载失败 → 显示 NO SIGNAL 占位（离线/被墙时不白屏）；点击视频窗切换播放
+      document.addEventListener('DOMContentLoaded', () => {
+        const screen = document.getElementById('mms-mon-screen');
+        const video = document.getElementById('mms-mon-video');
+        if (!screen || !video) return;
+        video.addEventListener('error', () => {
+          screen.classList.add('is-novideo');
+          video.classList.add('is-hidden');
+        });
+        screen.addEventListener('click', () => {
+          const live = document.getElementById('mms-mon-live');
+          const txt = document.getElementById('mms-mon-live-txt');
+          if (video.paused) {
+            const p = video.play();
+            if (p && p.catch) p.catch(() => {});
+            if (live) live.classList.remove('is-paused');
+            if (txt) txt.textContent = 'LIVE';
+          } else {
+            video.pause();
+            if (live) live.classList.add('is-paused');
+            if (txt) txt.textContent = 'PAUSED';
+          }
+        });
+      });
+
       class StoryRenderer {
         constructor(dataSourceId) {
           this.dataSourceId = dataSourceId;
@@ -6533,6 +6899,7 @@ window.MMS = {
           this.rootNode = null;
           this.characterData = [];
           this.activeCharacterIndex = 0;
+          this.monitorTabIndex = null;
           this.initElements();
         }
 
@@ -6641,6 +7008,11 @@ window.MMS = {
         }
 
         renderCharacterTabs(rootData) {
+          // 监控伪页签每轮重建：先复位（开关关闭或角色数据为空时不会重新插入）
+          this.monitorTabIndex = null;
+          const monPanelEl = document.getElementById('mms-monitor-panel');
+          if (monPanelEl) monPanelEl.classList.remove('active');
+
           // 主路径（原版行为）：动态探测角色列表键，「用户列表」「角色列表」等键名均可命中
           const userListField = this.findFieldByKeywords(rootData, ['用户', '角色', '列表', 'user', 'role', 'list']);
           const userList = userListField && Array.isArray(rootData[userListField]) ? rootData[userListField] : [];
@@ -6711,6 +7083,9 @@ window.MMS = {
           if (this.characterData.length > 0) {
             this.switchCharacterPanel(0);
           }
+
+          // 独立监控：在页签栏末尾追加「📡监控」伪页签（与小地图/大地图同一插入机制）
+          this.renderMonitorTab(rootData);
         }
 
         switchCharacterPanel(index) {
@@ -6732,7 +7107,129 @@ window.MMS = {
             }
           });
 
+          // 监控伪页签的面板在 #characters-container 之外（重渲染不被清空，视频不重载）
+          const monPanel = document.getElementById('mms-monitor-panel');
+          if (monPanel) {
+            const isMonitor = this.monitorTabIndex !== null && index === this.monitorTabIndex;
+            monPanel.classList.toggle('active', isMonitor);
+            const video = document.getElementById('mms-mon-video');
+            if (video) {
+              if (isMonitor) {
+                const p = video.play();
+                if (p && p.catch) p.catch(() => {});
+              } else if (!video.paused) {
+                video.pause();
+              }
+            }
+          }
+
           this.activeCharacterIndex = index;
+        }
+
+        // ---------- 独立监控：读取第一个角色的 [快感:x] / [精液:x/yML] / [淫水;x/yML] 词条 ----------
+
+        // 第一个角色：跳过小地图/大地图等伪条目，只取「角色列表」的第 0 项
+        monitorFirstCharacter(rootData) {
+          const listField = this.findFieldByKeywords(rootData, ['用户', '角色', '列表', 'user', 'role', 'list']);
+          if (!listField || !Array.isArray(rootData[listField]) || rootData[listField].length === 0) return null;
+          const item = rootData[listField][0];
+          if (!item || typeof item !== 'object') return null;
+          const wrapField = this.findFieldByKeywords(item, ['用户', 'user', '角色', 'role']);
+          const inner = wrapField ? item[wrapField] : null;
+          return inner && typeof inner === 'object' ? inner : item;
+        }
+
+        // 扫该角色全部字符串字段（字段名叫什么都不影响），冒号/分号、全角/半角均可
+        monitorEntries(charData) {
+          const out = { pleasure: '', semen: '', fluid: '' };
+          if (!charData || typeof charData !== 'object') return out;
+          const re = /\[(快感|精液|淫水)\s*[:：;；]\s*([^\]]+)\]/g;
+          Object.keys(charData).forEach((key) => {
+            const val = charData[key];
+            if (typeof val !== 'string') return;
+            let m;
+            re.lastIndex = 0;
+            while ((m = re.exec(val)) !== null) {
+              if (m[1] === '快感') out.pleasure = m[2].trim();
+              else if (m[1] === '精液') out.semen = m[2].trim();
+              else out.fluid = m[2].trim();
+            }
+          });
+          return out;
+        }
+
+        // "26/40ML" → {pct, text}；text 原样回显词条（保留 ML 等单位后缀）；无上限时按单值当百分比
+        monitorRatio(body) {
+          if (!body) return null;
+          const text = String(body).trim();
+          const pair = text.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+          if (pair) {
+            const cur = parseFloat(pair[1]);
+            const max = parseFloat(pair[2]);
+            const pct = max > 0 ? (cur / max) * 100 : 0;
+            return { pct: Math.max(0, Math.min(100, pct)), text: text };
+          }
+          const single = text.match(/(\d+(?:\.\d+)?)/);
+          if (!single) return null;
+          const v = parseFloat(single[1]);
+          return { pct: Math.max(0, Math.min(100, v)), text: text };
+        }
+
+        // 在「角色状态详情」页签栏末尾插入监控伪页签，并刷新面板内容
+        renderMonitorTab(rootData) {
+          if (!window.MMS || !window.MMS.isMonitorEnabled()) return;
+
+          const monIndex = this.characterData.length;
+          const tabBtn = document.createElement('button');
+          tabBtn.className = 'character-tab-btn';
+          tabBtn.setAttribute('data-index', monIndex);
+          tabBtn.textContent = ' 📡监控';
+          tabBtn.addEventListener('click', () => this.switchCharacterPanel(monIndex));
+          this.elements.characterTabs.appendChild(tabBtn);
+          this.monitorTabIndex = monIndex;
+
+          const panel = document.getElementById('mms-monitor-panel');
+          if (!panel) return;
+
+          const entries = this.monitorEntries(this.monitorFirstCharacter(rootData));
+          const hasPleasure = entries.pleasure !== '';
+          const pleasure = parseFloat(entries.pleasure);
+          const semen = this.monitorRatio(entries.semen);
+          const fluid = this.monitorRatio(entries.fluid);
+
+          // 快感 → 生殖器视频（五等分）
+          const band = mmsMonBand(hasPleasure ? pleasure : NaN);
+          const wrap = document.getElementById('mms-mon-screen-wrap');
+          const status = document.getElementById('mms-mon-status');
+          if (status) status.textContent = 'STATUS: ' + (hasPleasure ? band : '--');
+          if (wrap) wrap.classList.toggle('is-off', !hasPleasure);
+          if (hasPleasure) mmsMonSetVideo(band);
+
+          // 精液 / 淫水 → 两支试管（缺失则整支消失）
+          this.monitorApplyTube('semen', semen);
+          this.monitorApplyTube('fluid', fluid);
+
+          // 三个词条全缺 → 空状态
+          const hasAny = hasPleasure || !!semen || !!fluid;
+          const stage = document.getElementById('mms-mon-stage');
+          const empty = document.getElementById('mms-mon-empty');
+          if (stage) {
+            stage.classList.toggle('is-video-off', !hasPleasure);
+            stage.style.display = hasAny ? '' : 'none';
+          }
+          if (empty) empty.style.display = hasAny ? 'none' : '';
+        }
+
+        monitorApplyTube(key, ratio) {
+          const slot = document.getElementById('mms-mon-slot-' + key);
+          if (slot) slot.classList.toggle('is-empty', !ratio);
+          if (!ratio) return;
+          const fill = document.getElementById('mms-mon-fill-' + key);
+          const val = document.getElementById('mms-mon-val-' + key);
+          const raw = document.getElementById('mms-mon-raw-' + key);
+          if (fill) fill.style.height = ratio.pct + '%';
+          if (val) val.textContent = String(Math.round(ratio.pct)).padStart(2, '0') + '%';
+          if (raw) raw.textContent = ratio.text;
         }
 
         createCharacterCard(userData, index) {
